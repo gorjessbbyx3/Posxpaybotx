@@ -236,7 +236,8 @@ const state = {
     paymentMethod: 'cash',
     tenderedAmount: '',
     allTickets: [],
-    clockedIn: false
+    clockedIn: false,
+    menuSearchQuery: ''
 };
 
 // ==========================================
@@ -483,13 +484,58 @@ $$('.category-tab').forEach(tab => {
         $$('.category-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
         state.currentCategory = tab.dataset.category;
+        // Clear search when switching categories
+        const searchInput = document.getElementById('menu-search');
+        if (searchInput) { searchInput.value = ''; }
+        const clearBtn = document.getElementById('menu-search-clear');
+        if (clearBtn) clearBtn.style.display = 'none';
+        state.menuSearchQuery = '';
         populateMenu();
     });
 });
 
+// Menu search
+const menuSearchInput = document.getElementById('menu-search');
+const menuSearchClear = document.getElementById('menu-search-clear');
+
+if (menuSearchInput) {
+    menuSearchInput.addEventListener('input', (e) => {
+        state.menuSearchQuery = e.target.value.trim().toLowerCase();
+        if (menuSearchClear) {
+            menuSearchClear.style.display = state.menuSearchQuery ? 'flex' : 'none';
+        }
+        populateMenu();
+    });
+}
+
+if (menuSearchClear) {
+    menuSearchClear.addEventListener('click', () => {
+        menuSearchInput.value = '';
+        state.menuSearchQuery = '';
+        menuSearchClear.style.display = 'none';
+        populateMenu();
+        menuSearchInput.focus();
+    });
+}
+
 function populateMenu() {
     const grid = $('#menu-grid');
-    const items = MENU[state.currentCategory] || [];
+    let items;
+
+    // If searching, search across all categories
+    if (state.menuSearchQuery) {
+        items = [];
+        Object.values(MENU).forEach(catItems => {
+            catItems.forEach(item => {
+                if (item.name.toLowerCase().includes(state.menuSearchQuery)) {
+                    items.push(item);
+                }
+            });
+        });
+    } else {
+        items = MENU[state.currentCategory] || [];
+    }
+
     grid.innerHTML = '';
 
     items.forEach(item => {
@@ -897,10 +943,106 @@ $('#btn-send').addEventListener('click', () => {
         time: new Date()
     });
 
+    // Print kitchen tickets routed by station
+    printKitchenTickets(kitchenOrder);
+
     showToast('Order #' + state.ticket.id + ' sent to kitchen');
     newTicket();
     populateKitchen();
 });
+
+// ==========================================
+// Kitchen Ticket Printing (Station Routing)
+// ==========================================
+function printKitchenTickets(order) {
+    // Group items by station
+    const stationGroups = {};
+    order.items.forEach(item => {
+        const station = item.station || 'expo';
+        if (!stationGroups[station]) stationGroups[station] = [];
+        stationGroups[station].push(item);
+    });
+
+    // Generate a kitchen ticket per station
+    Object.entries(stationGroups).forEach(([station, items]) => {
+        const ticketHtml = generateKitchenTicketHtml(order, station, items);
+        // In production, this would route to the station's printer
+        // For now, log it and show a single combined preview
+        console.log(`Kitchen ticket for ${station.toUpperCase()}:`, items.map(i => i.name).join(', '));
+    });
+}
+
+function generateKitchenTicketHtml(order, station, items) {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+    return `
+<div style="font-family: 'Courier New', monospace; width: 280px; padding: 8px;">
+    <div style="text-align: center; font-weight: bold; font-size: 16px; border-bottom: 2px solid #000; padding-bottom: 4px;">
+        ** ${station.toUpperCase()} **
+    </div>
+    <div style="display: flex; justify-content: space-between; margin: 6px 0; font-size: 14px;">
+        <span>#${order.id}</span>
+        <span>${order.type.toUpperCase()}</span>
+        <span>${timeStr}</span>
+    </div>
+    <div style="font-size: 12px; margin-bottom: 6px;">
+        Server: ${order.server || 'N/A'}
+        ${order.table ? ' | Table: ' + order.table : ''}
+    </div>
+    <div style="border-top: 1px dashed #000; padding-top: 6px;">
+        ${items.map(item => `
+            <div style="font-size: 16px; font-weight: bold; padding: 4px 0; border-bottom: 1px dotted #ccc;">
+                ${item.qty > 1 ? '(' + item.qty + ') ' : ''}${item.name}
+                ${item.mods && item.mods.length ? '<div style="font-size: 12px; font-weight: normal; padding-left: 12px; color: #666;">  >> ' + item.mods.join(', ') + '</div>' : ''}
+            </div>
+        `).join('')}
+    </div>
+    <div style="text-align: center; margin-top: 8px; font-size: 10px; color: #999;">
+        ${items.length} item${items.length !== 1 ? 's' : ''} for ${station}
+    </div>
+</div>`;
+}
+
+// Print kitchen ticket to a new window (for reprint / manual print)
+function printKitchenOrder(orderId) {
+    const order = state.kitchenOrders.find(o => o.id === orderId);
+    if (!order) {
+        showToast('Kitchen order not found', 'error');
+        return;
+    }
+
+    const stationGroups = {};
+    order.items.forEach(item => {
+        const station = item.station || 'expo';
+        if (!stationGroups[station]) stationGroups[station] = [];
+        stationGroups[station].push(item);
+    });
+
+    const printWindow = window.open('', 'kitchen-ticket', 'width=320,height=500');
+    if (!printWindow) {
+        showToast('Pop-up blocked', 'error');
+        return;
+    }
+
+    let allTickets = '';
+    Object.entries(stationGroups).forEach(([station, items]) => {
+        allTickets += generateKitchenTicketHtml(order, station, items);
+        allTickets += '<div style="border-bottom: 3px dashed #000; margin: 12px 0;"></div>';
+    });
+
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>Kitchen Ticket</title>
+        <style>@page { size: 80mm auto; margin: 0; } body { margin: 0; padding: 4px; }</style>
+        </head><body>${allTickets}
+        <div style="text-align:center; margin-top:12px;">
+            <button onclick="window.print()" style="padding:8px 20px; font-size:14px; cursor:pointer;">Print</button>
+            <button onclick="window.close()" style="padding:8px 20px; font-size:14px; cursor:pointer; margin-left:8px;">Close</button>
+        </div>
+        </body></html>`);
+    printWindow.document.close();
+    showToast('Kitchen ticket ready');
+}
+window.printKitchenOrder = printKitchenOrder;
 
 // ==========================================
 // Hold / Park Order System
