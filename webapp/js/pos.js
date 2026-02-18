@@ -188,11 +188,38 @@ for (let i = 1; i <= 20; i++) {
 }
 
 // ==========================================
+// Staff / Employee Database
+// ==========================================
+const STAFF = {
+    '1234': { name: 'Maria G.', role: 'manager', id: 'EMP001', hourlyRate: 28.00 },
+    '1111': { name: 'John D.', role: 'server', id: 'EMP002', hourlyRate: 12.00 },
+    '2222': { name: 'Sarah K.', role: 'server', id: 'EMP003', hourlyRate: 12.00 },
+    '3333': { name: 'Mike R.', role: 'cashier', id: 'EMP004', hourlyRate: 15.00 },
+    '4444': { name: 'Lisa T.', role: 'bartender', id: 'EMP005', hourlyRate: 14.00 },
+    '5555': { name: 'Carlos M.', role: 'kitchen', id: 'EMP006', hourlyRate: 16.00 },
+    '9999': { name: 'Admin', role: 'admin', id: 'EMP000', hourlyRate: 0 }
+};
+
+// Role permissions
+const ROLE_PERMISSIONS = {
+    admin:     { pos: true, kitchen: true, tables: true, tickets: true, reports: true, voidTicket: true, discount: true, settings: true, refund: true, editMenu: true },
+    manager:   { pos: true, kitchen: true, tables: true, tickets: true, reports: true, voidTicket: true, discount: true, settings: true, refund: true, editMenu: true },
+    server:    { pos: true, kitchen: false, tables: true, tickets: true, reports: false, voidTicket: false, discount: false, settings: false, refund: false, editMenu: false },
+    cashier:   { pos: true, kitchen: false, tables: false, tickets: true, reports: false, voidTicket: false, discount: true, settings: false, refund: false, editMenu: false },
+    bartender: { pos: true, kitchen: false, tables: false, tickets: true, reports: false, voidTicket: false, discount: false, settings: false, refund: false, editMenu: false },
+    kitchen:   { pos: false, kitchen: true, tables: false, tickets: false, reports: false, voidTicket: false, discount: false, settings: false, refund: false, editMenu: false }
+};
+
+// Time clock records
+const timeClock = [];
+
+// ==========================================
 // Application State
 // ==========================================
 const state = {
     currentUser: null,
     currentRole: 'server',
+    currentStaff: null,
     pin: '',
     currentCategory: 'popular',
     currentView: 'order',
@@ -200,13 +227,16 @@ const state = {
         id: null,
         type: 'dine-in',
         items: [],
-        table: null
+        table: null,
+        server: null,
+        discount: null
     },
     ticketCounter: 1001,
     kitchenOrders: [],
     paymentMethod: 'cash',
     tenderedAmount: '',
-    allTickets: []
+    allTickets: [],
+    clockedIn: false
 };
 
 // ==========================================
@@ -291,9 +321,10 @@ $$('#login-numpad .numpad-btn').forEach(btn => {
 
 $$('.quick-login-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        state.currentRole = btn.dataset.user;
-        state.currentUser = btn.dataset.user.charAt(0).toUpperCase() + btn.dataset.user.slice(1);
-        doLogin('quick');
+        const role = btn.dataset.user;
+        // Find a staff member with this role
+        const pinMap = { 'server': '1111', 'cashier': '3333', 'manager': '1234' };
+        doLogin(pinMap[role] || '1111');
     });
 });
 
@@ -305,11 +336,33 @@ function updatePinDots() {
 }
 
 function doLogin(pin) {
-    if (!state.currentUser) {
+    const staff = STAFF[pin];
+    if (!staff && pin !== 'quick') {
+        showToast('Invalid PIN', 'error');
+        state.pin = '';
+        updatePinDots();
+        shakePinDisplay();
+        return;
+    }
+
+    if (staff) {
+        state.currentUser = staff.name;
+        state.currentRole = staff.role;
+        state.currentStaff = staff;
+    } else {
         state.currentUser = 'User';
         state.currentRole = 'server';
+        state.currentStaff = null;
     }
+
+    // Update UI with user info
     $('#current-user').textContent = state.currentUser;
+    const roleEl = document.getElementById('current-role');
+    if (roleEl) roleEl.textContent = state.currentRole.charAt(0).toUpperCase() + state.currentRole.slice(1);
+
+    // Apply role-based permissions
+    applyRolePermissions();
+
     $('#login-screen').classList.remove('active');
     $('#pos-screen').classList.add('active');
     newTicket();
@@ -317,11 +370,89 @@ function doLogin(pin) {
     populateMenu();
     populateTables();
     populateKitchen();
+
+    // Auto clock-in prompt
+    if (state.currentStaff && !isAlreadyClockedIn(state.currentStaff.id)) {
+        setTimeout(() => {
+            if (confirm('Clock in as ' + state.currentUser + '?')) {
+                clockIn();
+            }
+        }, 500);
+    }
+}
+
+function shakePinDisplay() {
+    const pinDisplay = document.querySelector('.pin-display');
+    if (!pinDisplay) return;
+    pinDisplay.classList.add('shake');
+    setTimeout(() => pinDisplay.classList.remove('shake'), 500);
+}
+
+function applyRolePermissions() {
+    const perms = ROLE_PERMISSIONS[state.currentRole] || ROLE_PERMISSIONS.server;
+
+    // Show/hide tabs based on role
+    $$('.tab-btn').forEach(btn => {
+        const view = btn.dataset.view;
+        if (view === 'kitchen' && !perms.kitchen) {
+            btn.style.display = 'none';
+        } else if (view === 'reports' && !perms.reports) {
+            btn.style.display = 'none';
+        } else {
+            btn.style.display = '';
+        }
+    });
+
+    // Show/hide action buttons based on role
+    const discountBtn = $('#btn-discount');
+    if (discountBtn) discountBtn.style.display = perms.discount ? '' : 'none';
+
+    // Admin settings link visibility
+    const adminLink = document.querySelector('.side-menu-link[href="admin.html"]');
+    if (adminLink) adminLink.style.display = perms.settings ? '' : 'none';
+}
+
+function isAlreadyClockedIn(empId) {
+    const last = timeClock.filter(r => r.empId === empId).pop();
+    return last && !last.clockOut;
+}
+
+function clockIn() {
+    if (!state.currentStaff) return;
+    const record = {
+        empId: state.currentStaff.id,
+        empName: state.currentUser,
+        role: state.currentRole,
+        clockIn: new Date(),
+        clockOut: null
+    };
+    timeClock.push(record);
+    state.clockedIn = true;
+    showToast('Clocked in at ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+}
+
+function clockOut() {
+    if (!state.currentStaff) return;
+    const record = timeClock.filter(r => r.empId === state.currentStaff.id && !r.clockOut).pop();
+    if (record) {
+        record.clockOut = new Date();
+        const hours = ((record.clockOut - record.clockIn) / 3600000).toFixed(2);
+        state.clockedIn = false;
+        showToast('Clocked out. Shift: ' + hours + ' hours');
+    }
 }
 
 $('#btn-logout').addEventListener('click', () => {
+    // Prompt clock out if clocked in
+    if (state.clockedIn) {
+        if (confirm('Clock out before logging off?')) {
+            clockOut();
+        }
+    }
     state.currentUser = null;
+    state.currentStaff = null;
     state.pin = '';
+    state.clockedIn = false;
     updatePinDots();
     $('#pos-screen').classList.remove('active');
     $('#login-screen').classList.add('active');
@@ -398,8 +529,15 @@ function newTicket() {
         id: state.ticketCounter++,
         type: 'dine-in',
         items: [],
-        table: null
+        table: null,
+        server: state.currentUser,
+        discount: null
     };
+    appliedDiscount = null;
+    appliedPromo = null;
+    deliveryFee = 0;
+    deliveryAddress = '';
+    hideDeliveryFields();
     updateTicketDisplay();
 }
 
@@ -736,12 +874,24 @@ $('#btn-send').addEventListener('click', () => {
     const tax = subtotal * (CONFIG.taxRate / 100);
     const total = subtotal + tax;
 
+    const discountAmount = state.ticket.discount ? state.ticket.discount.amount : 0;
+    const afterDiscount = subtotal - discountAmount;
+    const currentDeliveryFee = state.ticket.type === 'delivery' ? calculateDeliveryFee(subtotal) : 0;
+    const adjustedTax = afterDiscount * (CONFIG.taxRate / 100);
+    const adjustedTotal = afterDiscount + adjustedTax + currentDeliveryFee;
+
     state.allTickets.push({
         id: state.ticket.id,
         server: state.currentUser,
         type: state.ticket.type,
         items: [...state.ticket.items],
-        subtotal, tax, total,
+        subtotal,
+        tax: adjustedTax,
+        total: adjustedTotal,
+        discount: state.ticket.discount || null,
+        deliveryFee: currentDeliveryFee,
+        deliveryAddress: deliveryAddress || '',
+        table: state.ticket.table,
         status: 'open',
         paid: false,
         time: new Date()
@@ -939,9 +1089,26 @@ function completePayment(total, method) {
     // Find and update ticket in allTickets
     const ticketIndex = state.allTickets.findIndex(t => t.id === state.ticket.id);
     if (ticketIndex >= 0) {
-        state.allTickets[ticketIndex].status = 'paid';
-        state.allTickets[ticketIndex].paid = true;
-        state.allTickets[ticketIndex].paymentMethod = method;
+        const t = state.allTickets[ticketIndex];
+        t.status = 'paid';
+        t.paid = true;
+        t.paymentMethod = method;
+        t.paidAt = new Date().toISOString();
+        t.deliveryFee = deliveryFee || 0;
+        t.deliveryAddress = deliveryAddress || '';
+        t.discount = state.ticket.discount || null;
+
+        // Auto-print receipt
+        printReceipt(t);
+    }
+
+    // Release table if dine-in
+    if (state.ticket.table) {
+        const table = TABLES.find(t => t.number === state.ticket.table);
+        if (table) {
+            table.status = 'dirty';
+            table.amount = null;
+        }
     }
 
     $('#payment-modal').classList.remove('active');
@@ -950,33 +1117,233 @@ function completePayment(total, method) {
 }
 
 // ==========================================
-// Table Management
+// Table Management (Enhanced Visual Layout)
 // ==========================================
+const TABLE_LAYOUT = {
+    'Main Floor': [
+        { number: 1, seats: 2, x: 5, y: 10, shape: 'round' },
+        { number: 2, seats: 2, x: 22, y: 10, shape: 'round' },
+        { number: 3, seats: 4, x: 40, y: 8, shape: 'rect' },
+        { number: 4, seats: 4, x: 60, y: 8, shape: 'rect' },
+        { number: 5, seats: 6, x: 80, y: 8, shape: 'rect-lg' },
+        { number: 6, seats: 4, x: 5, y: 38, shape: 'rect' },
+        { number: 7, seats: 4, x: 25, y: 38, shape: 'rect' },
+        { number: 8, seats: 8, x: 48, y: 35, shape: 'rect-xl' },
+        { number: 9, seats: 2, x: 75, y: 38, shape: 'round' },
+        { number: 10, seats: 2, x: 88, y: 38, shape: 'round' },
+        { number: 11, seats: 4, x: 5, y: 65, shape: 'rect' },
+        { number: 12, seats: 4, x: 25, y: 65, shape: 'rect' },
+        { number: 13, seats: 6, x: 48, y: 62, shape: 'rect-lg' },
+        { number: 14, seats: 4, x: 73, y: 65, shape: 'rect' },
+    ],
+    'Patio': [
+        { number: 15, seats: 4, x: 10, y: 15, shape: 'round' },
+        { number: 16, seats: 4, x: 35, y: 15, shape: 'round' },
+        { number: 17, seats: 6, x: 60, y: 15, shape: 'round' },
+        { number: 18, seats: 2, x: 10, y: 50, shape: 'round' },
+        { number: 19, seats: 2, x: 35, y: 50, shape: 'round' },
+        { number: 20, seats: 2, x: 60, y: 50, shape: 'round' },
+    ],
+    'Bar': [
+        { number: 'B1', seats: 1, x: 10, y: 30, shape: 'stool' },
+        { number: 'B2', seats: 1, x: 20, y: 30, shape: 'stool' },
+        { number: 'B3', seats: 1, x: 30, y: 30, shape: 'stool' },
+        { number: 'B4', seats: 1, x: 40, y: 30, shape: 'stool' },
+        { number: 'B5', seats: 1, x: 50, y: 30, shape: 'stool' },
+        { number: 'B6', seats: 1, x: 60, y: 30, shape: 'stool' },
+        { number: 'B7', seats: 1, x: 70, y: 30, shape: 'stool' },
+        { number: 'B8', seats: 1, x: 80, y: 30, shape: 'stool' },
+    ],
+    'Private': [
+        { number: 'P1', seats: 10, x: 30, y: 25, shape: 'rect-xl' },
+        { number: 'P2', seats: 12, x: 30, y: 60, shape: 'rect-xl' },
+    ]
+};
+
+let activeFloor = 'Main Floor';
+
+function getTableData(num) {
+    return TABLES.find(t => t.number === num) || { number: num, seats: 2, status: 'available', amount: null, server: null, startTime: null };
+}
+
 function populateTables() {
     const grid = $('#table-grid');
     grid.innerHTML = '';
 
-    TABLES.forEach(table => {
+    // Floor plan visual layout
+    const layout = TABLE_LAYOUT[activeFloor] || [];
+
+    layout.forEach(tbl => {
+        const data = getTableData(tbl.number);
+
         const el = document.createElement('button');
-        el.className = 'table-card ' + table.status;
+        el.className = 'table-visual ' + (data.status || 'available') + ' shape-' + tbl.shape;
+        el.style.left = tbl.x + '%';
+        el.style.top = tbl.y + '%';
+
+        let timeStr = '';
+        if (data.startTime) {
+            const elapsed = Math.floor((Date.now() - new Date(data.startTime).getTime()) / 60000);
+            timeStr = elapsed + 'm';
+        }
+
         el.innerHTML = `
-            <span class="table-number">${table.number}</span>
-            <span class="table-seats">${table.seats} seats</span>
-            ${table.amount ? '<span class="table-amount">' + formatCurrency(table.amount) + '</span>' : ''}
+            <span class="table-vis-number">${tbl.number}</span>
+            <span class="table-vis-seats">${tbl.seats} <small>seats</small></span>
+            ${data.amount ? '<span class="table-vis-amount">' + formatCurrency(data.amount) + '</span>' : ''}
+            ${data.server ? '<span class="table-vis-server">' + data.server + '</span>' : ''}
+            ${timeStr ? '<span class="table-vis-time">' + timeStr + '</span>' : ''}
         `;
-        el.addEventListener('click', () => {
-            if (table.status === 'available') {
-                table.status = 'occupied';
-                state.ticket.table = table.number;
-                showToast('Table ' + table.number + ' assigned');
-            } else if (table.status === 'occupied') {
-                showToast('Table ' + table.number + ' - Open ticket', 'warning');
-            }
-            populateTables();
-        });
+
+        el.addEventListener('click', () => handleTableClick(tbl, data));
         grid.appendChild(el);
     });
+
+    // Also show a quick summary
+    updateTableSummary();
 }
+
+function handleTableClick(tbl, data) {
+    if (data.status === 'available') {
+        // Assign table to current ticket
+        data.status = 'occupied';
+        data.server = state.currentUser;
+        data.startTime = new Date().toISOString();
+        state.ticket.table = tbl.number;
+
+        // Update TABLES array
+        const existing = TABLES.find(t => t.number === tbl.number);
+        if (existing) {
+            existing.status = 'occupied';
+            existing.server = state.currentUser;
+            existing.startTime = data.startTime;
+        } else {
+            TABLES.push({ ...tbl, status: 'occupied', server: state.currentUser, startTime: data.startTime, amount: null });
+        }
+
+        showToast('Table ' + tbl.number + ' assigned to ' + state.currentUser);
+        populateTables();
+
+    } else if (data.status === 'occupied') {
+        // Show table details modal
+        openTableDetailModal(tbl, data);
+
+    } else if (data.status === 'dirty') {
+        if (confirm('Mark table ' + tbl.number + ' as clean?')) {
+            const existing = TABLES.find(t => t.number === tbl.number);
+            if (existing) {
+                existing.status = 'available';
+                existing.server = null;
+                existing.startTime = null;
+                existing.amount = null;
+            }
+            showToast('Table ' + tbl.number + ' cleared');
+            populateTables();
+        }
+
+    } else if (data.status === 'reserved') {
+        showToast('Table ' + tbl.number + ' is reserved', 'warning');
+    }
+}
+
+function openTableDetailModal(tbl, data) {
+    // Create a quick info modal for occupied tables
+    let modal = document.getElementById('table-detail-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'table-detail-modal';
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content" style="width: min(380px, 90vw);">
+                <div class="modal-header">
+                    <h3 id="table-detail-title">Table Details</h3>
+                    <button class="modal-close" id="close-table-detail">&times;</button>
+                </div>
+                <div id="table-detail-body" style="padding: 16px;"></div>
+                <div style="padding: 12px 16px; display: flex; gap: 8px; border-top: 1px solid var(--border-light);">
+                    <button class="btn-confirm" id="table-detail-transfer" style="flex:1">Transfer</button>
+                    <button class="btn-cancel" id="table-detail-close" style="flex:1">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        document.getElementById('close-table-detail').addEventListener('click', () => modal.classList.remove('active'));
+        document.getElementById('table-detail-close').addEventListener('click', () => modal.classList.remove('active'));
+        document.getElementById('table-detail-transfer').addEventListener('click', () => {
+            showToast('Transfer initiated - select destination table', 'warning');
+            modal.classList.remove('active');
+        });
+    }
+
+    const elapsed = data.startTime
+        ? Math.floor((Date.now() - new Date(data.startTime).getTime()) / 60000)
+        : 0;
+
+    document.getElementById('table-detail-title').textContent = 'Table ' + tbl.number;
+    document.getElementById('table-detail-body').innerHTML = `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
+                <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Status</div>
+                <div style="font-weight: 700; color: var(--warning);">Occupied</div>
+            </div>
+            <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
+                <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Elapsed</div>
+                <div style="font-weight: 700;">${elapsed} min</div>
+            </div>
+            <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
+                <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Server</div>
+                <div style="font-weight: 600;">${data.server || 'Unassigned'}</div>
+            </div>
+            <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
+                <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Amount</div>
+                <div style="font-weight: 700;">${data.amount ? formatCurrency(data.amount) : 'N/A'}</div>
+            </div>
+        </div>
+        <div style="margin-top: 12px; padding: 8px; font-size: 0.85rem; color: var(--text-secondary);">
+            Seats: ${tbl.seats} &bull; Section: ${activeFloor}
+        </div>
+    `;
+
+    modal.classList.add('active');
+}
+
+function updateTableSummary() {
+    const layout = TABLE_LAYOUT[activeFloor] || [];
+    let available = 0, occupied = 0, reserved = 0, dirty = 0;
+
+    layout.forEach(tbl => {
+        const data = getTableData(tbl.number);
+        switch (data.status) {
+            case 'available': available++; break;
+            case 'occupied': occupied++; break;
+            case 'reserved': reserved++; break;
+            case 'dirty': dirty++; break;
+        }
+    });
+
+    // Update legend counts if elements exist
+    const legend = document.querySelector('.table-legend');
+    if (legend) {
+        legend.innerHTML = `
+            <span class="legend-item"><span class="legend-dot available"></span> Available (${available})</span>
+            <span class="legend-item"><span class="legend-dot occupied"></span> Occupied (${occupied})</span>
+            <span class="legend-item"><span class="legend-dot reserved"></span> Reserved (${reserved})</span>
+            <span class="legend-item"><span class="legend-dot dirty"></span> Dirty (${dirty})</span>
+        `;
+    }
+}
+
+// Floor tab switching
+$$('.floor-tab').forEach((tab, idx) => {
+    tab.addEventListener('click', () => {
+        $$('.floor-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const floors = ['Main Floor', 'Patio', 'Bar', 'Private'];
+        activeFloor = floors[idx] || 'Main Floor';
+        populateTables();
+    });
+});
 
 // ==========================================
 // Kitchen Display System
@@ -1800,9 +2167,19 @@ $$('.kds-filter').forEach(btn => {
 });
 
 // ==========================================
-// Enhanced Ticket Filters
+// Enhanced Ticket Filters with Search
 // ==========================================
 let activeTicketFilter = 'open';
+let ticketSearchQuery = '';
+
+// Ticket search input
+const ticketSearchEl = document.getElementById('ticket-search');
+if (ticketSearchEl) {
+    ticketSearchEl.addEventListener('input', (e) => {
+        ticketSearchQuery = e.target.value.trim().toLowerCase();
+        populateTicketsList();
+    });
+}
 
 const _origPopulateTicketsList = populateTicketsList;
 populateTicketsList = function() {
@@ -1816,6 +2193,19 @@ populateTicketsList = function() {
         filtered = state.allTickets.filter(t => t.status === 'paid');
     } else if (activeTicketFilter === 'closed') {
         filtered = state.allTickets.filter(t => t.status === 'closed');
+    } else if (activeTicketFilter === 'voided') {
+        filtered = state.allTickets.filter(t => t.status === 'voided');
+    }
+
+    // Apply search filter
+    if (ticketSearchQuery) {
+        filtered = filtered.filter(t => {
+            const idMatch = String(t.id).includes(ticketSearchQuery);
+            const serverMatch = (t.server || '').toLowerCase().includes(ticketSearchQuery);
+            const typeMatch = (t.type || '').toLowerCase().includes(ticketSearchQuery);
+            const itemMatch = t.items.some(i => i.name.toLowerCase().includes(ticketSearchQuery));
+            return idMatch || serverMatch || typeMatch || itemMatch;
+        });
     }
 
     if (filtered.length === 0) {
@@ -1840,6 +2230,10 @@ populateTicketsList = function() {
 
         const timeStr = ticket.time ? new Date(ticket.time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
 
+        const itemsSummary = ticket.items.slice(0, 3).map(i =>
+            (i.qty > 1 ? i.qty + 'x ' : '') + i.name
+        ).join(', ') + (ticket.items.length > 3 ? ' +' + (ticket.items.length - 3) + ' more' : '');
+
         el.innerHTML = `
             <div class="ticket-card-header">
                 <span class="ticket-card-id">#${ticket.id}</span>
@@ -1848,6 +2242,13 @@ populateTicketsList = function() {
             <div class="ticket-card-details">
                 ${ticket.server} &bull; ${ticket.type} &bull; ${ticket.items.length} items &bull; ${timeStr}
             </div>
+            <div class="ticket-card-items-preview">${itemsSummary}</div>
+            ${ticket.discount ? `
+                <div class="ticket-card-discount">
+                    <span>${ticket.discount.reason}</span>
+                    <span>-${formatCurrency(ticket.discount.amount)}</span>
+                </div>
+            ` : ''}
             <div class="ticket-card-total">
                 <span>Total</span>
                 <span>${formatCurrency(ticket.total)}</span>
@@ -1856,6 +2257,11 @@ populateTicketsList = function() {
                 <div class="ticket-card-tip">
                     <span>Tip</span>
                     <span>${formatCurrency(ticket.tip)}</span>
+                </div>
+            ` : ''}
+            ${ticket.paymentMethod ? `
+                <div class="ticket-card-payment-method">
+                    Paid: ${ticket.paymentMethod.toUpperCase()}${ticket.paidAt ? ' at ' + new Date(ticket.paidAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : ''}
                 </div>
             ` : ''}
             ${CONFIG.cashDiscount.enabled ? `
@@ -1872,6 +2278,7 @@ populateTicketsList = function() {
                     <button class="ticket-action-btn void" onclick="voidTicket(${ticket.id})">Void</button>
                 ` : ''}
                 <button class="ticket-action-btn reprint" onclick="reprintTicket(${ticket.id})">Reprint</button>
+                <button class="ticket-action-btn recall" onclick="recallTicket(${ticket.id})">Recall</button>
             </div>
         `;
 
@@ -1915,9 +2322,200 @@ function voidTicket(ticketId) {
 window.voidTicket = voidTicket;
 
 function reprintTicket(ticketId) {
-    showToast('Reprinting ticket #' + ticketId + '...', 'warning');
+    const ticket = state.allTickets.find(t => t.id === ticketId);
+    if (!ticket) {
+        showToast('Ticket not found', 'error');
+        return;
+    }
+    printReceipt(ticket);
 }
 window.reprintTicket = reprintTicket;
+
+function recallTicket(ticketId) {
+    const ticket = state.allTickets.find(t => t.id === ticketId);
+    if (!ticket) {
+        showToast('Ticket not found', 'error');
+        return;
+    }
+
+    // Load this ticket's items into current working ticket
+    state.ticket = {
+        id: ticket.id,
+        type: ticket.type,
+        items: ticket.items.map(i => ({ ...i })),
+        table: ticket.table || null,
+        server: ticket.server,
+        discount: ticket.discount || null
+    };
+
+    // Restore discount state
+    if (ticket.discount) {
+        appliedDiscount = { ...ticket.discount };
+    }
+
+    updateTicketDisplay();
+
+    // Switch to order view
+    $$('.tab-btn').forEach(b => b.classList.remove('active'));
+    $$('.main-view').forEach(v => v.classList.remove('active'));
+    const orderTab = document.querySelector('[data-view="order"]');
+    if (orderTab) orderTab.classList.add('active');
+    const orderView = document.getElementById('order-view');
+    if (orderView) orderView.classList.add('active');
+    state.currentView = 'order';
+
+    showToast('Ticket #' + ticketId + ' recalled');
+}
+window.recallTicket = recallTicket;
+
+// ==========================================
+// Receipt Printing System
+// ==========================================
+function printReceipt(ticket) {
+    const receiptWindow = window.open('', 'receipt', 'width=320,height=600');
+    if (!receiptWindow) {
+        showToast('Pop-up blocked - please allow pop-ups for receipt printing', 'error');
+        return;
+    }
+
+    const rate = CONFIG.cashDiscount.rate / 100;
+    const subtotal = ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+    const discountAmt = ticket.discount ? ticket.discount.amount : 0;
+    const afterDiscount = subtotal - discountAmt;
+    const tax = afterDiscount * (CONFIG.taxRate / 100);
+    const total = afterDiscount + tax + (ticket.deliveryFee || 0);
+    let cashTotal = total;
+    let cardTotal = total;
+
+    if (CONFIG.cashDiscount.enabled) {
+        if (CONFIG.cashDiscount.mode === 'CASH_DISCOUNT') {
+            cashTotal = total * (1 - rate);
+        } else {
+            cardTotal = total * (1 + rate);
+        }
+    }
+
+    const tipAmount = ticket.tip || 0;
+    const grandTotal = total + tipAmount;
+    const now = ticket.time ? new Date(ticket.time) : new Date();
+    const dateStr = now.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+    const receiptHtml = `<!DOCTYPE html>
+<html><head><title>Receipt</title>
+<style>
+    @page { size: 80mm auto; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        font-family: 'Courier New', monospace;
+        width: 280px; max-width: 280px;
+        padding: 8px; font-size: 12px; line-height: 1.4;
+        color: #000;
+    }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .divider { border-top: 1px dashed #000; margin: 6px 0; }
+    .double-divider { border-top: 2px solid #000; margin: 8px 0; }
+    .header { text-align: center; margin-bottom: 8px; }
+    .header h1 { font-size: 16px; margin-bottom: 2px; }
+    .header p { font-size: 10px; color: #333; }
+    .row { display: flex; justify-content: space-between; }
+    .item-row { margin: 2px 0; }
+    .item-name { max-width: 180px; }
+    .item-mods { font-size: 10px; color: #666; padding-left: 12px; }
+    .total-row { font-weight: bold; font-size: 14px; }
+    .dual-prices { margin: 6px 0; padding: 6px; border: 1px solid #333; border-radius: 4px; }
+    .dual-prices .row { font-weight: bold; }
+    .cash-line { color: #000; }
+    .footer { text-align: center; font-size: 10px; margin-top: 10px; color: #555; }
+    .barcode { text-align: center; font-size: 24px; letter-spacing: 4px; margin: 6px 0; }
+    .savings { text-align: center; font-weight: bold; padding: 4px; border: 1px dashed #000; margin: 4px 0; font-size: 11px; }
+    @media print {
+        body { width: 80mm; }
+        .no-print { display: none; }
+    }
+</style>
+</head><body>
+    <div class="header">
+        <h1>Restaurant POS</h1>
+        <p>123 Main Street</p>
+        <p>City, ST 12345</p>
+        <p>(555) 123-4567</p>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="row"><span>Ticket #${ticket.id}</span><span>${ticket.type}</span></div>
+    <div class="row"><span>${dateStr} ${timeStr}</span></div>
+    <div class="row"><span>Server: ${ticket.server || state.currentUser || 'N/A'}</span></div>
+    ${ticket.table ? `<div class="row"><span>Table: ${ticket.table}</span></div>` : ''}
+
+    <div class="double-divider"></div>
+
+    ${ticket.items.map(item => `
+        <div class="item-row">
+            <div class="row">
+                <span class="item-name">${item.qty > 1 ? item.qty + 'x ' : ''}${item.name}</span>
+                <span>${formatCurrency(item.price * item.qty)}</span>
+            </div>
+            ${item.mods && item.mods.length ? '<div class="item-mods">' + item.mods.join(', ') + '</div>' : ''}
+        </div>
+    `).join('')}
+
+    <div class="double-divider"></div>
+
+    <div class="row"><span>Subtotal</span><span>${formatCurrency(subtotal)}</span></div>
+    ${discountAmt > 0 ? `<div class="row" style="color:#28a745"><span>${ticket.discount.reason}</span><span>-${formatCurrency(discountAmt)}</span></div>` : ''}
+    <div class="row"><span>Tax (${CONFIG.taxRate}%)</span><span>${formatCurrency(tax)}</span></div>
+    ${ticket.deliveryFee > 0 ? `<div class="row"><span>Delivery Fee</span><span>${formatCurrency(ticket.deliveryFee)}</span></div>` : ''}
+
+    <div class="divider"></div>
+
+    <div class="row total-row"><span>TOTAL</span><span>${formatCurrency(total)}</span></div>
+
+    ${CONFIG.cashDiscount.enabled ? `
+        <div class="dual-prices">
+            <div class="row cash-line"><span>Cash Price:</span><span>${formatCurrency(cashTotal)}</span></div>
+            <div class="row"><span>Card Price:</span><span>${formatCurrency(cardTotal)}</span></div>
+        </div>
+        <div class="savings">Pay with cash and save ${formatCurrency(cardTotal - cashTotal)}!</div>
+    ` : ''}
+
+    ${tipAmount > 0 ? `
+        <div class="divider"></div>
+        <div class="row"><span>Tip</span><span>${formatCurrency(tipAmount)}</span></div>
+        <div class="row bold"><span>Grand Total</span><span>${formatCurrency(grandTotal)}</span></div>
+    ` : ''}
+
+    ${ticket.paymentMethod ? `
+        <div class="divider"></div>
+        <div class="row"><span>Paid by: ${ticket.paymentMethod.toUpperCase()}</span></div>
+    ` : `
+        <div class="divider"></div>
+        <div class="row"><span>Tip: ___________</span></div>
+        <div class="row"><span>Total: ___________</span></div>
+        <div style="margin-top:20px"><span>Signature: _______________</span></div>
+    `}
+
+    <div class="divider"></div>
+    <div class="barcode">||||| ${ticket.id} |||||</div>
+
+    <div class="footer">
+        <p>Thank you! Pay with cash and save!</p>
+        <p style="margin-top:4px">We offer a ${CONFIG.cashDiscount.rate}% discount for cash payments.</p>
+        <p>All prices include a non-cash adjustment.</p>
+    </div>
+
+    <div class="no-print" style="text-align:center; margin-top:16px;">
+        <button onclick="window.print()" style="padding:8px 24px; font-size:14px; cursor:pointer;">Print Receipt</button>
+        <button onclick="window.close()" style="padding:8px 24px; font-size:14px; cursor:pointer; margin-left:8px;">Close</button>
+    </div>
+</body></html>`;
+
+    receiptWindow.document.write(receiptHtml);
+    receiptWindow.document.close();
+    showToast('Receipt ready for printing');
+}
 
 // ==========================================
 // Enhanced Reports with Tips Tracking
@@ -1992,12 +2590,16 @@ $('#close-side-menu').addEventListener('click', () => {
     if (overlay) overlay.classList.remove('active');
 });
 
-// Clock in/out
+// Clock in/out from side menu
 document.getElementById('menu-clock-in').addEventListener('click', () => {
-    const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    showToast('Clock in recorded at ' + now);
+    if (state.clockedIn) {
+        clockOut();
+    } else {
+        clockIn();
+    }
     $('#side-menu').classList.remove('open');
-    document.querySelector('.side-menu-overlay').classList.remove('active');
+    const overlay = document.querySelector('.side-menu-overlay');
+    if (overlay) overlay.classList.remove('active');
 });
 
 // Open cash drawer
