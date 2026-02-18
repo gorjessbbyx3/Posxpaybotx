@@ -1009,6 +1009,399 @@ $$('.tab-btn').forEach(btn => {
 });
 
 // ==========================================
+// Customer Display Broadcast
+// ==========================================
+let customerChannel = null;
+try {
+    customerChannel = new BroadcastChannel('pos-customer-display');
+} catch (e) {
+    // BroadcastChannel not supported - silent fallback
+}
+
+function broadcastToCustomerDisplay(type, data) {
+    if (!customerChannel) return;
+    try {
+        customerChannel.postMessage({ type, ...data });
+    } catch (e) {}
+}
+
+// Hook into ticket updates to broadcast to customer display
+const _origUpdateTicketDisplay = updateTicketDisplay;
+updateTicketDisplay = function() {
+    _origUpdateTicketDisplay();
+    broadcastToCustomerDisplay('order-update', {
+        items: state.ticket.items.map(i => ({ name: i.name, price: i.price, qty: i.qty })),
+        orderType: state.ticket.type
+    });
+};
+
+// ==========================================
+// Tip Management (Payment Modal Enhancement)
+// ==========================================
+const TIP_PRESETS = [15, 18, 20, 25];
+let selectedTipPercent = 0;
+let selectedTipAmount = 0;
+
+function createTipSection() {
+    const paymentSummary = document.querySelector('.payment-summary-panel');
+    if (!paymentSummary || document.getElementById('tip-section')) return;
+
+    const tipSection = document.createElement('div');
+    tipSection.id = 'tip-section';
+    tipSection.className = 'tip-section';
+    tipSection.innerHTML = `
+        <h4 class="tip-header">Add Gratuity</h4>
+        <div class="tip-presets" id="tip-presets">
+            ${TIP_PRESETS.map(pct => `
+                <button class="tip-preset-btn" data-percent="${pct}">
+                    <span class="tip-pct">${pct}%</span>
+                    <span class="tip-val" id="tip-val-${pct}">$0.00</span>
+                </button>
+            `).join('')}
+        </div>
+        <div class="tip-custom">
+            <button class="tip-preset-btn" id="tip-custom-btn">Custom</button>
+            <button class="tip-preset-btn tip-none" id="tip-none-btn">No Tip</button>
+        </div>
+        <div class="tip-total-row" id="tip-total-row" style="display:none">
+            <span>Tip:</span>
+            <span id="tip-display-amount">$0.00</span>
+        </div>
+    `;
+
+    paymentSummary.appendChild(tipSection);
+
+    // Event listeners for tip buttons
+    tipSection.querySelectorAll('.tip-preset-btn[data-percent]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            tipSection.querySelectorAll('.tip-preset-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectedTipPercent = parseInt(btn.dataset.percent);
+            const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+            selectedTipAmount = Math.round(subtotal * (selectedTipPercent / 100) * 100) / 100;
+            updateTipDisplay();
+        });
+    });
+
+    document.getElementById('tip-none-btn').addEventListener('click', () => {
+        tipSection.querySelectorAll('.tip-preset-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('tip-none-btn').classList.add('active');
+        selectedTipPercent = 0;
+        selectedTipAmount = 0;
+        updateTipDisplay();
+    });
+
+    document.getElementById('tip-custom-btn').addEventListener('click', () => {
+        const customTip = prompt('Enter tip amount:', '0.00');
+        if (customTip !== null) {
+            const amt = parseFloat(customTip);
+            if (!isNaN(amt) && amt >= 0) {
+                tipSection.querySelectorAll('.tip-preset-btn').forEach(b => b.classList.remove('active'));
+                document.getElementById('tip-custom-btn').classList.add('active');
+                selectedTipPercent = 0;
+                selectedTipAmount = Math.round(amt * 100) / 100;
+                updateTipDisplay();
+            }
+        }
+    });
+}
+
+function updateTipDisplay() {
+    const tipRow = document.getElementById('tip-total-row');
+    const tipAmount = document.getElementById('tip-display-amount');
+    if (!tipRow || !tipAmount) return;
+
+    if (selectedTipAmount > 0) {
+        tipRow.style.display = 'flex';
+        tipAmount.textContent = formatCurrency(selectedTipAmount);
+    } else {
+        tipRow.style.display = 'none';
+    }
+
+    // Update tip preset values
+    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+    TIP_PRESETS.forEach(pct => {
+        const el = document.getElementById('tip-val-' + pct);
+        if (el) el.textContent = formatCurrency(subtotal * pct / 100);
+    });
+}
+
+// Override openPayment to add tip section
+const _origOpenPayment = openPayment;
+openPayment = function(method) {
+    selectedTipPercent = 0;
+    selectedTipAmount = 0;
+    _origOpenPayment(method);
+    setTimeout(() => {
+        createTipSection();
+        updateTipDisplay();
+    }, 50);
+    broadcastToCustomerDisplay('payment-start', {});
+};
+
+// Override completePayment to include tip and broadcast
+const _origCompletePayment = completePayment;
+completePayment = function(total, method) {
+    // Track tip in ticket data
+    const ticketIndex = state.allTickets.findIndex(t => t.id === state.ticket.id);
+    if (ticketIndex >= 0) {
+        state.allTickets[ticketIndex].tip = selectedTipAmount;
+    }
+
+    _origCompletePayment(total, method);
+    broadcastToCustomerDisplay('payment-complete', {});
+};
+
+// ==========================================
+// Enhanced KDS with Station Filtering
+// ==========================================
+let activeStation = 'all';
+
+const _origPopulateKitchen = populateKitchen;
+populateKitchen = function() {
+    const container = $('#kds-tickets');
+    container.innerHTML = '';
+
+    let activeCount = 0;
+    let totalTime = 0;
+
+    const filteredOrders = activeStation === 'all'
+        ? state.kitchenOrders
+        : state.kitchenOrders.filter(order =>
+            order.items.some(item => item.station === activeStation)
+        );
+
+    filteredOrders.forEach(order => {
+        const elapsed = Math.floor((new Date() - order.time) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+        const timeStr = minutes + ':' + String(seconds).padStart(2, '0');
+
+        let timeClass = 'green';
+        if (minutes >= 10) timeClass = 'red';
+        else if (minutes >= 5) timeClass = 'yellow';
+
+        const isUrgent = minutes >= 10;
+        activeCount++;
+        totalTime += elapsed;
+
+        // Filter items by station if a station is selected
+        const displayItems = activeStation === 'all'
+            ? order.items
+            : order.items.filter(item => item.station === activeStation);
+
+        const el = document.createElement('div');
+        el.className = 'kds-ticket' + (isUrgent ? ' urgent' : '');
+        el.innerHTML = `
+            <div class="kds-ticket-header">
+                <span>#${order.id} - ${order.type}</span>
+                <span class="kds-ticket-time ${timeClass}">${timeStr}</span>
+            </div>
+            <div class="kds-ticket-server">Server: ${order.server || 'Unknown'}</div>
+            <div class="kds-ticket-items">
+                ${displayItems.map(item => `
+                    <div class="kds-item ${item.done ? 'done' : ''}">
+                        <span class="kds-item-name">${item.name}</span>
+                        <span class="kds-item-qty">x${item.qty}</span>
+                    </div>
+                `).join('')}
+            </div>
+            <div class="kds-ticket-footer">
+                <button class="kds-bump-btn" data-order-id="${order.id}">BUMP</button>
+            </div>
+        `;
+
+        el.querySelector('.kds-bump-btn').addEventListener('click', () => {
+            state.kitchenOrders = state.kitchenOrders.filter(o => o.id !== order.id);
+            showToast('Order #' + order.id + ' bumped');
+            populateKitchen();
+        });
+
+        container.appendChild(el);
+    });
+
+    $('#kds-active').textContent = activeCount;
+    const avgSeconds = activeCount > 0 ? Math.floor(totalTime / activeCount) : 0;
+    $('#kds-avg-time').textContent = Math.floor(avgSeconds / 60) + ':' + String(avgSeconds % 60).padStart(2, '0');
+};
+
+// Station filter with actual filtering
+$$('.kds-filter').forEach(btn => {
+    btn.addEventListener('click', () => {
+        $$('.kds-filter').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeStation = btn.dataset.station;
+        populateKitchen();
+    });
+});
+
+// ==========================================
+// Enhanced Ticket Filters
+// ==========================================
+let activeTicketFilter = 'open';
+
+const _origPopulateTicketsList = populateTicketsList;
+populateTicketsList = function() {
+    const container = $('#tickets-list');
+    container.innerHTML = '';
+
+    let filtered = state.allTickets;
+    if (activeTicketFilter === 'open') {
+        filtered = state.allTickets.filter(t => t.status === 'open');
+    } else if (activeTicketFilter === 'paid') {
+        filtered = state.allTickets.filter(t => t.status === 'paid');
+    } else if (activeTicketFilter === 'closed') {
+        filtered = state.allTickets.filter(t => t.status === 'closed');
+    }
+
+    if (filtered.length === 0) {
+        container.innerHTML = '<div class="empty-ticket"><p>No tickets found</p></div>';
+        return;
+    }
+
+    filtered.forEach(ticket => {
+        const el = document.createElement('div');
+        el.className = 'ticket-card';
+
+        const rate = CONFIG.cashDiscount.rate / 100;
+        let cashPrice = ticket.total;
+        let cardPrice = ticket.total;
+        if (CONFIG.cashDiscount.enabled) {
+            if (CONFIG.cashDiscount.mode === 'CASH_DISCOUNT') {
+                cashPrice = ticket.total * (1 - rate);
+            } else {
+                cardPrice = ticket.total * (1 + rate);
+            }
+        }
+
+        const timeStr = ticket.time ? new Date(ticket.time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+
+        el.innerHTML = `
+            <div class="ticket-card-header">
+                <span class="ticket-card-id">#${ticket.id}</span>
+                <span class="ticket-card-status ${ticket.status}">${ticket.status}</span>
+            </div>
+            <div class="ticket-card-details">
+                ${ticket.server} &bull; ${ticket.type} &bull; ${ticket.items.length} items &bull; ${timeStr}
+            </div>
+            <div class="ticket-card-total">
+                <span>Total</span>
+                <span>${formatCurrency(ticket.total)}</span>
+            </div>
+            ${ticket.tip ? `
+                <div class="ticket-card-tip">
+                    <span>Tip</span>
+                    <span>${formatCurrency(ticket.tip)}</span>
+                </div>
+            ` : ''}
+            ${CONFIG.cashDiscount.enabled ? `
+                <div class="ticket-card-dual">
+                    <span class="cash-tag">Cash: ${formatCurrency(cashPrice)}</span>
+                    <span class="card-tag">Card: ${formatCurrency(cardPrice)}</span>
+                </div>
+            ` : ''}
+            <div class="ticket-card-actions">
+                ${ticket.status === 'open' ? `
+                    <button class="ticket-action-btn pay" onclick="openTicketPayment(${ticket.id})">Pay</button>
+                ` : ''}
+                ${ticket.status === 'open' ? `
+                    <button class="ticket-action-btn void" onclick="voidTicket(${ticket.id})">Void</button>
+                ` : ''}
+                <button class="ticket-action-btn reprint" onclick="reprintTicket(${ticket.id})">Reprint</button>
+            </div>
+        `;
+
+        container.appendChild(el);
+    });
+};
+
+$$('.ticket-filter').forEach(btn => {
+    btn.addEventListener('click', () => {
+        $$('.ticket-filter').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeTicketFilter = btn.dataset.filter;
+        populateTicketsList();
+    });
+});
+
+function openTicketPayment(ticketId) {
+    const ticket = state.allTickets.find(t => t.id === ticketId);
+    if (!ticket) return;
+    // Load ticket into current state for payment
+    state.ticket = {
+        id: ticket.id,
+        type: ticket.type,
+        items: [...ticket.items],
+        table: null
+    };
+    updateTicketDisplay();
+    openPayment('cash');
+}
+window.openTicketPayment = openTicketPayment;
+
+function voidTicket(ticketId) {
+    if (!confirm('Void ticket #' + ticketId + '?')) return;
+    const idx = state.allTickets.findIndex(t => t.id === ticketId);
+    if (idx >= 0) {
+        state.allTickets[idx].status = 'voided';
+        showToast('Ticket #' + ticketId + ' voided');
+        populateTicketsList();
+    }
+}
+window.voidTicket = voidTicket;
+
+function reprintTicket(ticketId) {
+    showToast('Reprinting ticket #' + ticketId + '...', 'warning');
+}
+window.reprintTicket = reprintTicket;
+
+// ==========================================
+// Enhanced Reports with Tips Tracking
+// ==========================================
+const _origPopulateReports = populateReports;
+populateReports = function() {
+    const today = new Date().toISOString().split('T')[0];
+    $('#report-date').value = today;
+
+    let totalSales = 0;
+    let totalTax = 0;
+    let totalTips = 0;
+    let totalDiscounts = 0;
+    let cashSales = 0;
+    let cardSales = 0;
+    let ticketCount = state.allTickets.length;
+    const rate = CONFIG.cashDiscount.rate / 100;
+
+    state.allTickets.forEach(t => {
+        totalSales += t.total;
+        totalTax += t.tax;
+        if (t.tip) totalTips += t.tip;
+        if (t.paymentMethod === 'cash') {
+            cashSales += t.total;
+            if (CONFIG.cashDiscount.enabled && CONFIG.cashDiscount.mode === 'CASH_DISCOUNT') {
+                totalDiscounts += t.total * rate;
+            }
+        } else {
+            cardSales += t.total;
+            if (CONFIG.cashDiscount.enabled && CONFIG.cashDiscount.mode === 'CARD_SURCHARGE') {
+                totalDiscounts -= t.total * rate; // surcharge is negative discount
+            }
+        }
+    });
+
+    const avgTicket = ticketCount > 0 ? totalSales / ticketCount : 0;
+
+    $('#report-total-sales').textContent = formatCurrency(totalSales);
+    $('#report-ticket-count').textContent = ticketCount;
+    $('#report-avg-ticket').textContent = formatCurrency(avgTicket);
+    $('#report-cash-sales').textContent = formatCurrency(cashSales);
+    $('#report-card-sales').textContent = formatCurrency(cardSales);
+    $('#report-tax').textContent = formatCurrency(totalTax);
+    $('#report-discounts').textContent = formatCurrency(Math.abs(totalDiscounts));
+    $('#report-tips').textContent = formatCurrency(totalTips);
+};
+
+// ==========================================
 // Initialize
 // ==========================================
 populateMenu();

@@ -2,22 +2,27 @@
  * Web API Server for the modern web frontend.
  *
  * Extends the PaybotX proxy server with additional endpoints
- * for menu management, reporting, split checks, and user auth.
+ * for menu management, reporting, split checks, user auth,
+ * kitchen display, order lifecycle, and tip management.
  *
  * Endpoints:
  *   GET  /api/menu                    - Full menu with categories
- *   GET  /api/menu/{category}         - Items in a category
  *   GET  /api/tables                  - Table statuses
- *   POST /api/tables/{num}/assign     - Assign a table
  *   GET  /api/users                   - List users
  *   POST /api/auth/login              - Authenticate user
  *   POST /api/orders                  - Create new order
+ *   POST /api/orders/{id}/items       - Add items to order
  *   POST /api/orders/{id}/send        - Send order to kitchen
  *   POST /api/orders/{id}/split       - Split a ticket
+ *   GET  /api/kitchen                 - Get kitchen tickets (KDS)
+ *   POST /api/kitchen/{id}/bump       - Bump a kitchen ticket
+ *   POST /api/kitchen/{id}/recall     - Recall a bumped ticket
  *   GET  /api/reports/daily           - Daily sales report
  *   GET  /api/reports/hourly          - Hourly breakdown
  *   GET  /api/config/cashdiscount     - Cash discount settings
  *   PUT  /api/config/cashdiscount     - Update cash discount settings
+ *   POST /api/tips/adjust             - Adjust tip on a ticket
+ *   POST /api/tips/preset             - Get preset tip amounts
  */
 package com.floreantpos.paybotx.proxy;
 
@@ -29,19 +34,29 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Executors;
 
 import com.floreantpos.cashdiscount.CashDiscountCalculator;
 import com.floreantpos.cashdiscount.CashDiscountConfig;
 import com.floreantpos.config.AppConfig;
+import com.floreantpos.model.Gratuity;
+import com.floreantpos.model.KitchenTicket;
+import com.floreantpos.model.KitchenTicket.KitchenTicketStatus;
+import com.floreantpos.model.KitchenTicketItem;
 import com.floreantpos.model.MenuCategory;
 import com.floreantpos.model.MenuGroup;
 import com.floreantpos.model.MenuItem;
+import com.floreantpos.model.OrderType;
+import com.floreantpos.model.PosTransaction;
 import com.floreantpos.model.ShopTable;
 import com.floreantpos.model.Ticket;
+import com.floreantpos.model.TicketItem;
 import com.floreantpos.model.User;
+import com.floreantpos.model.dao.KitchenTicketDAO;
 import com.floreantpos.model.dao.MenuCategoryDAO;
 import com.floreantpos.model.dao.MenuItemDAO;
 import com.floreantpos.model.dao.ShopTableDAO;
@@ -108,9 +123,31 @@ public class WebApiServer implements HttpHandler {
 				response = handleUpdateCashDiscountConfig(body);
 			} else if (path.equals("/api/reports/daily") && "GET".equals(method)) {
 				response = handleDailyReport();
+			} else if (path.equals("/api/reports/hourly") && "GET".equals(method)) {
+				response = handleHourlyReport();
 			} else if (path.matches("/api/orders/\\d+/split") && "POST".equals(method)) {
 				String id = path.replaceAll(".*/orders/(\\d+)/split", "$1");
 				response = handleSplitTicket(id, body);
+			} else if (path.equals("/api/orders") && "POST".equals(method)) {
+				response = handleCreateOrder(body);
+			} else if (path.matches("/api/orders/\\d+/items") && "POST".equals(method)) {
+				String id = path.replaceAll(".*/orders/(\\d+)/items", "$1");
+				response = handleAddItems(id, body);
+			} else if (path.matches("/api/orders/\\d+/send") && "POST".equals(method)) {
+				String id = path.replaceAll(".*/orders/(\\d+)/send", "$1");
+				response = handleSendToKitchen(id);
+			} else if (path.equals("/api/kitchen") && "GET".equals(method)) {
+				response = handleGetKitchenTickets();
+			} else if (path.matches("/api/kitchen/\\d+/bump") && "POST".equals(method)) {
+				String id = path.replaceAll(".*/kitchen/(\\d+)/bump", "$1");
+				response = handleBumpKitchenTicket(id);
+			} else if (path.matches("/api/kitchen/\\d+/recall") && "POST".equals(method)) {
+				String id = path.replaceAll(".*/kitchen/(\\d+)/recall", "$1");
+				response = handleRecallKitchenTicket(id);
+			} else if (path.equals("/api/tips/adjust") && "POST".equals(method)) {
+				response = handleTipAdjust(body);
+			} else if (path.equals("/api/tips/presets") && "POST".equals(method)) {
+				response = handleTipPresets(body);
 			} else {
 				response = "{\"error\":\"Not found\"}";
 				sendResponse(exchange, response, 404);
@@ -368,6 +405,400 @@ public class WebApiServer implements HttpHandler {
 			json.append(",\"total\":").append(df.format(cardTotal)).append("},");
 			json.append("\"averageTicket\":").append(ticketCount > 0 ? df.format(totalSales / ticketCount) : "0.00");
 			json.append("}");
+			return json.toString();
+		} catch (Exception e) {
+			return "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}";
+		}
+	}
+
+	// --- Hourly Report ---
+
+	private String handleHourlyReport() {
+		try {
+			List<Ticket> closedTickets = TicketDAO.getInstance().getClosedTickets();
+			double[] hourlyTotals = new double[24];
+			int[] hourlyCounts = new int[24];
+
+			if (closedTickets != null) {
+				Calendar cal = Calendar.getInstance();
+				for (Ticket t : closedTickets) {
+					if (t.getCreateDate() != null) {
+						cal.setTime(t.getCreateDate());
+						int hour = cal.get(Calendar.HOUR_OF_DAY);
+						hourlyTotals[hour] += t.getTotalAmount();
+						hourlyCounts[hour]++;
+					}
+				}
+			}
+
+			StringBuilder json = new StringBuilder();
+			json.append("{\"hours\":[");
+			for (int h = 0; h < 24; h++) {
+				if (h > 0) json.append(",");
+				json.append("{\"hour\":").append(h);
+				json.append(",\"label\":\"").append(String.format("%02d:00", h)).append("\"");
+				json.append(",\"sales\":").append(df.format(hourlyTotals[h]));
+				json.append(",\"tickets\":").append(hourlyCounts[h]).append("}");
+			}
+			json.append("]}");
+			return json.toString();
+		} catch (Exception e) {
+			return "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}";
+		}
+	}
+
+	// --- Order Lifecycle ---
+
+	private String handleCreateOrder(String body) {
+		try {
+			String orderType = extractJsonValue(body, "orderType");
+			String tableNum = extractJsonValue(body, "tableNumber");
+			String userId = extractJsonValue(body, "userId");
+			String guestCount = extractJsonValue(body, "guestCount");
+
+			Ticket ticket = new Ticket();
+			ticket.setCreateDate(new Date());
+			ticket.setPaid(false);
+			ticket.setClosed(false);
+			ticket.setVoided(false);
+
+			if (orderType != null) {
+				ticket.setTicketType(orderType);
+			} else {
+				ticket.setTicketType("DINE_IN");
+			}
+
+			if (tableNum != null) {
+				try {
+					ticket.addProperty("tableNumber", tableNum);
+				} catch (Exception ignored) {}
+			}
+
+			if (guestCount != null) {
+				try {
+					ticket.setNumberOfGuests(Integer.parseInt(guestCount));
+				} catch (Exception ignored) {}
+			}
+
+			if (userId != null) {
+				try {
+					User user = UserDAO.getInstance().get(Integer.parseInt(userId));
+					if (user != null) {
+						ticket.setOwner(user);
+					}
+				} catch (Exception ignored) {}
+			}
+
+			TicketDAO.getInstance().saveOrUpdate(ticket);
+
+			StringBuilder json = new StringBuilder();
+			json.append("{\"status\":\"success\"");
+			json.append(",\"ticketId\":").append(ticket.getId());
+			json.append(",\"orderType\":\"").append(escapeJson(ticket.getTicketType())).append("\"");
+			json.append("}");
+			return json.toString();
+		} catch (Exception e) {
+			return "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}";
+		}
+	}
+
+	private String handleAddItems(String ticketId, String body) {
+		try {
+			Ticket ticket = TicketDAO.getInstance().get(Integer.parseInt(ticketId));
+			if (ticket == null) {
+				return "{\"error\":\"Ticket not found\"}";
+			}
+
+			// Parse items array - simple parsing for [{menuItemId, qty}]
+			String itemsStr = body;
+			int addedCount = 0;
+
+			// Support single item: {"menuItemId": 1, "qty": 2}
+			String menuItemIdStr = extractJsonValue(itemsStr, "menuItemId");
+			String qtyStr = extractJsonValue(itemsStr, "qty");
+
+			if (menuItemIdStr != null) {
+				int menuItemId = Integer.parseInt(menuItemIdStr);
+				int qty = qtyStr != null ? Integer.parseInt(qtyStr) : 1;
+
+				MenuItem menuItem = MenuItemDAO.getInstance().get(menuItemId);
+				if (menuItem != null) {
+					TicketItem ticketItem = new TicketItem();
+					ticketItem.setItemCount(qty);
+					ticketItem.setName(menuItem.getName());
+					ticketItem.setUnitPrice(menuItem.getPrice());
+					ticketItem.setItemId(menuItem.getId());
+					ticketItem.setTicket(ticket);
+					ticket.addToticketItems(ticketItem);
+					addedCount++;
+				}
+			}
+
+			ticket.calculatePrice();
+			TicketDAO.getInstance().saveOrUpdate(ticket);
+
+			StringBuilder json = new StringBuilder();
+			json.append("{\"status\":\"success\"");
+			json.append(",\"ticketId\":").append(ticket.getId());
+			json.append(",\"itemsAdded\":").append(addedCount);
+			json.append(",\"subtotal\":").append(df.format(ticket.getSubtotalAmount()));
+			json.append(",\"tax\":").append(df.format(ticket.getTaxAmount()));
+			json.append(",\"total\":").append(df.format(ticket.getTotalAmount()));
+			json.append("}");
+			return json.toString();
+		} catch (Exception e) {
+			return "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}";
+		}
+	}
+
+	private String handleSendToKitchen(String ticketId) {
+		try {
+			Ticket ticket = TicketDAO.getInstance().get(Integer.parseInt(ticketId));
+			if (ticket == null) {
+				return "{\"error\":\"Ticket not found\"}";
+			}
+
+			List<KitchenTicket> kitchenTickets = KitchenTicket.fromTicket(ticket);
+			if (kitchenTickets != null) {
+				for (KitchenTicket kt : kitchenTickets) {
+					KitchenTicketDAO.getInstance().saveOrUpdate(kt);
+				}
+			}
+
+			ticket.addProperty("sentToKitchen", "true");
+			ticket.addProperty("kitchenSentTime", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+			TicketDAO.getInstance().saveOrUpdate(ticket);
+
+			StringBuilder json = new StringBuilder();
+			json.append("{\"status\":\"success\"");
+			json.append(",\"ticketId\":").append(ticket.getId());
+			json.append(",\"kitchenTickets\":").append(kitchenTickets != null ? kitchenTickets.size() : 0);
+			json.append(",\"message\":\"Order sent to kitchen\"");
+			json.append("}");
+			return json.toString();
+		} catch (Exception e) {
+			return "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}";
+		}
+	}
+
+	// --- Kitchen Display System ---
+
+	private String handleGetKitchenTickets() {
+		try {
+			List<KitchenTicket> tickets = KitchenTicketDAO.getInstance().findAllOpen();
+
+			StringBuilder json = new StringBuilder();
+			json.append("{\"kitchenTickets\":[");
+
+			if (tickets != null) {
+				for (int i = 0; i < tickets.size(); i++) {
+					KitchenTicket kt = tickets.get(i);
+					if (i > 0) json.append(",");
+
+					json.append("{");
+					json.append("\"id\":").append(kt.getId()).append(",");
+					json.append("\"ticketId\":").append(kt.getTicketId()).append(",");
+					json.append("\"status\":\"").append(kt.getStatus() != null ? kt.getStatus() : "WAITING").append("\",");
+					json.append("\"serverName\":\"").append(escapeJson(kt.getServerName())).append("\",");
+					json.append("\"ticketType\":\"").append(escapeJson(kt.getTicketType())).append("\",");
+
+					// Time tracking
+					if (kt.getCreateDate() != null) {
+						long elapsed = (new Date().getTime() - kt.getCreateDate().getTime()) / 1000;
+						int minutes = (int)(elapsed / 60);
+						int seconds = (int)(elapsed % 60);
+						json.append("\"elapsedSeconds\":").append(elapsed).append(",");
+						json.append("\"elapsedFormatted\":\"").append(minutes).append(":").append(String.format("%02d", seconds)).append("\",");
+
+						String urgency = "green";
+						if (minutes >= 10) urgency = "red";
+						else if (minutes >= 5) urgency = "yellow";
+						json.append("\"urgency\":\"").append(urgency).append("\",");
+					}
+
+					// Table numbers
+					if (kt.getTableNumbers() != null && !kt.getTableNumbers().isEmpty()) {
+						json.append("\"tables\":[");
+						int t = 0;
+						for (Object tn : kt.getTableNumbers()) {
+							if (t > 0) json.append(",");
+							json.append(tn);
+							t++;
+						}
+						json.append("],");
+					}
+
+					// Printer group / station
+					if (kt.getPrinterGroup() != null) {
+						json.append("\"station\":\"").append(escapeJson(kt.getPrinterGroup().getName())).append("\",");
+					}
+
+					// Items
+					json.append("\"items\":[");
+					List<KitchenTicketItem> items = kt.getTicketItems();
+					if (items != null) {
+						for (int j = 0; j < items.size(); j++) {
+							KitchenTicketItem item = items.get(j);
+							if (j > 0) json.append(",");
+							json.append("{");
+							json.append("\"name\":\"").append(escapeJson(item.getMenuItemName())).append("\",");
+							json.append("\"quantity\":").append(item.getQuantity());
+							if (item.getStatus() != null) {
+								json.append(",\"status\":\"").append(item.getStatus()).append("\"");
+							}
+							json.append("}");
+						}
+					}
+					json.append("]");
+					json.append("}");
+				}
+			}
+
+			json.append("],\"count\":").append(tickets != null ? tickets.size() : 0).append("}");
+			return json.toString();
+		} catch (Exception e) {
+			return "{\"kitchenTickets\":[],\"count\":0,\"error\":\"" + escapeJson(e.getMessage()) + "\"}";
+		}
+	}
+
+	private String handleBumpKitchenTicket(String kitchenTicketId) {
+		try {
+			KitchenTicket kt = KitchenTicketDAO.getInstance().get(Integer.parseInt(kitchenTicketId));
+			if (kt == null) {
+				return "{\"error\":\"Kitchen ticket not found\"}";
+			}
+
+			kt.setStatus(KitchenTicketStatus.DONE.name());
+			kt.setClosingDate(new Date());
+			KitchenTicketDAO.getInstance().saveOrUpdate(kt);
+
+			// Calculate how long it took
+			long elapsed = 0;
+			if (kt.getCreateDate() != null) {
+				elapsed = (kt.getClosingDate().getTime() - kt.getCreateDate().getTime()) / 1000;
+			}
+
+			return "{\"status\":\"success\",\"message\":\"Order bumped\"" +
+					",\"kitchenTicketId\":" + kt.getId() +
+					",\"completionTime\":" + elapsed + "}";
+		} catch (Exception e) {
+			return "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}";
+		}
+	}
+
+	private String handleRecallKitchenTicket(String kitchenTicketId) {
+		try {
+			KitchenTicket kt = KitchenTicketDAO.getInstance().get(Integer.parseInt(kitchenTicketId));
+			if (kt == null) {
+				return "{\"error\":\"Kitchen ticket not found\"}";
+			}
+
+			kt.setStatus(KitchenTicketStatus.WAITING.name());
+			kt.setClosingDate(null);
+			KitchenTicketDAO.getInstance().saveOrUpdate(kt);
+
+			return "{\"status\":\"success\",\"message\":\"Order recalled to kitchen\"" +
+					",\"kitchenTicketId\":" + kt.getId() + "}";
+		} catch (Exception e) {
+			return "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}";
+		}
+	}
+
+	// --- Tip Management ---
+
+	private String handleTipAdjust(String body) {
+		try {
+			String ticketId = extractJsonValue(body, "ticketId");
+			String tipAmount = extractJsonValue(body, "tipAmount");
+			String tipPercent = extractJsonValue(body, "tipPercent");
+
+			if (ticketId == null) {
+				return "{\"error\":\"ticketId is required\"}";
+			}
+
+			Ticket ticket = TicketDAO.getInstance().get(Integer.parseInt(ticketId));
+			if (ticket == null) {
+				return "{\"error\":\"Ticket not found\"}";
+			}
+
+			double tip;
+			if (tipPercent != null) {
+				double percent = Double.parseDouble(tipPercent);
+				tip = ticket.getSubtotalAmount() * (percent / 100);
+			} else if (tipAmount != null) {
+				tip = Double.parseDouble(tipAmount);
+			} else {
+				return "{\"error\":\"tipAmount or tipPercent is required\"}";
+			}
+
+			// Round to 2 decimal places
+			tip = Math.round(tip * 100.0) / 100.0;
+
+			Gratuity gratuity = ticket.getGratuity();
+			if (gratuity == null) {
+				gratuity = ticket.createGratuity();
+			}
+			gratuity.setAmount(tip);
+			ticket.setGratuity(gratuity);
+			ticket.setGratuityAmount(tip);
+			ticket.calculatePrice();
+			TicketDAO.getInstance().saveOrUpdate(ticket);
+
+			// Also update any existing transactions
+			Set<PosTransaction> transactions = ticket.getTransactions();
+			if (transactions != null) {
+				for (PosTransaction txn : transactions) {
+					txn.setTipsAmount(tip);
+				}
+			}
+
+			StringBuilder json = new StringBuilder();
+			json.append("{\"status\":\"success\"");
+			json.append(",\"ticketId\":").append(ticket.getId());
+			json.append(",\"tipAmount\":").append(df.format(tip));
+			json.append(",\"newTotal\":").append(df.format(ticket.getTotalAmount()));
+
+			// Show dual pricing on new total
+			double[] dualPrices = CashDiscountCalculator.getDualPrices(ticket.getTotalAmount());
+			json.append(",\"cashTotal\":").append(df.format(dualPrices[0]));
+			json.append(",\"cardTotal\":").append(df.format(dualPrices[1]));
+
+			json.append("}");
+			return json.toString();
+		} catch (Exception e) {
+			return "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}";
+		}
+	}
+
+	private String handleTipPresets(String body) {
+		try {
+			String subtotalStr = extractJsonValue(body, "subtotal");
+			if (subtotalStr == null) {
+				return "{\"error\":\"subtotal is required\"}";
+			}
+
+			double subtotal = Double.parseDouble(subtotalStr);
+
+			double[] percents = {15.0, 18.0, 20.0, 25.0};
+			StringBuilder json = new StringBuilder();
+			json.append("{\"presets\":[");
+
+			for (int i = 0; i < percents.length; i++) {
+				if (i > 0) json.append(",");
+				double tipAmt = Math.round(subtotal * (percents[i] / 100) * 100.0) / 100.0;
+				double totalWithTip = subtotal + tipAmt;
+				double[] dualPrices = CashDiscountCalculator.getDualPrices(totalWithTip);
+
+				json.append("{");
+				json.append("\"percent\":").append(percents[i]);
+				json.append(",\"amount\":").append(df.format(tipAmt));
+				json.append(",\"total\":").append(df.format(totalWithTip));
+				json.append(",\"cashTotal\":").append(df.format(dualPrices[0]));
+				json.append(",\"cardTotal\":").append(df.format(dualPrices[1]));
+				json.append("}");
+			}
+
+			json.append("],\"customAllowed\":true}");
 			return json.toString();
 		} catch (Exception e) {
 			return "{\"error\":\"" + escapeJson(e.getMessage()) + "\"}";

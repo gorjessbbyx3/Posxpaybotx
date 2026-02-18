@@ -1676,6 +1676,145 @@ button {
     border-top: 1px solid var(--border-light);
 }
 
+/* ========== TIP SECTION (Payment Modal) ========== */
+.tip-section {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-light);
+}
+
+.tip-header {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+
+.tip-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.tip-preset-btn {
+    padding: 10px 6px;
+    border-radius: var(--radius-sm);
+    border: 2px solid var(--border-light);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-align: center;
+    transition: all var(--transition);
+}
+
+.tip-preset-btn:hover {
+    border-color: var(--accent);
+    background: var(--accent-light);
+}
+
+.tip-preset-btn.active {
+    border-color: var(--accent);
+    background: var(--accent-light);
+    color: var(--accent);
+}
+
+.tip-pct {
+    display: block;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.tip-val {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.tip-custom {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.tip-none {
+    background: var(--bg-tertiary);
+}
+
+.tip-total-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--accent);
+}
+
+/* ========== TICKET CARD ACTIONS ========== */
+.ticket-card-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-light);
+}
+
+.ticket-action-btn {
+    flex: 1;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 0.78rem;
+    border: 1px solid var(--border-light);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.ticket-action-btn:hover { background: var(--bg-hover); }
+.ticket-action-btn:active { transform: scale(0.97); }
+
+.ticket-action-btn.pay {
+    background: var(--cash-green);
+    color: white;
+    border-color: transparent;
+}
+
+.ticket-action-btn.void {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+.ticket-action-btn.void:hover {
+    background: var(--danger-bg);
+}
+
+.ticket-card-tip {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    color: var(--accent);
+    font-weight: 600;
+    padding-top: 4px;
+}
+
+.ticket-card-status.voided {
+    background: var(--danger-bg);
+    color: var(--danger);
+}
+
+/* ========== KDS SERVER NAME ========== */
+.kds-ticket-server {
+    padding: 2px 12px 4px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
 /* ========== SCROLLBAR ========== */
 ::-webkit-scrollbar {
     width: 6px;

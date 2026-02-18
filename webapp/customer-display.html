@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Customer Display - Restaurant POS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0a0f;
+            --bg-card: #16161d;
+            --bg-item: #1e1e28;
+            --text: #f5f5f7;
+            --text-dim: #a1a1a6;
+            --accent: #0071e3;
+            --cash-green: #28a745;
+            --card-blue: #007bff;
+            --border: #2c2c34;
+            --radius: 12px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 32px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header h1 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .header .clock {
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: var(--text-dim);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Main Layout */
+        .main {
+            flex: 1;
+            display: flex;
+            padding: 24px 32px;
+            gap: 24px;
+            overflow: hidden;
+        }
+
+        /* Order Panel */
+        .order-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .order-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .order-header h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .order-header .order-type {
+            padding: 4px 12px;
+            border-radius: 20px;
+            background: rgba(0, 113, 227, 0.15);
+            color: var(--accent);
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .items-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .item-row {
+            display: flex;
+            align-items: center;
+            padding: 14px 16px;
+            background: var(--bg-item);
+            border-radius: var(--radius);
+            margin-bottom: 6px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .item-qty {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: rgba(0, 113, 227, 0.15);
+            color: var(--accent);
+            font-weight: 700;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            margin-right: 14px;
+        }
+
+        .item-name {
+            flex: 1;
+            font-weight: 500;
+            font-size: 1rem;
+        }
+
+        .item-prices {
+            text-align: right;
+        }
+
+        .item-price-main {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .item-price-dual {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 2px;
+        }
+
+        .price-cash {
+            color: var(--cash-green);
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+
+        .price-card {
+            color: var(--card-blue);
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+
+        .empty-order {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dim);
+            font-size: 1.2rem;
+            font-weight: 500;
+        }
+
+        /* Summary Panel */
+        .summary-panel {
+            width: 360px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .totals-card {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            padding: 24px;
+            border: 1px solid var(--border);
+        }
+
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 0.95rem;
+            color: var(--text-dim);
+        }
+
+        .total-row.subtotal { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+
+        .total-row.grand-total {
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: var(--text);
+            padding-top: 12px;
+            border-top: 2px solid var(--border);
+            margin-top: 4px;
+            letter-spacing: -0.5px;
+        }
+
+        .adjustment-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 0.9rem;
+        }
+
+        .adjustment-row.discount { color: var(--cash-green); font-weight: 600; }
+        .adjustment-row.surcharge { color: #ff9500; font-weight: 600; }
+
+        /* Dual Price Display */
+        .dual-display {
+            display: flex;
+            gap: 12px;
+        }
+
+        .dual-box {
+            flex: 1;
+            padding: 20px;
+            border-radius: var(--radius);
+            text-align: center;
+        }
+
+        .dual-box.cash {
+            background: rgba(40, 167, 69, 0.08);
+            border: 2px solid rgba(40, 167, 69, 0.25);
+        }
+
+        .dual-box.card {
+            background: rgba(0, 123, 255, 0.08);
+            border: 2px solid rgba(0, 123, 255, 0.25);
+        }
+
+        .dual-label {
+            display: block;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+
+        .dual-box.cash .dual-label { color: var(--cash-green); }
+        .dual-box.card .dual-label { color: var(--card-blue); }
+
+        .dual-amount {
+            font-size: 1.6rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        .dual-box.cash .dual-amount { color: var(--cash-green); }
+        .dual-box.card .dual-amount { color: var(--card-blue); }
+
+        .dual-savings {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--cash-green);
+            margin-top: 4px;
+        }
+
+        /* Tip Section */
+        .tip-section {
+            background: var(--bg-card);
+            border-radius: var(--radius);
+            padding: 20px;
+            border: 1px solid var(--border);
+        }
+
+        .tip-section h3 {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        .tip-presets {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .tip-btn {
+            padding: 14px 8px;
+            border-radius: 10px;
+            border: 2px solid var(--border);
+            background: transparent;
+            color: var(--text);
+            font-family: inherit;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tip-btn:hover {
+            border-color: var(--accent);
+            background: rgba(0, 113, 227, 0.08);
+        }
+
+        .tip-btn.selected {
+            border-color: var(--accent);
+            background: rgba(0, 113, 227, 0.15);
+        }
+
+        .tip-percent {
+            display: block;
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 2px;
+        }
+
+        .tip-amount {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        /* Footer */
+        .footer {
+            padding: 16px 32px;
+            border-top: 1px solid var(--border);
+            text-align: center;
+        }
+
+        .footer-message {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        .footer-message strong { color: var(--cash-green); }
+
+        /* Idle Screen */
+        .idle-screen {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg);
+            z-index: 10;
+            transition: opacity 0.5s;
+        }
+
+        .idle-screen.hidden { opacity: 0; pointer-events: none; }
+
+        .idle-logo { font-size: 2.5rem; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px; }
+        .idle-subtitle { font-size: 1.1rem; color: var(--text-dim); margin-bottom: 40px; }
+
+        .idle-dual-message {
+            display: flex;
+            gap: 30px;
+            padding: 24px 40px;
+            border-radius: 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+        }
+
+        .idle-price-col { text-align: center; }
+        .idle-price-label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .idle-price-col.cash .idle-price-label { color: var(--cash-green); }
+        .idle-price-col.card .idle-price-label { color: var(--card-blue); }
+
+        .idle-price-desc {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        @media (max-width: 768px) {
+            .main { flex-direction: column; padding: 12px 16px; }
+            .summary-panel { width: 100%; }
+            .dual-amount { font-size: 1.3rem; }
+            .tip-presets { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Idle Screen (shown when no active order) -->
+    <div class="idle-screen" id="idle-screen">
+        <div class="idle-logo">Restaurant POS</div>
+        <div class="idle-subtitle">Welcome! Your order will appear here.</div>
+        <div class="idle-dual-message" id="idle-dual-message">
+            <div class="idle-price-col cash">
+                <span class="idle-price-label">Cash Price</span>
+                <span class="idle-price-desc">Pay with cash and save!</span>
+            </div>
+            <div class="idle-price-col card">
+                <span class="idle-price-label">Card Price</span>
+                <span class="idle-price-desc">Visa, Mastercard, Amex</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Order Display -->
+    <div class="header">
+        <h1>Your Order</h1>
+        <span class="clock" id="clock"></span>
+    </div>
+
+    <div class="main">
+        <div class="order-panel">
+            <div class="order-header">
+                <h2 id="order-title">Order Items</h2>
+                <span class="order-type" id="order-type">Dine-In</span>
+            </div>
+            <div class="items-list" id="items-list">
+                <div class="empty-order">No items yet</div>
+            </div>
+        </div>
+
+        <div class="summary-panel">
+            <div class="totals-card">
+                <div class="total-row subtotal">
+                    <span>Subtotal</span>
+                    <span id="subtotal">$0.00</span>
+                </div>
+                <div class="adjustment-row discount" id="discount-row" style="display:none">
+                    <span id="adj-label">Cash Discount (4%)</span>
+                    <span id="adj-amount">-$0.00</span>
+                </div>
+                <div class="total-row">
+                    <span>Tax</span>
+                    <span id="tax">$0.00</span>
+                </div>
+                <div class="total-row grand-total">
+                    <span>Total</span>
+                    <span id="total">$0.00</span>
+                </div>
+            </div>
+
+            <div class="dual-display" id="dual-display">
+                <div class="dual-box cash">
+                    <span class="dual-label">Cash</span>
+                    <span class="dual-amount" id="cash-total">$0.00</span>
+                    <span class="dual-savings" id="cash-savings"></span>
+                </div>
+                <div class="dual-box card">
+                    <span class="dual-label">Card</span>
+                    <span class="dual-amount" id="card-total">$0.00</span>
+                </div>
+            </div>
+
+            <div class="tip-section" id="tip-section" style="display:none">
+                <h3>Add a Tip</h3>
+                <div class="tip-presets" id="tip-presets">
+                    <button class="tip-btn" data-percent="15">
+                        <span class="tip-percent">15%</span>
+                        <span class="tip-amount" id="tip-15">$0.00</span>
+                    </button>
+                    <button class="tip-btn" data-percent="18">
+                        <span class="tip-percent">18%</span>
+                        <span class="tip-amount" id="tip-18">$0.00</span>
+                    </button>
+                    <button class="tip-btn" data-percent="20">
+                        <span class="tip-percent">20%</span>
+                        <span class="tip-amount" id="tip-20">$0.00</span>
+                    </button>
+                    <button class="tip-btn" data-percent="25">
+                        <span class="tip-percent">25%</span>
+                        <span class="tip-amount" id="tip-25">$0.00</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p class="footer-message" id="footer-message">
+            Pay with <strong>cash</strong> and save! Ask your server about our cash discount program.
+        </p>
+    </div>
+
+    <script>
+    const CONFIG = {
+        apiBaseUrl: '/api',
+        pollInterval: 2000,
+        cashDiscount: {
+            enabled: true,
+            mode: 'CASH_DISCOUNT',
+            rate: 4.0,
+        },
+        taxRate: 8.875
+    };
+
+    let currentTicketId = null;
+    let lastItemCount = 0;
+
+    function $(sel) { return document.querySelector(sel); }
+    function $$(sel) { return document.querySelectorAll(sel); }
+    function fmt(n) { return '$' + parseFloat(n).toFixed(2); }
+
+    // Clock
+    function updateClock() {
+        const now = new Date();
+        $('#clock').textContent = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Get dual prices
+    function getDualPrices(price) {
+        if (!CONFIG.cashDiscount.enabled) return [price, price];
+        const rate = CONFIG.cashDiscount.rate / 100;
+        if (CONFIG.cashDiscount.mode === 'CASH_DISCOUNT') {
+            return [price * (1 - rate), price];
+        } else {
+            return [price, price * (1 + rate)];
+        }
+    }
+
+    // Display items on screen
+    function displayOrder(items, orderType) {
+        const list = $('#items-list');
+
+        if (!items || items.length === 0) {
+            list.innerHTML = '<div class="empty-order">No items yet</div>';
+            $('#idle-screen').classList.remove('hidden');
+            return;
+        }
+
+        $('#idle-screen').classList.add('hidden');
+        $('#order-type').textContent = orderType || 'Dine-In';
+
+        // Only rebuild if item count changed (for animation)
+        if (items.length !== lastItemCount) {
+            list.innerHTML = '';
+            lastItemCount = items.length;
+        } else {
+            list.innerHTML = '';
+        }
+
+        let subtotal = 0;
+
+        items.forEach(item => {
+            const lineTotal = item.price * item.qty;
+            subtotal += lineTotal;
+            const [cashPrice, cardPrice] = getDualPrices(item.price * item.qty);
+
+            const el = document.createElement('div');
+            el.className = 'item-row';
+            el.innerHTML = `
+                <span class="item-qty">${item.qty}</span>
+                <span class="item-name">${item.name}</span>
+                <div class="item-prices">
+                    <span class="item-price-main">${fmt(lineTotal)}</span>
+                    ${CONFIG.cashDiscount.enabled ? `
+                        <div class="item-price-dual">
+                            <span class="price-cash">${fmt(cashPrice)}</span>
+                            <span class="price-card">${fmt(cardPrice)}</span>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+            list.appendChild(el);
+        });
+
+        const tax = subtotal * (CONFIG.taxRate / 100);
+        const total = subtotal + tax;
+        const rate = CONFIG.cashDiscount.rate / 100;
+
+        let cashTotal = total;
+        let cardTotal = total;
+        let savings = 0;
+
+        if (CONFIG.cashDiscount.enabled) {
+            if (CONFIG.cashDiscount.mode === 'CASH_DISCOUNT') {
+                cashTotal = total * (1 - rate);
+                savings = total * rate;
+            } else {
+                cardTotal = total * (1 + rate);
+                savings = total * rate;
+            }
+        }
+
+        $('#subtotal').textContent = fmt(subtotal);
+        $('#tax').textContent = fmt(tax);
+        $('#total').textContent = fmt(total);
+        $('#cash-total').textContent = fmt(cashTotal);
+        $('#card-total').textContent = fmt(cardTotal);
+        $('#cash-savings').textContent = savings > 0 ? 'Save ' + fmt(savings) : '';
+
+        if (CONFIG.cashDiscount.enabled) {
+            if (CONFIG.cashDiscount.mode === 'CASH_DISCOUNT') {
+                $('#discount-row').style.display = 'flex';
+                $('#adj-label').textContent = 'Cash Discount (' + CONFIG.cashDiscount.rate + '%)';
+                $('#adj-amount').textContent = '-' + fmt(total * rate);
+                $('#discount-row').className = 'adjustment-row discount';
+            } else {
+                $('#discount-row').style.display = 'flex';
+                $('#adj-label').textContent = 'Non-Cash Adjustment (' + CONFIG.cashDiscount.rate + '%)';
+                $('#adj-amount').textContent = '+' + fmt(total * rate);
+                $('#discount-row').className = 'adjustment-row surcharge';
+            }
+        }
+
+        // Update tip presets
+        const tipBase = subtotal;
+        [15, 18, 20, 25].forEach(pct => {
+            const tipEl = $(`#tip-${pct}`);
+            if (tipEl) tipEl.textContent = fmt(tipBase * pct / 100);
+        });
+    }
+
+    // Tip button handlers
+    $$('.tip-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            $$('.tip-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+        });
+    });
+
+    // Listen for messages from the POS (via BroadcastChannel or postMessage)
+    const channel = new BroadcastChannel('pos-customer-display');
+    channel.onmessage = (event) => {
+        const data = event.data;
+        if (data.type === 'order-update') {
+            displayOrder(data.items, data.orderType);
+        } else if (data.type === 'payment-start') {
+            $('#tip-section').style.display = 'block';
+        } else if (data.type === 'payment-complete') {
+            $('#tip-section').style.display = 'none';
+            displayOrder([], null);
+        } else if (data.type === 'config-update') {
+            Object.assign(CONFIG.cashDiscount, data.config);
+        }
+    };
+
+    // Also accept postMessage from parent (if in iframe)
+    window.addEventListener('message', (event) => {
+        const data = event.data;
+        if (data && data.type === 'order-update') {
+            displayOrder(data.items, data.orderType);
+        }
+    });
+
+    // Initialize
+    displayOrder([], null);
+    </script>
+</body>
+</html>
