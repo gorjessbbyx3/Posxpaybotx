@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#0071e3">
+    <link rel="manifest" href="manifest.json">
     <title>POS Terminal - Restaurant POS</title>
     <link rel="stylesheet" href="css/pos.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -271,46 +273,111 @@
         <div id="reports-view" class="main-view">
             <div class="reports-container">
                 <div class="reports-header">
-                    <h3>Daily Report</h3>
+                    <h3>Reports</h3>
+                    <div class="reports-tabs">
+                        <button class="report-tab active" data-report="summary">Summary</button>
+                        <button class="report-tab" data-report="hourly">Hourly</button>
+                        <button class="report-tab" data-report="items">Item Mix</button>
+                        <button class="report-tab" data-report="labor">Labor</button>
+                        <button class="report-tab" data-report="refunds">Refunds</button>
+                    </div>
                     <div class="reports-date">
                         <input type="date" id="report-date" class="report-date-input">
                         <button class="btn-refresh" id="btn-refresh-report">Refresh</button>
                     </div>
                 </div>
-                <div class="reports-grid">
-                    <div class="report-card primary">
-                        <span class="report-card-label">Total Sales</span>
-                        <span class="report-card-value" id="report-total-sales">$0.00</span>
-                    </div>
-                    <div class="report-card">
-                        <span class="report-card-label">Tickets</span>
-                        <span class="report-card-value" id="report-ticket-count">0</span>
-                    </div>
-                    <div class="report-card">
-                        <span class="report-card-label">Avg Ticket</span>
-                        <span class="report-card-value" id="report-avg-ticket">$0.00</span>
-                    </div>
-                    <div class="report-card success">
-                        <span class="report-card-label">Cash Sales</span>
-                        <span class="report-card-value" id="report-cash-sales">$0.00</span>
-                    </div>
-                    <div class="report-card accent">
-                        <span class="report-card-label">Card Sales</span>
-                        <span class="report-card-value" id="report-card-sales">$0.00</span>
-                    </div>
-                    <div class="report-card">
-                        <span class="report-card-label">Tax Collected</span>
-                        <span class="report-card-value" id="report-tax">$0.00</span>
-                    </div>
-                    <div class="report-card warning">
-                        <span class="report-card-label">Discounts</span>
-                        <span class="report-card-value" id="report-discounts">$0.00</span>
-                    </div>
-                    <div class="report-card">
-                        <span class="report-card-label">Tips</span>
-                        <span class="report-card-value" id="report-tips">$0.00</span>
+
+                <!-- Summary Report -->
+                <div class="report-panel active" id="report-summary">
+                    <div class="reports-grid">
+                        <div class="report-card primary">
+                            <span class="report-card-label">Total Sales</span>
+                            <span class="report-card-value" id="report-total-sales">$0.00</span>
+                        </div>
+                        <div class="report-card">
+                            <span class="report-card-label">Tickets</span>
+                            <span class="report-card-value" id="report-ticket-count">0</span>
+                        </div>
+                        <div class="report-card">
+                            <span class="report-card-label">Avg Ticket</span>
+                            <span class="report-card-value" id="report-avg-ticket">$0.00</span>
+                        </div>
+                        <div class="report-card success">
+                            <span class="report-card-label">Cash Sales</span>
+                            <span class="report-card-value" id="report-cash-sales">$0.00</span>
+                        </div>
+                        <div class="report-card accent">
+                            <span class="report-card-label">Card Sales</span>
+                            <span class="report-card-value" id="report-card-sales">$0.00</span>
+                        </div>
+                        <div class="report-card">
+                            <span class="report-card-label">Tax Collected</span>
+                            <span class="report-card-value" id="report-tax">$0.00</span>
+                        </div>
+                        <div class="report-card warning">
+                            <span class="report-card-label">Discounts</span>
+                            <span class="report-card-value" id="report-discounts">$0.00</span>
+                        </div>
+                        <div class="report-card">
+                            <span class="report-card-label">Tips</span>
+                            <span class="report-card-value" id="report-tips">$0.00</span>
+                        </div>
+                        <div class="report-card">
+                            <span class="report-card-label">Refunds</span>
+                            <span class="report-card-value" id="report-refunds">$0.00</span>
+                        </div>
+                        <div class="report-card">
+                            <span class="report-card-label">Net Sales</span>
+                            <span class="report-card-value" id="report-net-sales">$0.00</span>
+                        </div>
                     </div>
                 </div>
+
+                <!-- Hourly Report -->
+                <div class="report-panel" id="report-hourly">
+                    <div class="hourly-chart" id="hourly-chart">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Item Mix Report -->
+                <div class="report-panel" id="report-items">
+                    <table class="report-table" id="item-mix-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Qty Sold</th>
+                                <th>Revenue</th>
+                                <th>% of Sales</th>
+                            </tr>
+                        </thead>
+                        <tbody id="item-mix-body"></tbody>
+                    </table>
+                </div>
+
+                <!-- Labor Report -->
+                <div class="report-panel" id="report-labor">
+                    <table class="report-table" id="labor-table">
+                        <thead>
+                            <tr>
+                                <th>Employee</th>
+                                <th>Role</th>
+                                <th>Hours</th>
+                                <th>Sales</th>
+                                <th>Tips</th>
+                            </tr>
+                        </thead>
+                        <tbody id="labor-body"></tbody>
+                    </table>
+                </div>
+
+                <!-- Refunds Report -->
+                <div class="report-panel" id="report-refunds-panel">
+                    <div id="refunds-list" class="refunds-list">
+                        <p style="color: var(--text-muted); text-align: center; padding: 20px;">No refunds today</p>
+                    </div>
+                </div>
+
                 <div class="report-actions">
                     <button class="report-action-btn" id="btn-settle-batch">Settle Batch</button>
                     <button class="report-action-btn" id="btn-print-report">Print Report</button>

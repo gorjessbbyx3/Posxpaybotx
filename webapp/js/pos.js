@@ -902,11 +902,164 @@ $('#btn-send').addEventListener('click', () => {
     populateKitchen();
 });
 
+// ==========================================
+// Hold / Park Order System
+// ==========================================
+const heldOrders = [];
+
 $('#btn-hold').addEventListener('click', () => {
-    if (state.ticket.items.length === 0) return;
-    showToast('Order #' + state.ticket.id + ' held');
+    if (state.ticket.items.length === 0) {
+        // If nothing in current ticket, show held orders to recall
+        if (heldOrders.length > 0) {
+            openHeldOrdersModal();
+        } else {
+            showToast('No items to hold', 'warning');
+        }
+        return;
+    }
+
+    // Hold current ticket
+    heldOrders.push({
+        id: state.ticket.id,
+        type: state.ticket.type,
+        items: state.ticket.items.map(i => ({ ...i })),
+        table: state.ticket.table,
+        server: state.currentUser,
+        discount: state.ticket.discount,
+        heldAt: new Date(),
+        note: ''
+    });
+
+    showToast('Order #' + state.ticket.id + ' held (' + heldOrders.length + ' held)');
+    updateHeldBadge();
     newTicket();
 });
+
+function updateHeldBadge() {
+    let badge = document.getElementById('held-badge');
+    if (heldOrders.length > 0) {
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.id = 'held-badge';
+            badge.className = 'held-badge';
+            const holdBtn = $('#btn-hold');
+            holdBtn.style.position = 'relative';
+            holdBtn.appendChild(badge);
+        }
+        badge.textContent = heldOrders.length;
+        badge.style.display = 'inline-flex';
+    } else if (badge) {
+        badge.style.display = 'none';
+    }
+}
+
+function openHeldOrdersModal() {
+    let modal = document.getElementById('held-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'held-modal';
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content" style="width: min(500px, 95vw);">
+                <div class="modal-header">
+                    <h3>Held Orders</h3>
+                    <button class="modal-close" id="close-held">&times;</button>
+                </div>
+                <div id="held-body" style="padding: 16px; max-height: 60vh; overflow-y: auto;"></div>
+                <div style="padding: 12px 16px; border-top: 1px solid var(--border-light);">
+                    <button class="btn-cancel" id="held-close-btn" style="width: 100%;">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        document.getElementById('close-held').addEventListener('click', () => modal.classList.remove('active'));
+        document.getElementById('held-close-btn').addEventListener('click', () => modal.classList.remove('active'));
+    }
+
+    const body = document.getElementById('held-body');
+    if (heldOrders.length === 0) {
+        body.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 20px;">No held orders</p>';
+    } else {
+        body.innerHTML = heldOrders.map((order, idx) => {
+            const elapsed = Math.floor((Date.now() - new Date(order.heldAt).getTime()) / 60000);
+            const itemCount = order.items.reduce((s, i) => s + i.qty, 0);
+            const total = order.items.reduce((s, i) => s + i.price * i.qty, 0);
+            return `
+                <div class="held-card" style="padding: 12px; border: 1px solid var(--border-light); border-radius: 10px; margin-bottom: 8px; background: var(--bg-primary);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-weight: 700;">#${order.id} - ${order.type}</span>
+                        <span style="font-size: 0.8rem; color: var(--warning); font-weight: 600;">${elapsed}m ago</span>
+                    </div>
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 6px;">
+                        ${order.server} &bull; ${itemCount} items &bull; ${formatCurrency(total)}
+                        ${order.table ? ' &bull; Table ' + order.table : ''}
+                    </div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
+                        ${order.items.slice(0, 3).map(i => (i.qty > 1 ? i.qty + 'x ' : '') + i.name).join(', ')}
+                        ${order.items.length > 3 ? '...' : ''}
+                    </div>
+                    <div style="display: flex; gap: 6px;">
+                        <button class="btn-confirm" style="flex: 1; padding: 8px;" onclick="recallHeldOrder(${idx})">Recall</button>
+                        <button class="btn-cancel" style="flex: 0 0 auto; padding: 8px 14px;" onclick="deleteHeldOrder(${idx})">Discard</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    modal.classList.add('active');
+}
+
+function recallHeldOrder(idx) {
+    const order = heldOrders[idx];
+    if (!order) return;
+
+    // If current ticket has items, hold it first
+    if (state.ticket.items.length > 0) {
+        heldOrders.push({
+            id: state.ticket.id,
+            type: state.ticket.type,
+            items: state.ticket.items.map(i => ({ ...i })),
+            table: state.ticket.table,
+            server: state.currentUser,
+            discount: state.ticket.discount,
+            heldAt: new Date()
+        });
+    }
+
+    // Recall the held order
+    state.ticket = {
+        id: order.id,
+        type: order.type,
+        items: order.items.map(i => ({ ...i })),
+        table: order.table,
+        server: order.server,
+        discount: order.discount
+    };
+
+    if (order.discount) {
+        appliedDiscount = { ...order.discount };
+    }
+
+    heldOrders.splice(idx, 1);
+    updateHeldBadge();
+    updateTicketDisplay();
+
+    const modal = document.getElementById('held-modal');
+    if (modal) modal.classList.remove('active');
+
+    showToast('Order #' + order.id + ' recalled from hold');
+}
+window.recallHeldOrder = recallHeldOrder;
+
+function deleteHeldOrder(idx) {
+    if (!confirm('Discard held order?')) return;
+    heldOrders.splice(idx, 1);
+    updateHeldBadge();
+    openHeldOrdersModal(); // Refresh display
+    showToast('Held order discarded');
+}
+window.deleteHeldOrder = deleteHeldOrder;
 
 $('#btn-split').addEventListener('click', () => {
     showToast('Split check feature', 'warning');
@@ -2277,6 +2430,9 @@ populateTicketsList = function() {
                 ${ticket.status === 'open' ? `
                     <button class="ticket-action-btn void" onclick="voidTicket(${ticket.id})">Void</button>
                 ` : ''}
+                ${ticket.status === 'paid' ? `
+                    <button class="ticket-action-btn void" onclick="refundTicket(${ticket.id})">Refund</button>
+                ` : ''}
                 <button class="ticket-action-btn reprint" onclick="reprintTicket(${ticket.id})">Reprint</button>
                 <button class="ticket-action-btn recall" onclick="recallTicket(${ticket.id})">Recall</button>
             </div>
@@ -2320,6 +2476,159 @@ function voidTicket(ticketId) {
     }
 }
 window.voidTicket = voidTicket;
+
+// ==========================================
+// Refund Processing System
+// ==========================================
+function refundTicket(ticketId) {
+    const ticket = state.allTickets.find(t => t.id === ticketId);
+    if (!ticket) {
+        showToast('Ticket not found', 'error');
+        return;
+    }
+
+    // Check permissions
+    const perms = ROLE_PERMISSIONS[state.currentRole] || {};
+    if (!perms.refund) {
+        showToast('Manager authorization required for refunds', 'error');
+        return;
+    }
+
+    if (ticket.status !== 'paid') {
+        showToast('Can only refund paid tickets', 'warning');
+        return;
+    }
+
+    openRefundModal(ticket);
+}
+window.refundTicket = refundTicket;
+
+function openRefundModal(ticket) {
+    let modal = document.getElementById('refund-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'refund-modal';
+        modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-content" style="width: min(440px, 95vw);">
+                <div class="modal-header">
+                    <h3 id="refund-title">Process Refund</h3>
+                    <button class="modal-close" id="close-refund">&times;</button>
+                </div>
+                <div id="refund-body" style="padding: 16px;"></div>
+                <div style="padding: 12px 16px; display: flex; gap: 8px; border-top: 1px solid var(--border-light);">
+                    <button class="btn-cancel" id="refund-cancel" style="flex:1">Cancel</button>
+                    <button class="btn-confirm" id="refund-confirm" style="flex:1; background: var(--danger);">Process Refund</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        document.getElementById('close-refund').addEventListener('click', () => modal.classList.remove('active'));
+        document.getElementById('refund-cancel').addEventListener('click', () => modal.classList.remove('active'));
+    }
+
+    const refundBody = document.getElementById('refund-body');
+    refundBody.innerHTML = `
+        <div style="margin-bottom: 12px;">
+            <p style="font-weight: 600; margin-bottom: 4px;">Ticket #${ticket.id}</p>
+            <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                ${ticket.server} &bull; ${ticket.type} &bull; Paid: ${ticket.paymentMethod}
+            </p>
+        </div>
+        <div style="margin-bottom: 12px;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 4px;">Refund Type</label>
+            <div style="display: flex; gap: 8px;">
+                <button class="refund-type-btn active" data-type="full" style="flex:1; padding: 10px; border-radius: 8px; border: 2px solid var(--danger); background: var(--danger-bg); color: var(--danger); font-weight: 600; cursor: pointer;">Full Refund<br><small>${formatCurrency(ticket.total)}</small></button>
+                <button class="refund-type-btn" data-type="partial" style="flex:1; padding: 10px; border-radius: 8px; border: 2px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-weight: 600; cursor: pointer;">Partial Refund</button>
+            </div>
+        </div>
+        <div id="partial-refund-section" style="display: none; margin-bottom: 12px;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 4px;">Refund Amount</label>
+            <input type="number" id="refund-amount-input" step="0.01" min="0.01" max="${ticket.total.toFixed(2)}" value="${ticket.total.toFixed(2)}" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-size: 1rem;">
+        </div>
+        <div style="margin-bottom: 12px;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 4px;">Reason</label>
+            <select id="refund-reason" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font-size: 0.9rem;">
+                <option value="Customer complaint">Customer Complaint</option>
+                <option value="Wrong order">Wrong Order</option>
+                <option value="Food quality">Food Quality Issue</option>
+                <option value="Overcharge">Overcharge</option>
+                <option value="Duplicate charge">Duplicate Charge</option>
+                <option value="Other">Other</option>
+            </select>
+        </div>
+    `;
+
+    // Toggle full/partial
+    refundBody.querySelectorAll('.refund-type-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            refundBody.querySelectorAll('.refund-type-btn').forEach(b => {
+                b.style.borderColor = 'var(--border-color)';
+                b.style.background = 'var(--bg-primary)';
+                b.style.color = 'var(--text-primary)';
+                b.classList.remove('active');
+            });
+            btn.style.borderColor = 'var(--danger)';
+            btn.style.background = 'var(--danger-bg)';
+            btn.style.color = 'var(--danger)';
+            btn.classList.add('active');
+
+            const partial = document.getElementById('partial-refund-section');
+            if (btn.dataset.type === 'partial') {
+                partial.style.display = 'block';
+            } else {
+                partial.style.display = 'none';
+            }
+        });
+    });
+
+    // Confirm handler - rebind each time
+    const confirmBtn = document.getElementById('refund-confirm');
+    const newConfirm = confirmBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(newConfirm, confirmBtn);
+
+    newConfirm.addEventListener('click', () => {
+        const isPartial = refundBody.querySelector('.refund-type-btn.active')?.dataset.type === 'partial';
+        let refundAmount = ticket.total;
+        if (isPartial) {
+            refundAmount = parseFloat(document.getElementById('refund-amount-input').value);
+            if (isNaN(refundAmount) || refundAmount <= 0 || refundAmount > ticket.total) {
+                showToast('Invalid refund amount', 'error');
+                return;
+            }
+        }
+
+        const reason = document.getElementById('refund-reason').value;
+
+        // Record refund
+        refundHistory.push({
+            ticketId: ticket.id,
+            amount: refundAmount,
+            reason: reason,
+            method: ticket.paymentMethod,
+            processedBy: state.currentUser,
+            time: new Date().toISOString(),
+            type: isPartial ? 'partial' : 'full'
+        });
+
+        // Update ticket status
+        if (!isPartial) {
+            ticket.status = 'refunded';
+        } else {
+            ticket.refundedAmount = (ticket.refundedAmount || 0) + refundAmount;
+        }
+
+        modal.classList.remove('active');
+        showToast('Refund of ' + formatCurrency(refundAmount) + ' processed for ticket #' + ticket.id);
+        populateTicketsList();
+    });
+
+    modal.classList.add('active');
+}
+
+// Add refund button to paid ticket cards
+const _origTicketsForRefund = populateTicketsList;
 
 function reprintTicket(ticketId) {
     const ticket = state.allTickets.find(t => t.id === ticketId);
@@ -2518,8 +2827,33 @@ function printReceipt(ticket) {
 }
 
 // ==========================================
-// Enhanced Reports with Tips Tracking
+// Enhanced Reports System
 // ==========================================
+let activeReportTab = 'summary';
+const refundHistory = [];
+
+// Report tab switching
+$$('.report-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+        $$('.report-tab').forEach(b => b.classList.remove('active'));
+        $$('.report-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        activeReportTab = btn.dataset.report;
+
+        const panelMap = {
+            'summary': 'report-summary',
+            'hourly': 'report-hourly',
+            'items': 'report-items',
+            'labor': 'report-labor',
+            'refunds': 'report-refunds-panel'
+        };
+        const panel = document.getElementById(panelMap[activeReportTab]);
+        if (panel) panel.classList.add('active');
+
+        populateReports();
+    });
+});
+
 const _origPopulateReports = populateReports;
 populateReports = function() {
     const today = new Date().toISOString().split('T')[0];
@@ -2529,29 +2863,29 @@ populateReports = function() {
     let totalTax = 0;
     let totalTips = 0;
     let totalDiscounts = 0;
+    let totalRefunds = 0;
     let cashSales = 0;
     let cardSales = 0;
     let ticketCount = state.allTickets.length;
     const rate = CONFIG.cashDiscount.rate / 100;
 
     state.allTickets.forEach(t => {
+        if (t.status === 'voided' || t.status === 'refunded') return;
         totalSales += t.total;
         totalTax += t.tax;
         if (t.tip) totalTips += t.tip;
+        if (t.discount) totalDiscounts += t.discount.amount || 0;
         if (t.paymentMethod === 'cash') {
             cashSales += t.total;
-            if (CONFIG.cashDiscount.enabled && CONFIG.cashDiscount.mode === 'CASH_DISCOUNT') {
-                totalDiscounts += t.total * rate;
-            }
-        } else {
+        } else if (t.paymentMethod) {
             cardSales += t.total;
-            if (CONFIG.cashDiscount.enabled && CONFIG.cashDiscount.mode === 'CARD_SURCHARGE') {
-                totalDiscounts -= t.total * rate; // surcharge is negative discount
-            }
         }
     });
 
+    refundHistory.forEach(r => { totalRefunds += r.amount; });
+
     const avgTicket = ticketCount > 0 ? totalSales / ticketCount : 0;
+    const netSales = totalSales - totalRefunds;
 
     $('#report-total-sales').textContent = formatCurrency(totalSales);
     $('#report-ticket-count').textContent = ticketCount;
@@ -2561,6 +2895,184 @@ populateReports = function() {
     $('#report-tax').textContent = formatCurrency(totalTax);
     $('#report-discounts').textContent = formatCurrency(Math.abs(totalDiscounts));
     $('#report-tips').textContent = formatCurrency(totalTips);
+
+    const refundsEl = document.getElementById('report-refunds');
+    if (refundsEl) refundsEl.textContent = formatCurrency(totalRefunds);
+    const netEl = document.getElementById('report-net-sales');
+    if (netEl) netEl.textContent = formatCurrency(netSales);
+
+    // Populate sub-reports
+    if (activeReportTab === 'hourly') populateHourlyReport();
+    if (activeReportTab === 'items') populateItemMixReport();
+    if (activeReportTab === 'labor') populateLaborReport();
+    if (activeReportTab === 'refunds') populateRefundsReport();
+};
+
+// Hourly breakdown chart
+function populateHourlyReport() {
+    const chart = document.getElementById('hourly-chart');
+    if (!chart) return;
+
+    const hourlyData = {};
+    for (let h = 6; h <= 23; h++) {
+        hourlyData[h] = { sales: 0, tickets: 0 };
+    }
+
+    state.allTickets.forEach(t => {
+        if (!t.time || t.status === 'voided') return;
+        const hour = new Date(t.time).getHours();
+        if (hourlyData[hour]) {
+            hourlyData[hour].sales += t.total;
+            hourlyData[hour].tickets++;
+        }
+    });
+
+    const maxSales = Math.max(...Object.values(hourlyData).map(h => h.sales), 1);
+
+    chart.innerHTML = `
+        <div class="hourly-chart-header">
+            <span>Hourly Sales Breakdown</span>
+        </div>
+        <div class="hourly-bars">
+            ${Object.entries(hourlyData).map(([hour, data]) => {
+                const pct = (data.sales / maxSales) * 100;
+                const label = parseInt(hour) > 12 ? (parseInt(hour) - 12) + 'p' : (parseInt(hour) === 12 ? '12p' : hour + 'a');
+                return `
+                    <div class="hourly-bar-col">
+                        <div class="hourly-bar-wrapper">
+                            <div class="hourly-bar" style="height: ${Math.max(pct, 2)}%">
+                                ${data.sales > 0 ? '<span class="hourly-bar-value">' + formatCurrency(data.sales) + '</span>' : ''}
+                            </div>
+                        </div>
+                        <span class="hourly-bar-label">${label}</span>
+                        <span class="hourly-bar-count">${data.tickets}</span>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
+// Item mix report
+function populateItemMixReport() {
+    const tbody = document.getElementById('item-mix-body');
+    if (!tbody) return;
+
+    const itemMap = {};
+    state.allTickets.forEach(t => {
+        if (t.status === 'voided') return;
+        t.items.forEach(item => {
+            const key = item.name;
+            if (!itemMap[key]) {
+                itemMap[key] = { name: item.name, qty: 0, revenue: 0 };
+            }
+            itemMap[key].qty += item.qty;
+            itemMap[key].revenue += item.price * item.qty;
+        });
+    });
+
+    const sorted = Object.values(itemMap).sort((a, b) => b.revenue - a.revenue);
+    const totalRev = sorted.reduce((s, i) => s + i.revenue, 0);
+
+    tbody.innerHTML = sorted.length === 0
+        ? '<tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 20px;">No items sold yet</td></tr>'
+        : sorted.map(item => `
+            <tr>
+                <td>${item.name}</td>
+                <td style="text-align:right">${item.qty}</td>
+                <td style="text-align:right">${formatCurrency(item.revenue)}</td>
+                <td style="text-align:right">
+                    <div class="item-mix-bar-container">
+                        <div class="item-mix-bar" style="width: ${totalRev > 0 ? (item.revenue / totalRev * 100) : 0}%"></div>
+                        <span>${totalRev > 0 ? (item.revenue / totalRev * 100).toFixed(1) : '0.0'}%</span>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+}
+
+// Labor report
+function populateLaborReport() {
+    const tbody = document.getElementById('labor-body');
+    if (!tbody) return;
+
+    const laborData = {};
+
+    // Collect time clock data
+    timeClock.forEach(record => {
+        if (!laborData[record.empId]) {
+            laborData[record.empId] = {
+                name: record.empName,
+                role: record.role,
+                hours: 0,
+                sales: 0,
+                tips: 0
+            };
+        }
+        if (record.clockOut) {
+            laborData[record.empId].hours += (record.clockOut - record.clockIn) / 3600000;
+        } else {
+            // Still clocked in
+            laborData[record.empId].hours += (new Date() - record.clockIn) / 3600000;
+        }
+    });
+
+    // Collect sales/tips per server
+    state.allTickets.forEach(t => {
+        if (t.status === 'voided') return;
+        const serverName = t.server;
+        // Find matching labor entry
+        const entry = Object.values(laborData).find(l => l.name === serverName);
+        if (entry) {
+            entry.sales += t.total;
+            if (t.tip) entry.tips += t.tip;
+        } else {
+            // Server not clocked in but has sales
+            const key = 'unk_' + serverName;
+            if (!laborData[key]) {
+                laborData[key] = { name: serverName || 'Unknown', role: 'N/A', hours: 0, sales: 0, tips: 0 };
+            }
+            laborData[key].sales += t.total;
+            if (t.tip) laborData[key].tips += t.tip;
+        }
+    });
+
+    const entries = Object.values(laborData);
+    tbody.innerHTML = entries.length === 0
+        ? '<tr><td colspan="5" style="text-align:center; color: var(--text-muted); padding: 20px;">No labor data</td></tr>'
+        : entries.map(e => `
+            <tr>
+                <td>${e.name}</td>
+                <td><span class="role-badge-sm">${e.role}</span></td>
+                <td style="text-align:right">${e.hours.toFixed(2)}h</td>
+                <td style="text-align:right">${formatCurrency(e.sales)}</td>
+                <td style="text-align:right">${formatCurrency(e.tips)}</td>
+            </tr>
+        `).join('');
+}
+
+// Refunds report
+function populateRefundsReport() {
+    const list = document.getElementById('refunds-list');
+    if (!list) return;
+
+    if (refundHistory.length === 0) {
+        list.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">No refunds today</p>';
+        return;
+    }
+
+    list.innerHTML = refundHistory.map(r => `
+        <div class="refund-card">
+            <div class="refund-card-header">
+                <span>#${r.ticketId}</span>
+                <span class="refund-amount">-${formatCurrency(r.amount)}</span>
+            </div>
+            <div class="refund-card-details">
+                ${r.reason} &bull; ${r.method} &bull; ${new Date(r.time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                &bull; By: ${r.processedBy}
+            </div>
+        </div>
+    `).join('');
 };
 
 // ==========================================
@@ -2610,6 +3122,108 @@ document.getElementById('menu-open-drawer').addEventListener('click', () => {
 });
 
 // ==========================================
+// Data Persistence (localStorage)
+// ==========================================
+const STORAGE_KEY = 'pos_data';
+
+function saveState() {
+    try {
+        const data = {
+            allTickets: state.allTickets,
+            ticketCounter: state.ticketCounter,
+            heldOrders: heldOrders,
+            refundHistory: refundHistory,
+            timeClock: timeClock.map(r => ({
+                ...r,
+                clockIn: r.clockIn ? r.clockIn.toISOString() : null,
+                clockOut: r.clockOut ? r.clockOut.toISOString() : null
+            })),
+            savedAt: new Date().toISOString()
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (e) {
+        // Storage full or unavailable - silent fail
+    }
+}
+
+function loadState() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+
+        const data = JSON.parse(raw);
+
+        // Only restore if saved today (don't carry over stale data)
+        const savedDate = data.savedAt ? data.savedAt.split('T')[0] : null;
+        const today = new Date().toISOString().split('T')[0];
+        if (savedDate !== today) {
+            localStorage.removeItem(STORAGE_KEY);
+            return;
+        }
+
+        if (data.allTickets) {
+            state.allTickets = data.allTickets.map(t => ({
+                ...t,
+                time: t.time ? new Date(t.time) : null
+            }));
+        }
+        if (data.ticketCounter) state.ticketCounter = data.ticketCounter;
+        if (data.heldOrders) {
+            heldOrders.length = 0;
+            data.heldOrders.forEach(o => heldOrders.push({
+                ...o,
+                heldAt: o.heldAt ? new Date(o.heldAt) : new Date()
+            }));
+            updateHeldBadge();
+        }
+        if (data.refundHistory) {
+            refundHistory.length = 0;
+            data.refundHistory.forEach(r => refundHistory.push(r));
+        }
+        if (data.timeClock) {
+            timeClock.length = 0;
+            data.timeClock.forEach(r => timeClock.push({
+                ...r,
+                clockIn: r.clockIn ? new Date(r.clockIn) : null,
+                clockOut: r.clockOut ? new Date(r.clockOut) : null
+            }));
+        }
+    } catch (e) {
+        // Corrupted data - ignore
+    }
+}
+
+// Auto-save on key actions
+const _origUpdateTicketDisplayPersist = updateTicketDisplay;
+updateTicketDisplay = function() {
+    _origUpdateTicketDisplayPersist();
+    saveState();
+};
+
+const _origCompletePaymentPersist = completePayment;
+completePayment = function(total, method) {
+    _origCompletePaymentPersist(total, method);
+    saveState();
+};
+
+// Save periodically
+setInterval(saveState, 30000);
+
+// ==========================================
+// Service Worker Registration
+// ==========================================
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then(reg => {
+            // SW registered successfully
+        }).catch(() => {
+            // SW registration failed - app still works without it
+        });
+    });
+}
+
+// ==========================================
 // Initialize
 // ==========================================
+loadState();
 populateMenu();
