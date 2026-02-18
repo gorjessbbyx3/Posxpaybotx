@@ -96,6 +96,85 @@ const MENU = {
     ]
 };
 
+// ==========================================
+// Menu Modifier Groups
+// ==========================================
+const MODIFIERS = {
+    temperature: { label: 'Temperature', required: false, max: 1, options: [
+        { name: 'Rare', price: 0 }, { name: 'Medium Rare', price: 0 },
+        { name: 'Medium', price: 0 }, { name: 'Medium Well', price: 0 }, { name: 'Well Done', price: 0 }
+    ]},
+    protein: { label: 'Add Protein', required: false, max: 1, options: [
+        { name: 'Add Chicken', price: 4.99 }, { name: 'Add Shrimp', price: 6.99 },
+        { name: 'Add Steak', price: 7.99 }, { name: 'Add Salmon', price: 6.99 }
+    ]},
+    sides: { label: 'Side Choice', required: false, max: 2, options: [
+        { name: 'Fries', price: 0 }, { name: 'Coleslaw', price: 0 },
+        { name: 'Side Salad', price: 0 }, { name: 'Onion Rings', price: 1.50 },
+        { name: 'Sweet Potato Fries', price: 1.50 }, { name: 'Mac & Cheese', price: 2.00 }
+    ]},
+    extras: { label: 'Extras', required: false, max: 5, options: [
+        { name: 'Extra Cheese', price: 1.50 }, { name: 'Bacon', price: 2.00 },
+        { name: 'Avocado', price: 2.50 }, { name: 'Fried Egg', price: 1.50 },
+        { name: 'Jalapenos', price: 0.75 }, { name: 'Mushrooms', price: 1.00 }
+    ]},
+    sauce: { label: 'Sauce', required: false, max: 2, options: [
+        { name: 'Ranch', price: 0 }, { name: 'BBQ', price: 0 },
+        { name: 'Honey Mustard', price: 0 }, { name: 'Buffalo', price: 0 },
+        { name: 'Garlic Aioli', price: 0.50 }, { name: 'Truffle Mayo', price: 1.00 }
+    ]},
+    allergy: { label: 'Allergy / Special', required: false, max: 5, options: [
+        { name: 'No Gluten', price: 0 }, { name: 'No Dairy', price: 0 },
+        { name: 'No Nuts', price: 0 }, { name: 'No Onion', price: 0 },
+        { name: 'Extra Spicy', price: 0 }, { name: 'Mild', price: 0 }
+    ]}
+};
+
+// Map items to their available modifier groups
+const ITEM_MODIFIERS = {
+    // Burgers / sandwiches
+    1: ['temperature', 'extras', 'sides', 'sauce'],    // Cheeseburger
+    6: ['extras', 'sides', 'sauce'],                     // Club Sandwich
+    // Salads
+    2: ['protein', 'allergy'],                            // Caesar Salad
+    // Steaks
+    7: ['temperature', 'sides', 'sauce'],                // Steak Frites
+    20: ['temperature', 'sides', 'sauce'],               // NY Strip
+    25: ['temperature', 'sides', 'sauce'],               // Lamb Chops
+    // Chicken
+    3: ['sides', 'sauce', 'allergy'],                    // Grilled Chicken
+    22: ['sides', 'sauce'],                              // Chicken Parmesan
+    // Fish
+    4: ['sides', 'sauce', 'allergy'],                    // Fish & Chips
+    21: ['sides', 'sauce', 'allergy'],                   // Grilled Salmon
+    // Wings
+    11: ['sauce', 'extras'],                             // Wings
+    // Default for everything else
+    _default: ['allergy']
+};
+
+// ==========================================
+// Discount / Promo System
+// ==========================================
+const PROMO_CODES = {
+    'WELCOME10': { type: 'percent', value: 10, description: '10% off your order', minAmount: 0, oneTime: true },
+    'LUNCH5': { type: 'fixed', value: 5, description: '$5 off lunch', minAmount: 20 },
+    'HAPPY25': { type: 'percent', value: 25, description: '25% Happy Hour', minAmount: 0 },
+    'FREESHIP': { type: 'delivery', value: 0, description: 'Free delivery', minAmount: 15 },
+    'BOGO50': { type: 'percent', value: 50, description: '50% off (BOGO)', minAmount: 0 }
+};
+
+// Delivery fee schedule
+const DELIVERY_CONFIG = {
+    baseFee: 5.99,
+    freeDeliveryMin: 50.00,
+    distanceRates: [
+        { maxMiles: 3, fee: 0 },
+        { maxMiles: 5, fee: 2.00 },
+        { maxMiles: 10, fee: 5.00 }
+    ]
+};
+
 // Table data
 const TABLES = [];
 for (let i = 1; i <= 20; i++) {
@@ -325,18 +404,137 @@ function newTicket() {
 }
 
 function addToTicket(menuItem) {
-    const existing = state.ticket.items.find(i => i.id === menuItem.id);
-    if (existing) {
-        existing.qty++;
-    } else {
-        state.ticket.items.push({
-            ...menuItem,
-            qty: 1,
-            mods: []
-        });
+    // Check if item has modifiers
+    const modGroups = ITEM_MODIFIERS[menuItem.id] || ITEM_MODIFIERS._default;
+    if (modGroups && modGroups.length > 0 && modGroups[0] !== 'allergy') {
+        // Show modifier modal
+        openModifierModal(menuItem, modGroups);
+        return;
     }
+
+    // No important modifiers, add directly
+    addItemDirectly(menuItem, []);
+}
+
+function addItemDirectly(menuItem, selectedMods) {
+    // If no mods, check for existing item
+    if (selectedMods.length === 0) {
+        const existing = state.ticket.items.find(i => i.id === menuItem.id && i.mods.length === 0);
+        if (existing) {
+            existing.qty++;
+            updateTicketDisplay();
+            return;
+        }
+    }
+
+    const modPrice = selectedMods.reduce((sum, m) => sum + (m.price || 0), 0);
+    state.ticket.items.push({
+        ...menuItem,
+        price: menuItem.price + modPrice,
+        basePrice: menuItem.price,
+        qty: 1,
+        mods: selectedMods.map(m => m.name)
+    });
     updateTicketDisplay();
 }
+
+// ==========================================
+// Modifier Modal
+// ==========================================
+let pendingModItem = null;
+let pendingModSelections = {};
+
+function openModifierModal(menuItem, modGroupKeys) {
+    pendingModItem = menuItem;
+    pendingModSelections = {};
+
+    $('#modifier-item-name').textContent = menuItem.name + ' - Modifiers';
+
+    const body = $('#modifier-body');
+    body.innerHTML = '';
+
+    modGroupKeys.forEach(groupKey => {
+        const group = MODIFIERS[groupKey];
+        if (!group) return;
+
+        pendingModSelections[groupKey] = [];
+
+        const section = document.createElement('div');
+        section.className = 'modifier-group';
+        section.innerHTML = `
+            <div class="modifier-group-title">${group.label}${group.required ? ' *' : ''} ${group.max > 1 ? '(up to ' + group.max + ')' : ''}</div>
+            <div class="modifier-options" id="mod-group-${groupKey}">
+                ${group.options.map((opt, idx) => `
+                    <button class="modifier-option" data-group="${groupKey}" data-idx="${idx}">
+                        ${opt.name}${opt.price > 0 ? ' (+' + formatCurrency(opt.price) + ')' : ''}
+                    </button>
+                `).join('')}
+            </div>
+        `;
+        body.appendChild(section);
+    });
+
+    // Wire up modifier option buttons
+    body.querySelectorAll('.modifier-option').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const groupKey = btn.dataset.group;
+            const idx = parseInt(btn.dataset.idx);
+            const group = MODIFIERS[groupKey];
+            const opt = group.options[idx];
+
+            if (btn.classList.contains('selected')) {
+                btn.classList.remove('selected');
+                pendingModSelections[groupKey] = pendingModSelections[groupKey].filter(o => o.name !== opt.name);
+            } else {
+                if (group.max === 1) {
+                    // Single select - deselect others in group
+                    body.querySelectorAll(`[data-group="${groupKey}"]`).forEach(b => b.classList.remove('selected'));
+                    pendingModSelections[groupKey] = [opt];
+                } else if (pendingModSelections[groupKey].length < group.max) {
+                    pendingModSelections[groupKey].push(opt);
+                } else {
+                    showToast('Maximum ' + group.max + ' selections for ' + group.label, 'warning');
+                    return;
+                }
+                btn.classList.add('selected');
+            }
+        });
+    });
+
+    $('#modifier-modal').classList.add('active');
+}
+
+$('#modifier-confirm').addEventListener('click', () => {
+    if (!pendingModItem) return;
+
+    const allMods = [];
+    Object.values(pendingModSelections).forEach(selections => {
+        selections.forEach(opt => allMods.push(opt));
+    });
+
+    addItemDirectly(pendingModItem, allMods);
+    $('#modifier-modal').classList.remove('active');
+    pendingModItem = null;
+
+    const modNames = allMods.map(m => m.name).join(', ');
+    if (modNames) {
+        showToast(pendingModItem ? 'Added with: ' + modNames : 'Item added');
+    }
+});
+
+$('#modifier-cancel').addEventListener('click', () => {
+    // Add without modifiers
+    if (pendingModItem) {
+        addItemDirectly(pendingModItem, []);
+    }
+    $('#modifier-modal').classList.remove('active');
+    pendingModItem = null;
+});
+
+$('#close-modifier').addEventListener('click', () => {
+    $('#modifier-modal').classList.remove('active');
+    pendingModItem = null;
+});
 
 function removeFromTicket(index) {
     state.ticket.items.splice(index, 1);
@@ -386,19 +584,89 @@ function updateTicketDisplay() {
         container.appendChild(el);
     });
 
-    const tax = subtotal * (CONFIG.taxRate / 100);
-    const total = subtotal + tax;
-    updateTotals(subtotal, tax, total);
+    // Calculate discount
+    let discountAmount = 0;
+    if (state.ticket.discount) {
+        if (state.ticket.discount.type === 'percent') {
+            discountAmount = subtotal * (state.ticket.discount.value / 100);
+        } else {
+            discountAmount = Math.min(state.ticket.discount.value, subtotal);
+        }
+    }
+
+    const afterDiscount = subtotal - discountAmount;
+
+    // Delivery fee
+    const isDelivery = state.ticket.type === 'delivery';
+    const currentDeliveryFee = isDelivery ? calculateDeliveryFee(subtotal) : 0;
+    deliveryFee = currentDeliveryFee;
+
+    const tax = afterDiscount * (CONFIG.taxRate / 100);
+    const total = afterDiscount + tax + currentDeliveryFee;
+
+    updateTotals(subtotal, tax, total, discountAmount, currentDeliveryFee);
+
+    // Update delivery fee display
+    const feeEl = document.getElementById('delivery-fee-amount');
+    if (feeEl) feeEl.textContent = formatCurrency(currentDeliveryFee);
 }
 
 // Make functions global for onclick handlers
 window.updateItemQty = updateItemQty;
 window.removeFromTicket = removeFromTicket;
 
-function updateTotals(subtotal, tax, total) {
+function updateTotals(subtotal, tax, total, discountAmount, deliveryFeeAmt) {
+    discountAmount = discountAmount || 0;
+    deliveryFeeAmt = deliveryFeeAmt || 0;
+
     $('#subtotal').textContent = formatCurrency(subtotal);
     $('#tax-amount').textContent = formatCurrency(tax);
     $('#total-amount').textContent = formatCurrency(total);
+
+    // Show ticket discount row
+    const ticketDiscountRow = document.getElementById('ticket-discount-row');
+    if (discountAmount > 0) {
+        if (!ticketDiscountRow) {
+            const discRow = document.createElement('div');
+            discRow.id = 'ticket-discount-row';
+            discRow.className = 'summary-row';
+            discRow.innerHTML = `
+                <span id="ticket-discount-label" style="color: var(--cash-green)">Discount</span>
+                <span id="ticket-discount-amount" class="discount">-${formatCurrency(discountAmount)}</span>
+            `;
+            const taxRow = document.querySelector('.summary-row:nth-child(4)');
+            if (taxRow) taxRow.parentNode.insertBefore(discRow, taxRow);
+        } else {
+            ticketDiscountRow.querySelector('#ticket-discount-label').textContent =
+                state.ticket.discount ? state.ticket.discount.reason : 'Discount';
+            ticketDiscountRow.querySelector('#ticket-discount-amount').textContent =
+                '-' + formatCurrency(discountAmount);
+            ticketDiscountRow.style.display = 'flex';
+        }
+    } else if (ticketDiscountRow) {
+        ticketDiscountRow.style.display = 'none';
+    }
+
+    // Show delivery fee row
+    const deliveryRow = document.getElementById('delivery-fee-row');
+    if (deliveryFeeAmt > 0) {
+        if (!deliveryRow) {
+            const feeRow = document.createElement('div');
+            feeRow.id = 'delivery-fee-row';
+            feeRow.className = 'summary-row';
+            feeRow.innerHTML = `
+                <span>Delivery Fee</span>
+                <span>${formatCurrency(deliveryFeeAmt)}</span>
+            `;
+            const totalRow = document.querySelector('.summary-row.total');
+            if (totalRow) totalRow.parentNode.insertBefore(feeRow, totalRow);
+        } else {
+            deliveryRow.querySelector('span:last-child').textContent = formatCurrency(deliveryFeeAmt);
+            deliveryRow.style.display = 'flex';
+        }
+    } else if (deliveryRow) {
+        deliveryRow.style.display = 'none';
+    }
 
     // Dual pricing
     if (CONFIG.cashDiscount.enabled && CONFIG.cashDiscount.showDualPricing) {
@@ -432,9 +700,12 @@ function updateTotals(subtotal, tax, total) {
 }
 
 // ==========================================
-// Order Type
+// Order Type (base handler - overridden by delivery support)
 // ==========================================
+// Note: primary handler is in delivery support section
+$('#order-type-select').removeEventListener('change', () => {});
 $('#order-type-select').addEventListener('change', (e) => {
+    // handled by delivery support section
     state.ticket.type = e.target.value;
     updateTicketDisplay();
 });
@@ -492,7 +763,11 @@ $('#btn-split').addEventListener('click', () => {
 });
 
 $('#btn-discount').addEventListener('click', () => {
-    showToast('Discount dialog', 'warning');
+    if (state.ticket.items.length === 0) {
+        showToast('No items to discount', 'warning');
+        return;
+    }
+    openDiscountModal();
 });
 
 // ==========================================
@@ -915,6 +1190,295 @@ $('#split-confirm').addEventListener('click', () => {
     showToast('Check split applied');
     $('#split-modal').classList.remove('active');
 });
+
+// ==========================================
+// Discount / Promo System
+// ==========================================
+let appliedDiscount = null;
+let appliedPromo = null;
+let deliveryFee = 0;
+let deliveryAddress = '';
+
+function openDiscountModal() {
+    const modal = document.getElementById('discount-modal');
+    if (!modal) {
+        createDiscountModal();
+    }
+    document.getElementById('discount-modal').classList.add('active');
+    document.getElementById('promo-code-input').value = '';
+    document.getElementById('promo-result').textContent = '';
+    updateDiscountPreview();
+}
+
+function createDiscountModal() {
+    const modal = document.createElement('div');
+    modal.id = 'discount-modal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content discount-modal-content">
+            <div class="modal-header">
+                <h3>Discount / Promo</h3>
+                <button class="modal-close" id="close-discount">&times;</button>
+            </div>
+            <div class="discount-body">
+                <div class="discount-section">
+                    <h4 class="discount-section-title">Quick Discounts</h4>
+                    <div class="discount-quick-btns">
+                        <button class="discount-quick-btn" data-type="percent" data-value="5">5%</button>
+                        <button class="discount-quick-btn" data-type="percent" data-value="10">10%</button>
+                        <button class="discount-quick-btn" data-type="percent" data-value="15">15%</button>
+                        <button class="discount-quick-btn" data-type="percent" data-value="20">20%</button>
+                        <button class="discount-quick-btn" data-type="fixed" data-value="5">$5 Off</button>
+                        <button class="discount-quick-btn" data-type="fixed" data-value="10">$10 Off</button>
+                    </div>
+                </div>
+                <div class="discount-section">
+                    <h4 class="discount-section-title">Promo Code</h4>
+                    <div class="promo-input-row">
+                        <input type="text" id="promo-code-input" class="promo-code-input" placeholder="Enter promo code..." autocomplete="off">
+                        <button class="btn-apply-promo" id="btn-apply-promo">Apply</button>
+                    </div>
+                    <p class="promo-result" id="promo-result"></p>
+                </div>
+                <div class="discount-section">
+                    <h4 class="discount-section-title">Discount Reason</h4>
+                    <div class="discount-reasons">
+                        <button class="discount-reason-btn" data-reason="Manager Comp">Manager Comp</button>
+                        <button class="discount-reason-btn" data-reason="Employee Meal">Employee Meal</button>
+                        <button class="discount-reason-btn" data-reason="Customer Service">Service Recovery</button>
+                        <button class="discount-reason-btn" data-reason="Happy Hour">Happy Hour</button>
+                        <button class="discount-reason-btn" data-reason="Senior">Senior 10%</button>
+                        <button class="discount-reason-btn" data-reason="Military">Military 15%</button>
+                    </div>
+                </div>
+                <div class="discount-preview" id="discount-preview"></div>
+            </div>
+            <div class="discount-footer">
+                <button class="btn-cancel" id="discount-cancel">Cancel</button>
+                <button class="btn-remove-discount" id="btn-remove-discount" style="display:none">Remove Discount</button>
+                <button class="btn-confirm" id="discount-confirm">Apply Discount</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Quick discount buttons
+    modal.querySelectorAll('.discount-quick-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            modal.querySelectorAll('.discount-quick-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            appliedDiscount = {
+                type: btn.dataset.type,
+                value: parseFloat(btn.dataset.value),
+                reason: 'Manual Discount'
+            };
+            updateDiscountPreview();
+        });
+    });
+
+    // Reason buttons
+    const reasonDiscounts = {
+        'Manager Comp': { type: 'percent', value: 100 },
+        'Employee Meal': { type: 'percent', value: 50 },
+        'Customer Service': { type: 'percent', value: 25 },
+        'Happy Hour': { type: 'percent', value: 25 },
+        'Senior': { type: 'percent', value: 10 },
+        'Military': { type: 'percent', value: 15 }
+    };
+
+    modal.querySelectorAll('.discount-reason-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            modal.querySelectorAll('.discount-reason-btn').forEach(b => b.classList.remove('active'));
+            modal.querySelectorAll('.discount-quick-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const reason = btn.dataset.reason;
+            const disc = reasonDiscounts[reason];
+            appliedDiscount = { ...disc, reason };
+            updateDiscountPreview();
+        });
+    });
+
+    // Promo code
+    document.getElementById('btn-apply-promo').addEventListener('click', () => {
+        const code = document.getElementById('promo-code-input').value.trim().toUpperCase();
+        const promo = PROMO_CODES[code];
+        const resultEl = document.getElementById('promo-result');
+
+        if (!promo) {
+            resultEl.textContent = 'Invalid promo code';
+            resultEl.style.color = 'var(--danger)';
+            return;
+        }
+
+        const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+        if (subtotal < promo.minAmount) {
+            resultEl.textContent = 'Minimum order ' + formatCurrency(promo.minAmount) + ' required';
+            resultEl.style.color = 'var(--warning)';
+            return;
+        }
+
+        resultEl.textContent = promo.description;
+        resultEl.style.color = 'var(--success)';
+        appliedPromo = { ...promo, code };
+
+        if (promo.type !== 'delivery') {
+            appliedDiscount = {
+                type: promo.type,
+                value: promo.value,
+                reason: 'Promo: ' + code
+            };
+        }
+        updateDiscountPreview();
+    });
+
+    // Confirm
+    document.getElementById('discount-confirm').addEventListener('click', () => {
+        if (appliedDiscount) {
+            applyDiscountToTicket();
+            showToast('Discount applied: ' + appliedDiscount.reason);
+        }
+        document.getElementById('discount-modal').classList.remove('active');
+    });
+
+    document.getElementById('discount-cancel').addEventListener('click', () => {
+        document.getElementById('discount-modal').classList.remove('active');
+    });
+
+    document.getElementById('close-discount').addEventListener('click', () => {
+        document.getElementById('discount-modal').classList.remove('active');
+    });
+
+    document.getElementById('btn-remove-discount').addEventListener('click', () => {
+        appliedDiscount = null;
+        appliedPromo = null;
+        state.ticket.discount = null;
+        updateTicketDisplay();
+        document.getElementById('discount-modal').classList.remove('active');
+        showToast('Discount removed');
+    });
+}
+
+function updateDiscountPreview() {
+    const preview = document.getElementById('discount-preview');
+    if (!preview) return;
+
+    if (!appliedDiscount) {
+        preview.innerHTML = '<p style="color: var(--text-muted); text-align: center;">Select a discount option above</p>';
+        document.getElementById('btn-remove-discount').style.display = state.ticket.discount ? 'inline-block' : 'none';
+        return;
+    }
+
+    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+    let discountAmount;
+
+    if (appliedDiscount.type === 'percent') {
+        discountAmount = subtotal * (appliedDiscount.value / 100);
+    } else {
+        discountAmount = Math.min(appliedDiscount.value, subtotal);
+    }
+
+    const afterDiscount = subtotal - discountAmount;
+    const tax = afterDiscount * (CONFIG.taxRate / 100);
+    const total = afterDiscount + tax;
+
+    preview.innerHTML = `
+        <div class="discount-preview-row"><span>Subtotal:</span><span>${formatCurrency(subtotal)}</span></div>
+        <div class="discount-preview-row discount-highlight">
+            <span>${appliedDiscount.reason} (${appliedDiscount.type === 'percent' ? appliedDiscount.value + '%' : formatCurrency(appliedDiscount.value)}):</span>
+            <span>-${formatCurrency(discountAmount)}</span>
+        </div>
+        <div class="discount-preview-row"><span>After Discount:</span><span>${formatCurrency(afterDiscount)}</span></div>
+        <div class="discount-preview-row"><span>Tax:</span><span>${formatCurrency(tax)}</span></div>
+        <div class="discount-preview-row discount-total"><span>New Total:</span><span>${formatCurrency(total)}</span></div>
+    `;
+}
+
+function applyDiscountToTicket() {
+    if (!appliedDiscount) return;
+
+    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+    let discountAmount;
+    if (appliedDiscount.type === 'percent') {
+        discountAmount = subtotal * (appliedDiscount.value / 100);
+    } else {
+        discountAmount = Math.min(appliedDiscount.value, subtotal);
+    }
+
+    state.ticket.discount = {
+        ...appliedDiscount,
+        amount: Math.round(discountAmount * 100) / 100
+    };
+
+    updateTicketDisplay();
+}
+
+// ==========================================
+// Delivery Order Support
+// ==========================================
+function calculateDeliveryFee(subtotal) {
+    if (subtotal >= DELIVERY_CONFIG.freeDeliveryMin) return 0;
+    if (appliedPromo && appliedPromo.type === 'delivery') return 0;
+    return DELIVERY_CONFIG.baseFee;
+}
+
+// Enhance order type change to show delivery fields
+$('#order-type-select').addEventListener('change', function() {
+    state.ticket.type = this.value;
+    $('#ticket-type').textContent = this.value.charAt(0).toUpperCase() + this.value.slice(1);
+
+    if (this.value === 'delivery') {
+        showDeliveryFields();
+    } else {
+        hideDeliveryFields();
+        deliveryFee = 0;
+        deliveryAddress = '';
+    }
+
+    updateTicketDisplay();
+});
+
+function showDeliveryFields() {
+    let deliverySection = document.getElementById('delivery-section');
+    if (deliverySection) {
+        deliverySection.style.display = 'block';
+        return;
+    }
+
+    deliverySection = document.createElement('div');
+    deliverySection.id = 'delivery-section';
+    deliverySection.className = 'delivery-section';
+    deliverySection.innerHTML = `
+        <div class="delivery-fields">
+            <input type="text" id="delivery-name" class="delivery-input" placeholder="Customer name">
+            <input type="tel" id="delivery-phone" class="delivery-input" placeholder="Phone number">
+            <input type="text" id="delivery-address" class="delivery-input delivery-address" placeholder="Delivery address">
+            <textarea id="delivery-notes" class="delivery-input delivery-notes" placeholder="Delivery instructions..." rows="2"></textarea>
+        </div>
+        <div class="delivery-fee-display">
+            <span>Delivery Fee:</span>
+            <span id="delivery-fee-amount">${formatCurrency(DELIVERY_CONFIG.baseFee)}</span>
+            <span class="delivery-free-note" id="delivery-free-note">Free over ${formatCurrency(DELIVERY_CONFIG.freeDeliveryMin)}</span>
+        </div>
+    `;
+
+    const ticketActions = document.querySelector('.ticket-actions');
+    ticketActions.parentNode.insertBefore(deliverySection, ticketActions);
+
+    document.getElementById('delivery-address').addEventListener('input', function() {
+        deliveryAddress = this.value;
+    });
+
+    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+    deliveryFee = calculateDeliveryFee(subtotal);
+    document.getElementById('delivery-fee-amount').textContent = formatCurrency(deliveryFee);
+}
+
+function hideDeliveryFields() {
+    const deliverySection = document.getElementById('delivery-section');
+    if (deliverySection) {
+        deliverySection.style.display = 'none';
+    }
+}
 
 // ==========================================
 // Reports
@@ -1400,6 +1964,48 @@ populateReports = function() {
     $('#report-discounts').textContent = formatCurrency(Math.abs(totalDiscounts));
     $('#report-tips').textContent = formatCurrency(totalTips);
 };
+
+// ==========================================
+// Side Menu
+// ==========================================
+$('#btn-menu').addEventListener('click', () => {
+    const sideMenu = $('#side-menu');
+    sideMenu.classList.toggle('open');
+
+    // Create or toggle overlay
+    let overlay = document.querySelector('.side-menu-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'side-menu-overlay';
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', () => {
+            sideMenu.classList.remove('open');
+            overlay.classList.remove('active');
+        });
+    }
+    overlay.classList.toggle('active');
+});
+
+$('#close-side-menu').addEventListener('click', () => {
+    $('#side-menu').classList.remove('open');
+    const overlay = document.querySelector('.side-menu-overlay');
+    if (overlay) overlay.classList.remove('active');
+});
+
+// Clock in/out
+document.getElementById('menu-clock-in').addEventListener('click', () => {
+    const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    showToast('Clock in recorded at ' + now);
+    $('#side-menu').classList.remove('open');
+    document.querySelector('.side-menu-overlay').classList.remove('active');
+});
+
+// Open cash drawer
+document.getElementById('menu-open-drawer').addEventListener('click', () => {
+    showToast('Cash drawer opened');
+    $('#side-menu').classList.remove('open');
+    document.querySelector('.side-menu-overlay').classList.remove('active');
+});
 
 // ==========================================
 // Initialize

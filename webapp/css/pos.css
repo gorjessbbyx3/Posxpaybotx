@@ -1676,6 +1676,225 @@ button {
     border-top: 1px solid var(--border-light);
 }
 
+/* ========== DISCOUNT MODAL ========== */
+.discount-modal-content {
+    width: min(520px, 95vw);
+}
+
+.discount-body {
+    padding: 16px 20px;
+}
+
+.discount-section {
+    margin-bottom: 16px;
+}
+
+.discount-section-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.discount-quick-btns {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+
+.discount-quick-btn {
+    padding: 12px 8px;
+    border-radius: var(--radius-sm);
+    border: 2px solid var(--border-light);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-weight: 700;
+    font-size: 0.9rem;
+    transition: all var(--transition);
+}
+
+.discount-quick-btn:hover {
+    border-color: var(--cash-green);
+    background: rgba(40, 167, 69, 0.06);
+}
+
+.discount-quick-btn.active {
+    border-color: var(--cash-green);
+    background: rgba(40, 167, 69, 0.1);
+    color: var(--cash-green);
+}
+
+.promo-input-row {
+    display: flex;
+    gap: 6px;
+}
+
+.promo-code-input {
+    flex: 1;
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+}
+
+.btn-apply-promo {
+    padding: 10px 16px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: all var(--transition);
+}
+
+.btn-apply-promo:hover { opacity: 0.9; }
+
+.promo-result {
+    font-size: 0.8rem;
+    margin-top: 6px;
+    font-weight: 600;
+    min-height: 1.2em;
+}
+
+.discount-reasons {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+}
+
+.discount-reason-btn {
+    padding: 10px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-light);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-weight: 500;
+    font-size: 0.8rem;
+    transition: all var(--transition);
+}
+
+.discount-reason-btn:hover {
+    border-color: var(--accent);
+}
+
+.discount-reason-btn.active {
+    border-color: var(--accent);
+    background: var(--accent-light);
+    color: var(--accent);
+}
+
+.discount-preview {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+}
+
+.discount-preview-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.discount-preview-row.discount-highlight {
+    color: var(--cash-green);
+    font-weight: 600;
+}
+
+.discount-preview-row.discount-total {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--text-primary);
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+    margin-top: 4px;
+}
+
+.discount-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border-light);
+}
+
+.btn-remove-discount {
+    padding: 10px 16px;
+    border-radius: var(--radius-md);
+    background: var(--danger-bg);
+    color: var(--danger);
+    font-weight: 600;
+    font-size: 0.9rem;
+    border: 1px solid var(--danger);
+    transition: all var(--transition);
+}
+
+.btn-remove-discount:hover { background: var(--danger); color: white; }
+
+/* ========== DELIVERY SECTION ========== */
+.delivery-section {
+    padding: 10px 14px;
+    border-top: 1px solid var(--border-light);
+}
+
+.delivery-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.delivery-input {
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.85rem;
+}
+
+.delivery-input:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.delivery-address {
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.delivery-notes {
+    resize: vertical;
+    min-height: 40px;
+}
+
+.delivery-fee-display {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.delivery-fee-display span:nth-child(2) {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.delivery-free-note {
+    font-size: 0.75rem;
+    color: var(--cash-green);
+    font-weight: 500;
+}
+
 /* ========== TIP SECTION (Payment Modal) ========== */
 .tip-section {
     margin-top: 14px;
@@ -1831,6 +2050,86 @@ button {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
+}
+
+/* ========== SIDE MENU ========== */
+.side-menu {
+    position: fixed;
+    top: 0;
+    left: -300px;
+    width: 280px;
+    height: 100vh;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-light);
+    box-shadow: var(--shadow-lg);
+    z-index: 1500;
+    transition: left 0.3s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+.side-menu.open {
+    left: 0;
+}
+
+.side-menu-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.side-menu-header h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+.side-menu-links {
+    padding: 12px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.side-menu-link {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.9rem;
+    transition: all var(--transition);
+    cursor: pointer;
+}
+
+.side-menu-link:hover {
+    background: var(--bg-hover);
+}
+
+.side-menu-link svg {
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.side-menu-divider {
+    height: 1px;
+    background: var(--border-light);
+    margin: 8px 0;
+}
+
+.side-menu-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 1400;
+    display: none;
+}
+
+.side-menu-overlay.active {
+    display: block;
 }
 
 /* ========== ANIMATIONS ========== */

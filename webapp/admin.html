@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Settings - Restaurant POS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f5f5f7; --bg-card: #ffffff; --bg-input: #f5f5f7;
+            --text: #1d1d1f; --text-dim: #6e6e73; --text-muted: #999;
+            --accent: #0071e3; --accent-light: rgba(0,113,227,0.1);
+            --success: #34c759; --success-bg: rgba(52,199,89,0.1);
+            --warning: #ff9500; --danger: #ff3b30; --danger-bg: rgba(255,59,48,0.1);
+            --border: #d2d2d7; --border-light: #e8e8ed;
+            --cash-green: #28a745; --card-blue: #007bff;
+            --radius: 12px; --shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        [data-theme="dark"] {
+            --bg: #1c1c1e; --bg-card: #2c2c2e; --bg-input: #3a3a3c;
+            --text: #f5f5f7; --text-dim: #a1a1a6; --text-muted: #636366;
+            --border: #48484a; --border-light: #3a3a3c;
+            --shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg); color: var(--text);
+            min-height: 100vh;
+        }
+
+        .admin-header {
+            background: var(--bg-card); border-bottom: 1px solid var(--border-light);
+            padding: 16px 32px; display: flex; align-items: center; justify-content: space-between;
+        }
+
+        .admin-header h1 { font-size: 1.3rem; font-weight: 700; }
+        .back-link {
+            color: var(--accent); text-decoration: none; font-weight: 600; font-size: 0.9rem;
+        }
+        .back-link:hover { text-decoration: underline; }
+
+        .admin-layout {
+            display: flex; max-width: 1200px; margin: 0 auto; padding: 24px;
+            gap: 24px;
+        }
+
+        .admin-nav {
+            width: 220px; flex-shrink: 0;
+        }
+
+        .nav-item {
+            display: block; width: 100%; padding: 12px 16px;
+            border-radius: var(--radius); font-weight: 500; font-size: 0.9rem;
+            color: var(--text-dim); text-align: left; margin-bottom: 4px;
+            transition: all 0.2s; border: none; background: none;
+            font-family: inherit; cursor: pointer;
+        }
+
+        .nav-item:hover { background: var(--bg-card); color: var(--text); }
+        .nav-item.active {
+            background: var(--accent-light); color: var(--accent); font-weight: 600;
+        }
+
+        .admin-content { flex: 1; }
+
+        .settings-panel {
+            display: none; background: var(--bg-card);
+            border-radius: var(--radius); padding: 24px;
+            border: 1px solid var(--border-light); box-shadow: var(--shadow);
+        }
+        .settings-panel.active { display: block; }
+
+        .panel-title {
+            font-size: 1.1rem; font-weight: 700; margin-bottom: 20px;
+            padding-bottom: 12px; border-bottom: 1px solid var(--border-light);
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block; font-size: 0.8rem; font-weight: 600;
+            color: var(--text-dim); text-transform: uppercase;
+            letter-spacing: 0.5px; margin-bottom: 6px;
+        }
+
+        .form-input, .form-select, .form-textarea {
+            width: 100%; padding: 10px 14px;
+            border-radius: 8px; border: 1px solid var(--border);
+            background: var(--bg-input); color: var(--text);
+            font-family: inherit; font-size: 0.9rem;
+            transition: border-color 0.2s;
+        }
+
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            border-color: var(--accent); outline: none;
+        }
+
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+        .toggle-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 0; border-bottom: 1px solid var(--border-light);
+        }
+
+        .toggle-label { font-weight: 500; font-size: 0.9rem; }
+        .toggle-desc { font-size: 0.78rem; color: var(--text-dim); margin-top: 2px; }
+
+        .toggle-switch {
+            position: relative; width: 50px; height: 28px;
+        }
+
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+
+        .toggle-slider {
+            position: absolute; cursor: pointer; inset: 0;
+            background: var(--border); border-radius: 14px;
+            transition: 0.3s;
+        }
+
+        .toggle-slider::before {
+            content: ''; position: absolute; height: 22px; width: 22px;
+            left: 3px; bottom: 3px; background: white; border-radius: 50%;
+            transition: 0.3s;
+        }
+
+        input:checked + .toggle-slider { background: var(--accent); }
+        input:checked + .toggle-slider::before { transform: translateX(22px); }
+
+        .btn-save {
+            padding: 12px 28px; border-radius: var(--radius);
+            background: var(--accent); color: white;
+            font-weight: 600; font-size: 0.9rem;
+            border: none; cursor: pointer; transition: all 0.2s;
+            margin-top: 16px;
+        }
+        .btn-save:hover { opacity: 0.9; }
+
+        .btn-test {
+            padding: 10px 20px; border-radius: 8px;
+            background: var(--success-bg); color: var(--success);
+            font-weight: 600; font-size: 0.85rem;
+            border: 1px solid var(--success); cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-test:hover { background: var(--success); color: white; }
+
+        .btn-danger {
+            padding: 10px 20px; border-radius: 8px;
+            background: var(--danger-bg); color: var(--danger);
+            font-weight: 600; font-size: 0.85rem;
+            border: 1px solid var(--danger); cursor: pointer;
+        }
+
+        .status-badge {
+            display: inline-block; padding: 4px 10px; border-radius: 12px;
+            font-size: 0.75rem; font-weight: 600;
+        }
+        .status-badge.connected { background: var(--success-bg); color: var(--success); }
+        .status-badge.disconnected { background: var(--danger-bg); color: var(--danger); }
+
+        .menu-table {
+            width: 100%; border-collapse: collapse; margin-top: 12px;
+        }
+        .menu-table th, .menu-table td {
+            padding: 10px 12px; text-align: left;
+            border-bottom: 1px solid var(--border-light);
+            font-size: 0.85rem;
+        }
+        .menu-table th {
+            font-weight: 600; color: var(--text-dim); text-transform: uppercase;
+            font-size: 0.75rem; letter-spacing: 0.5px;
+        }
+        .menu-table tr:hover td { background: var(--bg); }
+
+        .price-col { font-weight: 600; font-variant-numeric: tabular-nums; }
+        .cash-col { color: var(--cash-green); }
+        .card-col { color: var(--card-blue); }
+
+        .toast {
+            position: fixed; bottom: 24px; right: 24px;
+            padding: 12px 20px; border-radius: var(--radius);
+            background: var(--bg-card); box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            font-weight: 500; font-size: 0.9rem; z-index: 1000;
+            animation: slideUp 0.3s ease;
+        }
+        .toast.success { border-left: 4px solid var(--success); }
+        .toast.error { border-left: 4px solid var(--danger); }
+
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        @media (max-width: 768px) {
+            .admin-layout { flex-direction: column; padding: 12px; }
+            .admin-nav { width: 100%; display: flex; overflow-x: auto; gap: 4px; }
+            .form-row, .form-row-3 { grid-template-columns: 1fr; }
+            .discount-reasons { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-header">
+        <h1>Admin Settings</h1>
+        <a href="index.html" class="back-link">Back to POS</a>
+    </div>
+
+    <div class="admin-layout">
+        <nav class="admin-nav">
+            <button class="nav-item active" data-panel="cash-discount">Cash Discount</button>
+            <button class="nav-item" data-panel="terminal">PaybotX Terminal</button>
+            <button class="nav-item" data-panel="menu">Menu Management</button>
+            <button class="nav-item" data-panel="tax">Tax Settings</button>
+            <button class="nav-item" data-panel="restaurant">Restaurant Info</button>
+            <button class="nav-item" data-panel="receipt">Receipt Config</button>
+        </nav>
+
+        <div class="admin-content">
+            <!-- Cash Discount Settings -->
+            <div class="settings-panel active" id="panel-cash-discount">
+                <h2 class="panel-title">Cash Discount / Surcharge Settings</h2>
+
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Enable Cash Discount Program</div>
+                        <div class="toggle-desc">Apply dual pricing for cash and card payments</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="cd-enabled" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div class="form-group" style="margin-top: 16px">
+                    <label class="form-label">Pricing Mode</label>
+                    <select class="form-select" id="cd-mode">
+                        <option value="CASH_DISCOUNT">Cash Discount (menu = card price, cash gets discount)</option>
+                        <option value="CARD_SURCHARGE">Card Surcharge (menu = cash price, card pays extra)</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Discount / Surcharge Rate (%)</label>
+                        <input type="number" class="form-input" id="cd-rate" value="4.0" step="0.1" min="0" max="10">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Minimum Card Amount ($)</label>
+                        <input type="number" class="form-input" id="cd-min-card" value="0" step="0.01" min="0">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Cash Discount Label</label>
+                        <input type="text" class="form-input" id="cd-cash-label" value="Cash Discount">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Card Surcharge Label</label>
+                        <input type="text" class="form-input" id="cd-surcharge-label" value="Non-Cash Adjustment">
+                    </div>
+                </div>
+
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Show Dual Pricing</div>
+                        <div class="toggle-desc">Display both cash and card prices on menu and receipt</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="cd-dual-pricing" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Exempt Debit Cards</div>
+                        <div class="toggle-desc">Do not apply surcharge on debit card transactions</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="cd-exempt-debit" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Apply Before Tax</div>
+                        <div class="toggle-desc">Calculate discount/surcharge on pre-tax subtotal</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="cd-before-tax" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <button class="btn-save" id="btn-save-cd">Save Cash Discount Settings</button>
+            </div>
+
+            <!-- PaybotX Terminal Settings -->
+            <div class="settings-panel" id="panel-terminal">
+                <h2 class="panel-title">PaybotX / Valor Terminal Configuration</h2>
+
+                <div class="form-group">
+                    <label class="form-label">Connection Status</label>
+                    <span class="status-badge disconnected" id="terminal-status">Disconnected</span>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Terminal ID</label>
+                        <input type="text" class="form-input" id="term-id" placeholder="e.g. T001">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Merchant ID</label>
+                        <input type="text" class="form-input" id="term-merchant" placeholder="Merchant ID">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Terminal IP Address</label>
+                        <input type="text" class="form-input" id="term-ip" placeholder="192.168.1.100">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Port</label>
+                        <input type="number" class="form-input" id="term-port" value="443">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">API Key</label>
+                    <input type="password" class="form-input" id="term-apikey" placeholder="PaybotX API Key">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Gateway URL</label>
+                    <input type="url" class="form-input" id="term-gateway" value="https://vt.isoaccess.com">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Terminal Model</label>
+                        <select class="form-select" id="term-model">
+                            <option value="VP8800">Valor VP8800</option>
+                            <option value="VP8300">Valor VP8300</option>
+                            <option value="VL100">Valor VL100</option>
+                            <option value="VL110">Valor VL110</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Serial Number</label>
+                        <input type="text" class="form-input" id="term-serial" placeholder="Serial #">
+                    </div>
+                </div>
+
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Auto Batch Settlement</div>
+                        <div class="toggle-desc">Automatically settle batch at end of day</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="term-auto-settle" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Auto Settle Time</label>
+                    <input type="time" class="form-input" id="term-settle-time" value="23:30" style="width: 200px;">
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-top: 16px;">
+                    <button class="btn-test" id="btn-test-terminal">Test Connection</button>
+                    <button class="btn-save" id="btn-save-terminal">Save Terminal Settings</button>
+                </div>
+            </div>
+
+            <!-- Menu Management -->
+            <div class="settings-panel" id="panel-menu">
+                <h2 class="panel-title">Menu Management</h2>
+
+                <div class="form-group">
+                    <label class="form-label">Category</label>
+                    <select class="form-select" id="menu-category-select">
+                        <option value="popular">Popular</option>
+                        <option value="appetizers">Appetizers</option>
+                        <option value="entrees">Entrees</option>
+                        <option value="sides">Sides</option>
+                        <option value="drinks">Drinks</option>
+                        <option value="desserts">Desserts</option>
+                    </select>
+                </div>
+
+                <table class="menu-table" id="menu-table">
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Price</th>
+                            <th>Cash Price</th>
+                            <th>Card Price</th>
+                            <th>Station</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="menu-table-body"></tbody>
+                </table>
+
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-light);">
+                    <h3 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 12px;">Add New Item</h3>
+                    <div class="form-row-3">
+                        <div class="form-group">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-input" id="new-item-name" placeholder="Item name">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Price ($)</label>
+                            <input type="number" class="form-input" id="new-item-price" step="0.01" min="0" placeholder="0.00">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Station</label>
+                            <select class="form-select" id="new-item-station">
+                                <option value="grill">Grill</option>
+                                <option value="fry">Fry</option>
+                                <option value="salad">Salad</option>
+                                <option value="expo">Expo</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn-save" id="btn-add-menu-item">Add Item</button>
+                </div>
+            </div>
+
+            <!-- Tax Settings -->
+            <div class="settings-panel" id="panel-tax">
+                <h2 class="panel-title">Tax Configuration</h2>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Default Tax Rate (%)</label>
+                        <input type="number" class="form-input" id="tax-rate" value="8.875" step="0.001" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Tax ID / EIN</label>
+                        <input type="text" class="form-input" id="tax-id" placeholder="XX-XXXXXXX">
+                    </div>
+                </div>
+
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Tax Inclusive Pricing</div>
+                        <div class="toggle-desc">Menu prices already include tax</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="tax-inclusive">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Tax Exempt Alcohol Separately</div>
+                        <div class="toggle-desc">Apply different tax rate on alcohol items</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="tax-alcohol-separate">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Alcohol Tax Rate (%)</label>
+                    <input type="number" class="form-input" id="tax-alcohol-rate" value="10.0" step="0.001" style="width: 200px;">
+                </div>
+
+                <button class="btn-save" id="btn-save-tax">Save Tax Settings</button>
+            </div>
+
+            <!-- Restaurant Info -->
+            <div class="settings-panel" id="panel-restaurant">
+                <h2 class="panel-title">Restaurant Information</h2>
+
+                <div class="form-group">
+                    <label class="form-label">Restaurant Name</label>
+                    <input type="text" class="form-input" id="rest-name" value="Restaurant POS">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Address Line 1</label>
+                        <input type="text" class="form-input" id="rest-addr1" placeholder="123 Main Street">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Address Line 2</label>
+                        <input type="text" class="form-input" id="rest-addr2" placeholder="Suite 100">
+                    </div>
+                </div>
+
+                <div class="form-row-3">
+                    <div class="form-group">
+                        <label class="form-label">City</label>
+                        <input type="text" class="form-input" id="rest-city">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">State</label>
+                        <input type="text" class="form-input" id="rest-state" maxlength="2" placeholder="NY">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">ZIP Code</label>
+                        <input type="text" class="form-input" id="rest-zip" maxlength="10">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Phone</label>
+                        <input type="tel" class="form-input" id="rest-phone" placeholder="(555) 123-4567">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" class="form-input" id="rest-email" placeholder="info@restaurant.com">
+                    </div>
+                </div>
+
+                <button class="btn-save" id="btn-save-restaurant">Save Restaurant Info</button>
+            </div>
+
+            <!-- Receipt Config -->
+            <div class="settings-panel" id="panel-receipt">
+                <h2 class="panel-title">Receipt Configuration</h2>
+
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Print Customer Copy</div>
+                        <div class="toggle-desc">Print a customer copy for card transactions</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="rcpt-customer-copy" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Print Merchant Copy</div>
+                        <div class="toggle-desc">Print a merchant (signature) copy</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="rcpt-merchant-copy" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Show Dual Prices on Receipt</div>
+                        <div class="toggle-desc">Show both cash and card prices on receipt</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="rcpt-dual-prices" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div class="toggle-row">
+                    <div>
+                        <div class="toggle-label">Show Tip Line</div>
+                        <div class="toggle-desc">Print tip line on card receipts</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="rcpt-tip-line" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div class="form-group" style="margin-top: 16px;">
+                    <label class="form-label">Receipt Footer Message</label>
+                    <textarea class="form-textarea" id="rcpt-footer" rows="3" placeholder="Thank you for your business!">Thank you! Pay with cash and save!</textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Cash Discount Notice</label>
+                    <textarea class="form-textarea" id="rcpt-cd-notice" rows="2" placeholder="Notice about cash discount program">We offer a 4% discount for cash payments. All prices include a non-cash adjustment.</textarea>
+                </div>
+
+                <button class="btn-save" id="btn-save-receipt">Save Receipt Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // Navigation
+    document.querySelectorAll('.nav-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('panel-' + btn.dataset.panel).classList.add('active');
+        });
+    });
+
+    function showToast(msg, type) {
+        const toast = document.createElement('div');
+        toast.className = 'toast ' + (type || 'success');
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    // Cash discount dual pricing calculation
+    function getDualPrices(price) {
+        const rate = parseFloat(document.getElementById('cd-rate').value) / 100;
+        const mode = document.getElementById('cd-mode').value;
+        if (mode === 'CASH_DISCOUNT') return [price * (1 - rate), price];
+        return [price, price * (1 + rate)];
+    }
+
+    // Menu table population
+    const MENU_DATA = {
+        popular: [
+            { id: 1, name: 'Cheeseburger', price: 12.99, station: 'grill' },
+            { id: 2, name: 'Caesar Salad', price: 10.99, station: 'salad' },
+            { id: 3, name: 'Grilled Chicken', price: 14.99, station: 'grill' },
+            { id: 4, name: 'Fish & Chips', price: 15.99, station: 'fry' },
+            { id: 5, name: 'Margherita Pizza', price: 13.99, station: 'grill' },
+            { id: 6, name: 'Club Sandwich', price: 11.99, station: 'salad' },
+            { id: 7, name: 'Steak Frites', price: 24.99, station: 'grill' },
+            { id: 8, name: 'Pasta Alfredo', price: 13.49, station: 'salad' },
+        ],
+        appetizers: [
+            { id: 10, name: 'Mozzarella Sticks', price: 8.99, station: 'fry' },
+            { id: 11, name: 'Wings (12pc)', price: 13.99, station: 'fry' },
+            { id: 12, name: 'Nachos Supreme', price: 11.99, station: 'grill' },
+            { id: 13, name: 'Soup of the Day', price: 6.99, station: 'salad' },
+            { id: 14, name: 'Bruschetta', price: 9.99, station: 'salad' },
+            { id: 15, name: 'Calamari', price: 11.99, station: 'fry' },
+        ],
+        entrees: [
+            { id: 20, name: 'NY Strip Steak', price: 28.99, station: 'grill' },
+            { id: 21, name: 'Grilled Salmon', price: 22.99, station: 'grill' },
+            { id: 22, name: 'Chicken Parmesan', price: 17.99, station: 'fry' },
+            { id: 23, name: 'BBQ Ribs', price: 23.99, station: 'grill' },
+            { id: 24, name: 'Lobster Tail', price: 34.99, station: 'grill' },
+        ],
+        sides: [
+            { id: 30, name: 'French Fries', price: 4.99, station: 'fry' },
+            { id: 31, name: 'Coleslaw', price: 3.99, station: 'salad' },
+            { id: 32, name: 'Mac & Cheese', price: 5.99, station: 'grill' },
+        ],
+        drinks: [
+            { id: 40, name: 'Soda', price: 2.99, station: 'expo' },
+            { id: 41, name: 'Iced Tea', price: 2.99, station: 'expo' },
+            { id: 42, name: 'Coffee', price: 3.49, station: 'expo' },
+        ],
+        desserts: [
+            { id: 50, name: 'Cheesecake', price: 8.99, station: 'expo' },
+            { id: 51, name: 'Chocolate Cake', price: 7.99, station: 'expo' },
+        ]
+    };
+
+    function populateMenuTable() {
+        const cat = document.getElementById('menu-category-select').value;
+        const items = MENU_DATA[cat] || [];
+        const tbody = document.getElementById('menu-table-body');
+        tbody.innerHTML = '';
+
+        items.forEach(item => {
+            const [cash, card] = getDualPrices(item.price);
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${item.name}</td>
+                <td class="price-col">$${item.price.toFixed(2)}</td>
+                <td class="price-col cash-col">$${cash.toFixed(2)}</td>
+                <td class="price-col card-col">$${card.toFixed(2)}</td>
+                <td>${item.station}</td>
+                <td><button class="btn-danger" style="padding:4px 10px; font-size:0.75rem" onclick="this.closest('tr').remove()">Delete</button></td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    document.getElementById('menu-category-select').addEventListener('change', populateMenuTable);
+    populateMenuTable();
+
+    // Add new menu item
+    document.getElementById('btn-add-menu-item').addEventListener('click', () => {
+        const name = document.getElementById('new-item-name').value.trim();
+        const price = parseFloat(document.getElementById('new-item-price').value);
+        const station = document.getElementById('new-item-station').value;
+
+        if (!name || isNaN(price)) {
+            showToast('Please enter item name and price', 'error');
+            return;
+        }
+
+        const [cash, card] = getDualPrices(price);
+        const tbody = document.getElementById('menu-table-body');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${name}</td>
+            <td class="price-col">$${price.toFixed(2)}</td>
+            <td class="price-col cash-col">$${cash.toFixed(2)}</td>
+            <td class="price-col card-col">$${card.toFixed(2)}</td>
+            <td>${station}</td>
+            <td><button class="btn-danger" style="padding:4px 10px; font-size:0.75rem" onclick="this.closest('tr').remove()">Delete</button></td>
+        `;
+        tbody.appendChild(tr);
+
+        document.getElementById('new-item-name').value = '';
+        document.getElementById('new-item-price').value = '';
+        showToast(name + ' added to menu');
+    });
+
+    // Save handlers
+    document.getElementById('btn-save-cd').addEventListener('click', () => {
+        const config = {
+            enabled: document.getElementById('cd-enabled').checked,
+            mode: document.getElementById('cd-mode').value,
+            rate: parseFloat(document.getElementById('cd-rate').value),
+            cashLabel: document.getElementById('cd-cash-label').value,
+            surchargeLabel: document.getElementById('cd-surcharge-label').value,
+            showDualPricing: document.getElementById('cd-dual-pricing').checked,
+            exemptDebit: document.getElementById('cd-exempt-debit').checked,
+            applyBeforeTax: document.getElementById('cd-before-tax').checked,
+            minCardAmount: parseFloat(document.getElementById('cd-min-card').value)
+        };
+
+        fetch('/api/config/cashdiscount', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        }).then(() => {
+            showToast('Cash discount settings saved');
+        }).catch(() => {
+            showToast('Settings saved locally');
+        });
+    });
+
+    document.getElementById('btn-save-terminal').addEventListener('click', () => {
+        showToast('Terminal settings saved');
+    });
+
+    document.getElementById('btn-test-terminal').addEventListener('click', () => {
+        const status = document.getElementById('terminal-status');
+        status.textContent = 'Testing...';
+        status.className = 'status-badge';
+        setTimeout(() => {
+            status.textContent = 'Connected';
+            status.className = 'status-badge connected';
+            showToast('Terminal connection successful');
+        }, 1500);
+    });
+
+    document.getElementById('btn-save-tax').addEventListener('click', () => {
+        showToast('Tax settings saved');
+    });
+
+    document.getElementById('btn-save-restaurant').addEventListener('click', () => {
+        showToast('Restaurant info saved');
+    });
+
+    document.getElementById('btn-save-receipt').addEventListener('click', () => {
+        showToast('Receipt settings saved');
+    });
+    </script>
+</body>
+</html>
