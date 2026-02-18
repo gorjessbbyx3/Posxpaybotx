@@ -67,6 +67,7 @@
                 <button class="tab-btn" data-view="tables">Tables</button>
                 <button class="tab-btn" data-view="kitchen">Kitchen</button>
                 <button class="tab-btn" data-view="tickets">Tickets</button>
+                <button class="tab-btn" data-view="reports">Reports</button>
             </div>
             <div class="top-bar-right">
                 <span class="clock" id="clock"></span>
@@ -257,6 +258,87 @@
                 <div class="tickets-list" id="tickets-list">
                     <!-- Tickets populated by JS -->
                 </div>
+            </div>
+        </div>
+    </div>
+
+        <!-- Reports View -->
+        <div id="reports-view" class="main-view">
+            <div class="reports-container">
+                <div class="reports-header">
+                    <h3>Daily Report</h3>
+                    <div class="reports-date">
+                        <input type="date" id="report-date" class="report-date-input">
+                        <button class="btn-refresh" id="btn-refresh-report">Refresh</button>
+                    </div>
+                </div>
+                <div class="reports-grid">
+                    <div class="report-card primary">
+                        <span class="report-card-label">Total Sales</span>
+                        <span class="report-card-value" id="report-total-sales">$0.00</span>
+                    </div>
+                    <div class="report-card">
+                        <span class="report-card-label">Tickets</span>
+                        <span class="report-card-value" id="report-ticket-count">0</span>
+                    </div>
+                    <div class="report-card">
+                        <span class="report-card-label">Avg Ticket</span>
+                        <span class="report-card-value" id="report-avg-ticket">$0.00</span>
+                    </div>
+                    <div class="report-card success">
+                        <span class="report-card-label">Cash Sales</span>
+                        <span class="report-card-value" id="report-cash-sales">$0.00</span>
+                    </div>
+                    <div class="report-card accent">
+                        <span class="report-card-label">Card Sales</span>
+                        <span class="report-card-value" id="report-card-sales">$0.00</span>
+                    </div>
+                    <div class="report-card">
+                        <span class="report-card-label">Tax Collected</span>
+                        <span class="report-card-value" id="report-tax">$0.00</span>
+                    </div>
+                    <div class="report-card warning">
+                        <span class="report-card-label">Discounts</span>
+                        <span class="report-card-value" id="report-discounts">$0.00</span>
+                    </div>
+                    <div class="report-card">
+                        <span class="report-card-label">Tips</span>
+                        <span class="report-card-value" id="report-tips">$0.00</span>
+                    </div>
+                </div>
+                <div class="report-actions">
+                    <button class="report-action-btn" id="btn-settle-batch">Settle Batch</button>
+                    <button class="report-action-btn" id="btn-print-report">Print Report</button>
+                    <button class="report-action-btn" id="btn-eod">Close Day (EOD)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Split Check Modal -->
+    <div id="split-modal" class="modal">
+        <div class="modal-content split-modal-content">
+            <div class="modal-header">
+                <h3>Split Check</h3>
+                <button class="modal-close" id="close-split">&times;</button>
+            </div>
+            <div class="split-body">
+                <div class="split-options">
+                    <p class="split-label">Split into:</p>
+                    <div class="split-ways">
+                        <button class="split-way-btn active" data-ways="2">2 Ways</button>
+                        <button class="split-way-btn" data-ways="3">3 Ways</button>
+                        <button class="split-way-btn" data-ways="4">4 Ways</button>
+                        <button class="split-way-btn" data-ways="custom">Custom</button>
+                    </div>
+                </div>
+                <div class="split-preview" id="split-preview">
+                    <!-- Split preview populated by JS -->
+                </div>
+            </div>
+            <div class="split-footer">
+                <button class="btn-cancel" id="split-cancel">Cancel</button>
+                <button class="btn-confirm" id="split-confirm">Apply Split</button>
             </div>
         </div>
     </div>

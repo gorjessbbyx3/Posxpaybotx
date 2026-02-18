@@ -837,6 +837,178 @@ $$('.ticket-filter').forEach(btn => {
 });
 
 // ==========================================
+// Split Check
+// ==========================================
+$('#btn-split').addEventListener('click', () => {
+    if (state.ticket.items.length === 0) {
+        showToast('No items to split', 'warning');
+        return;
+    }
+    openSplitModal(2);
+    $('#split-modal').classList.add('active');
+});
+
+$('#close-split').addEventListener('click', () => {
+    $('#split-modal').classList.remove('active');
+});
+
+$('#split-cancel').addEventListener('click', () => {
+    $('#split-modal').classList.remove('active');
+});
+
+$$('.split-way-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        $$('.split-way-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const ways = btn.dataset.ways;
+        if (ways === 'custom') {
+            const custom = prompt('How many ways to split?', '5');
+            if (custom && parseInt(custom) > 0) {
+                openSplitModal(parseInt(custom));
+            }
+        } else {
+            openSplitModal(parseInt(ways));
+        }
+    });
+});
+
+function openSplitModal(ways) {
+    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+    const tax = subtotal * (CONFIG.taxRate / 100);
+    const total = subtotal + tax;
+    const perSplit = total / ways;
+    const rate = CONFIG.cashDiscount.rate / 100;
+
+    const preview = $('#split-preview');
+    preview.innerHTML = '';
+
+    for (let i = 0; i < ways; i++) {
+        const amount = (i === ways - 1) ? total - (perSplit * (ways - 1)) : perSplit;
+        let cashPrice = amount;
+        let cardPrice = amount;
+
+        if (CONFIG.cashDiscount.enabled) {
+            if (CONFIG.cashDiscount.mode === 'CASH_DISCOUNT') {
+                cashPrice = amount * (1 - rate);
+            } else {
+                cardPrice = amount * (1 + rate);
+            }
+        }
+
+        const card = document.createElement('div');
+        card.className = 'split-card';
+        card.innerHTML = `
+            <span class="split-card-num">Guest ${i + 1}</span>
+            <span class="split-card-amount">${formatCurrency(amount)}</span>
+            ${CONFIG.cashDiscount.enabled ? `
+                <div class="split-card-dual">
+                    <span class="cash">${formatCurrency(cashPrice)}</span>
+                    <span class="card">${formatCurrency(cardPrice)}</span>
+                </div>
+            ` : ''}
+        `;
+        preview.appendChild(card);
+    }
+}
+
+$('#split-confirm').addEventListener('click', () => {
+    showToast('Check split applied');
+    $('#split-modal').classList.remove('active');
+});
+
+// ==========================================
+// Reports
+// ==========================================
+function populateReports() {
+    // Set date input to today
+    const today = new Date().toISOString().split('T')[0];
+    $('#report-date').value = today;
+
+    // Calculate from local ticket data
+    let totalSales = 0;
+    let totalTax = 0;
+    let totalTips = 0;
+    let cashSales = 0;
+    let cardSales = 0;
+    let ticketCount = state.allTickets.length;
+
+    state.allTickets.forEach(t => {
+        totalSales += t.total;
+        totalTax += t.tax;
+        if (t.paymentMethod === 'cash') {
+            cashSales += t.total;
+        } else {
+            cardSales += t.total;
+        }
+    });
+
+    const avgTicket = ticketCount > 0 ? totalSales / ticketCount : 0;
+
+    $('#report-total-sales').textContent = formatCurrency(totalSales);
+    $('#report-ticket-count').textContent = ticketCount;
+    $('#report-avg-ticket').textContent = formatCurrency(avgTicket);
+    $('#report-cash-sales').textContent = formatCurrency(cashSales);
+    $('#report-card-sales').textContent = formatCurrency(cardSales);
+    $('#report-tax').textContent = formatCurrency(totalTax);
+    $('#report-discounts').textContent = formatCurrency(0);
+    $('#report-tips').textContent = formatCurrency(totalTips);
+}
+
+$('#btn-refresh-report').addEventListener('click', () => {
+    populateReports();
+    showToast('Report refreshed');
+});
+
+$('#btn-settle-batch').addEventListener('click', () => {
+    showToast('Batch settlement initiated - sending to terminal...', 'warning');
+    setTimeout(() => showToast('Batch settled successfully'), 2000);
+});
+
+$('#btn-print-report').addEventListener('click', () => {
+    window.print();
+});
+
+$('#btn-eod').addEventListener('click', () => {
+    if (confirm('Close the day? This will settle the batch and generate the EOD report.')) {
+        state.allTickets.forEach(t => {
+            t.status = 'closed';
+        });
+        populateReports();
+        showToast('Day closed. EOD report generated.');
+    }
+});
+
+// ==========================================
+// View Navigation (updated for reports)
+// ==========================================
+// Override the existing view handler to include reports
+$$('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        $$('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const view = btn.dataset.view;
+        $$('.main-view').forEach(v => v.classList.remove('active'));
+
+        const viewMap = {
+            'order': 'order-view',
+            'tables': 'tables-view',
+            'kitchen': 'kitchen-view',
+            'tickets': 'tickets-view',
+            'reports': 'reports-view'
+        };
+
+        const viewId = viewMap[view] || (view + '-view');
+        const viewEl = document.getElementById(viewId);
+        if (viewEl) viewEl.classList.add('active');
+
+        state.currentView = view;
+        if (view === 'kitchen') populateKitchen();
+        if (view === 'tickets') populateTicketsList();
+        if (view === 'reports') populateReports();
+    });
+});
+
+// ==========================================
 // Initialize
 // ==========================================
 populateMenu();

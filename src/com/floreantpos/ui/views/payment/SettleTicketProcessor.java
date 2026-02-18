@@ -47,6 +47,8 @@ import com.floreantpos.model.Ticket;
 import com.floreantpos.model.User;
 import com.floreantpos.model.UserPermission;
 import com.floreantpos.report.ReceiptPrintService;
+import com.floreantpos.cashdiscount.CashDiscountService;
+import com.floreantpos.cashdiscount.CashDiscountCalculator;
 import com.floreantpos.services.PosTransactionService;
 import com.floreantpos.ui.RefreshableView;
 import com.floreantpos.ui.dialog.DiscountSelectionDialog;
@@ -363,6 +365,11 @@ public class SettleTicketProcessor implements CardInputListener {
 
 	public void settleTicket(PosTransaction transaction) {
 		try {
+			// Apply cash discount or card surcharge adjustment before settlement
+			CashDiscountService cashDiscountService = CashDiscountService.getInstance();
+			cashDiscountService.removeAdjustment(ticket); // Clear any prior adjustment
+			cashDiscountService.applyAdjustment(ticket, transaction);
+
 			final double dueAmount = ticket.getDueAmount();
 
 			if (ticket.getOrderType().isBarTab()) {

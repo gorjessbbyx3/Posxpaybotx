@@ -1480,6 +1480,202 @@ button {
     }
 }
 
+/* ========== REPORTS VIEW ========== */
+.reports-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+}
+
+.reports-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.reports-header h3 { font-size: 1.2rem; }
+
+.reports-date {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.report-date-input {
+    padding: 6px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.85rem;
+}
+
+.btn-refresh {
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+    font-size: 0.85rem;
+    transition: all var(--transition);
+}
+
+.btn-refresh:hover { opacity: 0.9; }
+
+.reports-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.report-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    text-align: center;
+    transition: all var(--transition);
+}
+
+.report-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.report-card.primary { border-left: 4px solid var(--accent); }
+.report-card.success { border-left: 4px solid var(--cash-green); }
+.report-card.accent { border-left: 4px solid var(--card-blue); }
+.report-card.warning { border-left: 4px solid var(--warning); }
+
+.report-card-label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.report-card-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+}
+
+.report-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.report-action-btn {
+    padding: 12px 24px;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 0.9rem;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-light);
+    transition: all var(--transition);
+}
+
+.report-action-btn:hover {
+    background: var(--bg-active);
+    box-shadow: var(--shadow-sm);
+}
+
+.report-action-btn:active { transform: scale(0.97); }
+
+/* ========== SPLIT CHECK MODAL ========== */
+.split-modal-content {
+    width: min(480px, 95vw);
+}
+
+.split-body {
+    padding: 16px 20px;
+}
+
+.split-label {
+    font-weight: 600;
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+}
+
+.split-ways {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.split-way-btn {
+    flex: 1;
+    padding: 12px;
+    border-radius: var(--radius-md);
+    border: 2px solid var(--border-light);
+    font-weight: 600;
+    font-size: 0.9rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    transition: all var(--transition);
+}
+
+.split-way-btn.active {
+    border-color: var(--accent);
+    background: var(--accent-light);
+    color: var(--accent);
+}
+
+.split-preview {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+}
+
+.split-card {
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+    padding: 14px;
+    text-align: center;
+}
+
+.split-card-num {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+
+.split-card-amount {
+    font-size: 1.3rem;
+    font-weight: 700;
+}
+
+.split-card-dual {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 4px;
+    font-size: 0.75rem;
+}
+
+.split-card-dual .cash { color: var(--cash-green); font-weight: 600; }
+.split-card-dual .card { color: var(--card-blue); font-weight: 600; }
+
+.split-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border-light);
+}
+
 /* ========== SCROLLBAR ========== */
 ::-webkit-scrollbar {
     width: 6px;

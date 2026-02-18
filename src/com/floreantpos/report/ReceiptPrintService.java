@@ -35,6 +35,7 @@ import org.hibernate.Transaction;
 import com.floreantpos.Messages;
 import com.floreantpos.POSConstants;
 import com.floreantpos.PosException;
+import com.floreantpos.cashdiscount.CashDiscountService;
 import com.floreantpos.config.CardConfig;
 import com.floreantpos.config.TerminalConfig;
 import com.floreantpos.extension.PaymentGatewayPlugin;
@@ -553,6 +554,17 @@ public class ReceiptPrintService {
 					map.put("cardInformation", cardInformationForReceipt); //$NON-NLS-1$
 				}
 			}
+			// Cash Discount / Card Surcharge line on receipt
+			CashDiscountService cashDiscountService = CashDiscountService.getInstance();
+			if (cashDiscountService.hasAdjustment(ticket)) {
+				String cashDiscountLine = cashDiscountService.getReceiptLine(ticket);
+				if (cashDiscountLine != null && !cashDiscountLine.isEmpty()) {
+					map.put("cashDiscountLine", cashDiscountLine); //$NON-NLS-1$
+					map.put("cashDiscountAmount", ticket.getProperty("cashDiscount.amount")); //$NON-NLS-1$
+					map.put("cashDiscountLabel", ticket.getProperty("cashDiscount.label")); //$NON-NLS-1$
+				}
+			}
+
 			if (TerminalConfig.isEnabledMultiCurrency()) {
 				if (Boolean.valueOf(ticket.getProperty("MULTICURRENCY_CASH"))) {//$NON-NLS-1$
 					StringBuilder multiCurrencyBreakdownCashBack = buildMultiCurrency(ticket, printProperties);
