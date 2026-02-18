@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>POS Terminal - Restaurant POS</title>
+    <link rel="stylesheet" href="css/pos.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="login-screen" class="screen active">
+        <div class="login-container">
+            <div class="login-logo">
+                <h1>Restaurant POS</h1>
+                <p class="subtitle">PaybotX Terminal Integration</p>
+            </div>
+            <div class="pin-display">
+                <div class="pin-dots">
+                    <span class="pin-dot"></span>
+                    <span class="pin-dot"></span>
+                    <span class="pin-dot"></span>
+                    <span class="pin-dot"></span>
+                </div>
+            </div>
+            <div class="numpad" id="login-numpad">
+                <button class="numpad-btn" data-num="1">1</button>
+                <button class="numpad-btn" data-num="2">2</button>
+                <button class="numpad-btn" data-num="3">3</button>
+                <button class="numpad-btn" data-num="4">4</button>
+                <button class="numpad-btn" data-num="5">5</button>
+                <button class="numpad-btn" data-num="6">6</button>
+                <button class="numpad-btn" data-num="7">7</button>
+                <button class="numpad-btn" data-num="8">8</button>
+                <button class="numpad-btn" data-num="9">9</button>
+                <button class="numpad-btn numpad-clear" data-num="clear">C</button>
+                <button class="numpad-btn" data-num="0">0</button>
+                <button class="numpad-btn numpad-enter" data-num="enter">&#x2192;</button>
+            </div>
+            <div class="quick-login">
+                <button class="quick-login-btn" data-user="server">Server</button>
+                <button class="quick-login-btn" data-user="cashier">Cashier</button>
+                <button class="quick-login-btn" data-user="manager">Manager</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main POS Screen -->
+    <div id="pos-screen" class="screen">
+        <!-- Top Navigation Bar -->
+        <nav class="top-bar">
+            <div class="top-bar-left">
+                <button class="nav-btn" id="btn-menu" title="Menu">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
+                <h2 class="restaurant-name">Restaurant POS</h2>
+            </div>
+            <div class="top-bar-center">
+                <button class="tab-btn active" data-view="order">New Order</button>
+                <button class="tab-btn" data-view="tables">Tables</button>
+                <button class="tab-btn" data-view="kitchen">Kitchen</button>
+                <button class="tab-btn" data-view="tickets">Tickets</button>
+            </div>
+            <div class="top-bar-right">
+                <span class="clock" id="clock"></span>
+                <button class="icon-btn" id="btn-theme" title="Toggle Dark Mode">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                </button>
+                <button class="icon-btn" id="btn-fullscreen" title="Fullscreen">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                    </svg>
+                </button>
+                <div class="user-info">
+                    <span id="current-user">Server</span>
+                    <button class="icon-btn" id="btn-logout" title="Logout">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Order View -->
+        <div id="order-view" class="main-view active">
+            <div class="order-layout">
+                <!-- Menu Panel -->
+                <div class="menu-panel">
+                    <!-- Category Tabs -->
+                    <div class="category-tabs" id="category-tabs">
+                        <button class="category-tab active" data-category="popular">Popular</button>
+                        <button class="category-tab" data-category="appetizers">Appetizers</button>
+                        <button class="category-tab" data-category="entrees">Entrees</button>
+                        <button class="category-tab" data-category="sides">Sides</button>
+                        <button class="category-tab" data-category="drinks">Drinks</button>
+                        <button class="category-tab" data-category="desserts">Desserts</button>
+                    </div>
+                    <!-- Menu Grid -->
+                    <div class="menu-grid" id="menu-grid">
+                        <!-- Items populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Ticket Panel -->
+                <div class="ticket-panel">
+                    <div class="ticket-header">
+                        <div class="ticket-info">
+                            <span class="ticket-type" id="ticket-type">Dine-In</span>
+                            <span class="ticket-number" id="ticket-number">#--</span>
+                        </div>
+                        <div class="ticket-actions-top">
+                            <select id="order-type-select" class="order-type-select">
+                                <option value="dine-in">Dine-In</option>
+                                <option value="takeout">Takeout</option>
+                                <option value="delivery">Delivery</option>
+                                <option value="bar">Bar Tab</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="ticket-items" id="ticket-items">
+                        <div class="empty-ticket">
+                            <p>Tap menu items to add to order</p>
+                        </div>
+                    </div>
+
+                    <!-- Pricing Summary -->
+                    <div class="ticket-summary">
+                        <div class="summary-row">
+                            <span>Subtotal</span>
+                            <span id="subtotal">$0.00</span>
+                        </div>
+                        <div class="summary-row" id="discount-row" style="display:none">
+                            <span id="discount-label">Cash Discount (4%)</span>
+                            <span id="discount-amount" class="discount">-$0.00</span>
+                        </div>
+                        <div class="summary-row" id="surcharge-row" style="display:none">
+                            <span id="surcharge-label">Card Surcharge (4%)</span>
+                            <span id="surcharge-amount" class="surcharge">+$0.00</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Tax</span>
+                            <span id="tax-amount">$0.00</span>
+                        </div>
+                        <div class="summary-row total">
+                            <span>Total</span>
+                            <span id="total-amount">$0.00</span>
+                        </div>
+                        <div class="dual-price-display" id="dual-price-display">
+                            <div class="dual-price cash-price">
+                                <span class="dual-label">Cash</span>
+                                <span class="dual-amount" id="cash-total">$0.00</span>
+                            </div>
+                            <div class="dual-price card-price">
+                                <span class="dual-label">Card</span>
+                                <span class="dual-amount" id="card-total">$0.00</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="ticket-actions">
+                        <button class="action-btn btn-discount" id="btn-discount">Discount</button>
+                        <button class="action-btn btn-hold" id="btn-hold">Hold</button>
+                        <button class="action-btn btn-split" id="btn-split">Split</button>
+                        <button class="action-btn btn-send" id="btn-send">Send to Kitchen</button>
+                    </div>
+                    <div class="payment-buttons">
+                        <button class="pay-btn pay-cash" id="btn-pay-cash">
+                            <span class="pay-icon">$</span>
+                            <span>Cash</span>
+                        </button>
+                        <button class="pay-btn pay-card" id="btn-pay-card">
+                            <span class="pay-icon">&#x1F4B3;</span>
+                            <span>Card</span>
+                        </button>
+                        <button class="pay-btn pay-other" id="btn-pay-other">
+                            <span class="pay-icon">&#x2022;&#x2022;&#x2022;</span>
+                            <span>Other</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Table View -->
+        <div id="tables-view" class="main-view">
+            <div class="floor-plan">
+                <div class="floor-header">
+                    <h3>Floor Plan</h3>
+                    <div class="floor-tabs">
+                        <button class="floor-tab active">Main Floor</button>
+                        <button class="floor-tab">Patio</button>
+                        <button class="floor-tab">Bar</button>
+                        <button class="floor-tab">Private</button>
+                    </div>
+                </div>
+                <div class="table-grid" id="table-grid">
+                    <!-- Tables populated by JS -->
+                </div>
+                <div class="table-legend">
+                    <span class="legend-item"><span class="legend-dot available"></span> Available</span>
+                    <span class="legend-item"><span class="legend-dot occupied"></span> Occupied</span>
+                    <span class="legend-item"><span class="legend-dot reserved"></span> Reserved</span>
+                    <span class="legend-item"><span class="legend-dot dirty"></span> Needs Cleaning</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Kitchen Display -->
+        <div id="kitchen-view" class="main-view">
+            <div class="kds-container">
+                <div class="kds-header">
+                    <h3>Kitchen Display</h3>
+                    <div class="kds-filters">
+                        <button class="kds-filter active" data-station="all">All</button>
+                        <button class="kds-filter" data-station="grill">Grill</button>
+                        <button class="kds-filter" data-station="fry">Fry</button>
+                        <button class="kds-filter" data-station="salad">Salad</button>
+                        <button class="kds-filter" data-station="expo">Expo</button>
+                    </div>
+                    <div class="kds-stats">
+                        <span class="kds-stat">Active: <strong id="kds-active">0</strong></span>
+                        <span class="kds-stat">Avg Time: <strong id="kds-avg-time">0:00</strong></span>
+                    </div>
+                </div>
+                <div class="kds-tickets" id="kds-tickets">
+                    <!-- Kitchen tickets populated by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Tickets View -->
+        <div id="tickets-view" class="main-view">
+            <div class="tickets-container">
+                <div class="tickets-header">
+                    <h3>Open Tickets</h3>
+                    <div class="tickets-filters">
+                        <button class="ticket-filter active" data-filter="open">Open</button>
+                        <button class="ticket-filter" data-filter="paid">Paid</button>
+                        <button class="ticket-filter" data-filter="closed">Closed</button>
+                        <button class="ticket-filter" data-filter="all">All</button>
+                    </div>
+                </div>
+                <div class="tickets-list" id="tickets-list">
+                    <!-- Tickets populated by JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Payment Modal -->
+    <div id="payment-modal" class="modal">
+        <div class="modal-content payment-modal-content">
+            <div class="modal-header">
+                <h3>Payment</h3>
+                <button class="modal-close" id="close-payment">&times;</button>
+            </div>
+            <div class="payment-layout">
+                <div class="payment-summary-panel">
+                    <div class="payment-total-display">
+                        <span class="payment-label">Amount Due</span>
+                        <span class="payment-amount" id="payment-due">$0.00</span>
+                    </div>
+                    <div class="payment-dual-pricing" id="payment-dual-pricing">
+                        <div class="payment-price-option cash-option" id="payment-cash-option">
+                            <span class="option-label">Cash Price</span>
+                            <span class="option-amount" id="payment-cash-price">$0.00</span>
+                            <span class="option-savings" id="payment-cash-savings">Save $0.00</span>
+                        </div>
+                        <div class="payment-price-option card-option" id="payment-card-option">
+                            <span class="option-label">Card Price</span>
+                            <span class="option-amount" id="payment-card-price">$0.00</span>
+                        </div>
+                    </div>
+                    <div class="payment-method-buttons">
+                        <button class="payment-method-btn active" data-method="cash" id="pm-cash">
+                            <span class="pm-icon">$</span>
+                            <span>Cash</span>
+                        </button>
+                        <button class="payment-method-btn" data-method="credit" id="pm-credit">
+                            <span class="pm-icon">&#x1F4B3;</span>
+                            <span>Credit</span>
+                        </button>
+                        <button class="payment-method-btn" data-method="debit" id="pm-debit">
+                            <span class="pm-icon">&#x1F4B3;</span>
+                            <span>Debit</span>
+                        </button>
+                        <button class="payment-method-btn" data-method="gift" id="pm-gift">
+                            <span class="pm-icon">&#x1F381;</span>
+                            <span>Gift</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="payment-input-panel">
+                    <div class="tendered-display">
+                        <span class="tendered-label">Amount Tendered</span>
+                        <input type="text" class="tendered-input" id="tendered-amount" value="0.00" readonly>
+                    </div>
+                    <div class="change-display" id="change-display" style="display:none">
+                        <span class="change-label">Change</span>
+                        <span class="change-amount" id="change-amount">$0.00</span>
+                    </div>
+                    <div class="quick-cash-buttons" id="quick-cash-buttons">
+                        <button class="quick-cash" data-amount="exact">Exact</button>
+                        <button class="quick-cash" data-amount="5">$5</button>
+                        <button class="quick-cash" data-amount="10">$10</button>
+                        <button class="quick-cash" data-amount="20">$20</button>
+                        <button class="quick-cash" data-amount="50">$50</button>
+                        <button class="quick-cash" data-amount="100">$100</button>
+                    </div>
+                    <div class="payment-numpad">
+                        <button class="numpad-btn" data-num="1">1</button>
+                        <button class="numpad-btn" data-num="2">2</button>
+                        <button class="numpad-btn" data-num="3">3</button>
+                        <button class="numpad-btn" data-num="4">4</button>
+                        <button class="numpad-btn" data-num="5">5</button>
+                        <button class="numpad-btn" data-num="6">6</button>
+                        <button class="numpad-btn" data-num="7">7</button>
+                        <button class="numpad-btn" data-num="8">8</button>
+                        <button class="numpad-btn" data-num="9">9</button>
+                        <button class="numpad-btn" data-num=".">.</button>
+                        <button class="numpad-btn" data-num="0">0</button>
+                        <button class="numpad-btn numpad-clear" data-num="clear">C</button>
+                    </div>
+                    <div class="payment-terminal-status" id="terminal-status">
+                        <div class="terminal-icon">&#x1F4F1;</div>
+                        <span>PaybotX Terminal: <strong id="terminal-state">Ready</strong></span>
+                    </div>
+                    <button class="process-payment-btn" id="btn-process-payment">Process Payment</button>
+                    <button class="send-to-terminal-btn" id="btn-send-terminal">Send to Terminal</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modifier Modal -->
+    <div id="modifier-modal" class="modal">
+        <div class="modal-content modifier-modal-content">
+            <div class="modal-header">
+                <h3 id="modifier-item-name">Item Modifiers</h3>
+                <button class="modal-close" id="close-modifier">&times;</button>
+            </div>
+            <div class="modifier-body" id="modifier-body">
+                <!-- Modifiers populated by JS -->
+            </div>
+            <div class="modifier-footer">
+                <button class="btn-cancel" id="modifier-cancel">Cancel</button>
+                <button class="btn-confirm" id="modifier-confirm">Add to Order</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="js/pos.js"></script>
+</body>
+</html>

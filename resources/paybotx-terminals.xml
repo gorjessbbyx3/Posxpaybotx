@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PaybotX/Valor Terminal Configuration
+
+  Configure one or more external payment terminals for your restaurant.
+  The POS will use the first active terminal by default.
+
+  For multi-terminal setups, assign different terminals to different registers
+  by setting the active attribute.
+
+  Terminal Models Supported:
+    VP8800, VX520, VX680, VX690, VP3300,
+    Pax A920, Pax A80, Pax S300,
+    Ingenico Lane/3000, Ingenico Move/5000
+-->
+<terminals>
+  <!-- Example: Primary register terminal -->
+  <terminal id="TERM001" active="true">
+    <merchantId>YOUR_MERCHANT_ID</merchantId>
+    <apiKey>YOUR_API_KEY</apiKey>
+    <ipAddress>192.168.1.100</ipAddress>
+    <port>8443</port>
+    <model>VP8800</model>
+    <serialNumber>SN12345678</serialNumber>
+  </terminal>
+
+  <!-- Example: Secondary bar terminal -->
+  <!--
+  <terminal id="TERM002" active="true">
+    <merchantId>YOUR_MERCHANT_ID</merchantId>
+    <apiKey>YOUR_API_KEY</apiKey>
+    <ipAddress>192.168.1.101</ipAddress>
+    <port>8443</port>
+    <model>Pax A920</model>
+    <serialNumber>SN87654321</serialNumber>
+  </terminal>
+  -->
+</terminals>

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cash Discount Compliance Signage Generator</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', -apple-system, sans-serif; background: #f5f5f7; color: #1d1d1f; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { font-size: 1.5rem; margin-bottom: 20px; }
+        .config-panel { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .config-panel h2 { font-size: 1.1rem; margin-bottom: 12px; }
+        .form-row { display: flex; gap: 12px; margin-bottom: 12px; align-items: center; }
+        label { font-weight: 600; font-size: 0.9rem; min-width: 140px; }
+        input, select { padding: 8px 12px; border: 1px solid #d2d2d7; border-radius: 8px; font-size: 0.9rem; font-family: inherit; }
+        input[type="text"], input[type="number"] { flex: 1; }
+        select { flex: 1; }
+        button { padding: 10px 20px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.9rem; }
+        .btn-primary { background: #0071e3; color: white; }
+        .btn-primary:hover { background: #0077ED; }
+        .btn-print { background: #34c759; color: white; margin-left: 8px; }
+
+        /* Sign Preview */
+        .sign-preview { background: white; border-radius: 12px; padding: 40px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .sign { border: 3px solid #000; padding: 30px; text-align: center; max-width: 500px; margin: 0 auto; }
+        .sign h2 { font-size: 1.8rem; margin-bottom: 12px; }
+        .sign .rate { font-size: 3rem; font-weight: 800; color: #28a745; margin: 12px 0; }
+        .sign .details { font-size: 1rem; line-height: 1.6; margin: 12px 0; }
+        .sign .legal { font-size: 0.75rem; color: #666; margin-top: 16px; border-top: 1px solid #ddd; padding-top: 12px; }
+        .sign .restaurant-name { font-size: 1.2rem; font-weight: 700; margin-bottom: 8px; }
+
+        @media print {
+            body { background: white; padding: 0; }
+            .config-panel, h1, .btn-row { display: none; }
+            .sign-preview { box-shadow: none; padding: 0; }
+            .sign { border-width: 4px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Cash Discount Compliance Signage Generator</h1>
+
+        <div class="config-panel">
+            <h2>Sign Configuration</h2>
+            <div class="form-row">
+                <label>Restaurant Name:</label>
+                <input type="text" id="restaurantName" value="Your Restaurant Name">
+            </div>
+            <div class="form-row">
+                <label>Pricing Mode:</label>
+                <select id="pricingMode">
+                    <option value="cash_discount">Cash Discount</option>
+                    <option value="card_surcharge">Card Surcharge</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>Rate (%):</label>
+                <input type="number" id="rate" value="4.0" step="0.1" min="0" max="10">
+            </div>
+            <div class="form-row">
+                <label>State:</label>
+                <select id="state">
+                    <option value="general">General (All States)</option>
+                    <option value="NY">New York</option>
+                    <option value="CA">California</option>
+                    <option value="TX">Texas</option>
+                    <option value="FL">Florida</option>
+                    <option value="CT">Connecticut</option>
+                    <option value="MA">Massachusetts</option>
+                    <option value="CO">Colorado</option>
+                </select>
+            </div>
+            <div class="form-row btn-row">
+                <button class="btn-primary" onclick="generateSign()">Generate Sign</button>
+                <button class="btn-print" onclick="window.print()">Print Sign</button>
+            </div>
+        </div>
+
+        <div class="sign-preview" id="signPreview">
+            <div class="sign" id="sign">
+                <div class="restaurant-name" id="signRestaurantName">Your Restaurant Name</div>
+                <h2 id="signTitle">CASH DISCOUNT PROGRAM</h2>
+                <div class="rate" id="signRate">4% OFF</div>
+                <div class="details" id="signDetails">
+                    All posted prices reflect the <strong>card price</strong>.<br>
+                    Customers paying with <strong>cash</strong> receive a<br>
+                    <strong>4% discount</strong> at the register.
+                </div>
+                <div class="legal" id="signLegal">
+                    This discount program complies with applicable federal and state regulations.
+                    Cash discount is applied at the time of purchase. All forms of payment accepted.
+                    For questions, please ask your server or manager.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function generateSign() {
+            const name = document.getElementById('restaurantName').value;
+            const mode = document.getElementById('pricingMode').value;
+            const rate = document.getElementById('rate').value;
+            const state = document.getElementById('state').value;
+
+            document.getElementById('signRestaurantName').textContent = name;
+
+            if (mode === 'cash_discount') {
+                document.getElementById('signTitle').textContent = 'CASH DISCOUNT PROGRAM';
+                document.getElementById('signRate').textContent = rate + '% OFF';
+                document.getElementById('signRate').style.color = '#28a745';
+                document.getElementById('signDetails').innerHTML =
+                    'All posted prices reflect the <strong>card price</strong>.<br>' +
+                    'Customers paying with <strong>cash</strong> receive a<br>' +
+                    '<strong>' + rate + '% discount</strong> at the register.';
+            } else {
+                document.getElementById('signTitle').textContent = 'NON-CASH ADJUSTMENT NOTICE';
+                document.getElementById('signRate').textContent = rate + '% FEE';
+                document.getElementById('signRate').style.color = '#ff9500';
+                document.getElementById('signDetails').innerHTML =
+                    'All posted prices reflect the <strong>cash price</strong>.<br>' +
+                    'A <strong>' + rate + '% non-cash adjustment</strong> is applied<br>' +
+                    'to credit and debit card transactions.';
+            }
+
+            let legal = 'This program complies with applicable federal and state regulations. ';
+            if (state === 'CT') {
+                legal += 'Connecticut law permits cash discounts under C.G.S. &sect; 42-133ff. ';
+            } else if (state === 'NY') {
+                legal += 'Permissible under New York General Business Law. ';
+            } else if (state === 'CA') {
+                legal += 'Compliant with California Civil Code &sect; 1748.1. ';
+            } else if (state === 'CO') {
+                legal += 'Compliant with Colorado Revised Statutes. Surcharge limited to cost of acceptance or 2%, whichever is less. ';
+            }
+            legal += 'All forms of payment accepted. For questions, please ask your server or manager.';
+            document.getElementById('signLegal').textContent = legal;
+        }
+
+        generateSign();
+    </script>
+</body>
+</html>

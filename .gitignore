@@ -1,0 +1,45 @@
+# Java
+*.class
+*.jar
+*.war
+*.ear
+target/
+build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Maven
+dependency-reduced-pom.xml
+
+# Database
+*.db
+*.derby/
+derby.log
+
+# POS Data
+data/
+offline-payments.queue
+
+# Docker
+.docker/
+
+# Logs
+*.log
+logs/
+
+# Sensitive
+*.env
+credentials.json

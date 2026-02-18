@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # Main POS Application
+  pos:
+    build: .
+    container_name: restaurant-pos
+    ports:
+      - "8080:8080"   # Web UI + PaybotX Proxy API
+      - "8000:8000"   # Dejavoo Proxy (legacy)
+    volumes:
+      - pos-data:/opt/floreantpos/data
+      - ./config:/opt/floreantpos/config
+      - ./resources/paybotx-terminals.xml:/opt/floreantpos/resources/paybotx-terminals.xml
+    environment:
+      - JAVA_OPTS=-Xmx512m
+      - DB_TYPE=DERBY           # DERBY (embedded), MYSQL, or POSTGRESQL
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_NAME=floreantpos
+      - DB_USER=floreant
+      - DB_PASS=floreant
+      - PAYBOTX_GATEWAY_URL=https://vt.isoaccess.com
+      - CASH_DISCOUNT_ENABLED=true
+      - CASH_DISCOUNT_RATE=4.0
+      - CASH_DISCOUNT_MODE=CASH_DISCOUNT
+    restart: unless-stopped
+    networks:
+      - pos-network
+    depends_on:
+      - db
+
+  # MySQL Database (optional - can use embedded Derby instead)
+  db:
+    image: mysql:8.0
+    container_name: pos-database
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: floreantpos
+      MYSQL_USER: floreant
+      MYSQL_PASSWORD: floreant
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./database:/docker-entrypoint-initdb.d
+    ports:
+      - "3306:3306"
+    restart: unless-stopped
+    networks:
+      - pos-network
+
+  # Nginx reverse proxy for web UI
+  nginx:
+    image: nginx:alpine
+    container_name: pos-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./webapp:/usr/share/nginx/html:ro
+      - ./etc/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    networks:
+      - pos-network
+    depends_on:
+      - pos
+
+volumes:
+  pos-data:
+  db-data:
+
+networks:
+  pos-network:
+    driver: bridge
