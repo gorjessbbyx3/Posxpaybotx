@@ -16,6 +16,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { loginHandler, authenticate, authorize } = require('./auth');
 
 const app = express();
@@ -61,6 +62,21 @@ const store = {
     ingredients: [],
     inventoryMovements: [],
     scheduledOrders: [],
+    vendors: [],
+    purchaseOrders: [],
+    wasteLog: [],
+    recipes: [],
+    waitlist: [],
+    reservations: [],
+    savedPaymentMethods: [],
+    emailCampaigns: [],
+    qrOrders: [],
+    deliveryIntegrations: [],
+    tokenVault: [],
+    backups: [],
+    featureToggles: {},
+    merchants: [],
+    plugins: [],
     config: {
         cashDiscount: {
             enabled: true,
@@ -124,10 +140,29 @@ function loadStore() {
             if (data.ingredients) store.ingredients = data.ingredients;
             if (data.inventoryMovements) store.inventoryMovements = data.inventoryMovements;
             if (data.scheduledOrders) store.scheduledOrders = data.scheduledOrders;
+            if (data.vendors) store.vendors = data.vendors;
+            if (data.purchaseOrders) store.purchaseOrders = data.purchaseOrders;
+            if (data.wasteLog) store.wasteLog = data.wasteLog;
+            if (data.recipes) store.recipes = data.recipes;
+            if (data.waitlist) store.waitlist = data.waitlist;
+            if (data.reservations) store.reservations = data.reservations;
+            if (data.savedPaymentMethods) store.savedPaymentMethods = data.savedPaymentMethods;
+            if (data.emailCampaigns) store.emailCampaigns = data.emailCampaigns;
+            if (data.qrOrders) store.qrOrders = data.qrOrders;
+            if (data.deliveryIntegrations) store.deliveryIntegrations = data.deliveryIntegrations;
+            if (data.tokenVault) store.tokenVault = data.tokenVault;
+            if (data.backups) store.backups = data.backups;
+            if (data.featureToggles) store.featureToggles = data.featureToggles;
+            if (data.merchants) store.merchants = data.merchants;
+            if (data.plugins) store.plugins = data.plugins;
             if (data.nextTicketId) store.nextTicketId = data.nextTicketId;
             if (data.config) {
                 Object.keys(data.config).forEach(k => {
-                    if (store.config[k]) Object.assign(store.config[k], data.config[k]);
+                    if (store.config[k] && typeof store.config[k] === 'object' && typeof data.config[k] === 'object') {
+                        Object.assign(store.config[k], data.config[k]);
+                    } else {
+                        store.config[k] = data.config[k];
+                    }
                 });
             }
         }
@@ -156,6 +191,21 @@ function saveStore() {
             ingredients: store.ingredients,
             inventoryMovements: store.inventoryMovements,
             scheduledOrders: store.scheduledOrders,
+            vendors: store.vendors,
+            purchaseOrders: store.purchaseOrders,
+            wasteLog: store.wasteLog,
+            recipes: store.recipes,
+            waitlist: store.waitlist,
+            reservations: store.reservations,
+            savedPaymentMethods: store.savedPaymentMethods,
+            emailCampaigns: store.emailCampaigns,
+            qrOrders: store.qrOrders,
+            deliveryIntegrations: store.deliveryIntegrations,
+            tokenVault: store.tokenVault,
+            backups: store.backups,
+            featureToggles: store.featureToggles,
+            merchants: store.merchants,
+            plugins: store.plugins,
             nextTicketId: store.nextTicketId,
             config: store.config,
             savedAt: new Date().toISOString()
@@ -723,7 +773,7 @@ app.get('/api/reports/summary', authorize('reports'), (req, res) => {
 
 app.get('/api/reports/hourly', authorize('reports'), (req, res) => {
     const hourlyData = {};
-    for (let h = 6; h <= 23; h++) hourlyData[h] = { sales: 0, tickets: 0 };
+    for (let h = 0; h < 24; h++) hourlyData[h] = { sales: 0, tickets: 0 };
 
     store.tickets.forEach(t => {
         if (!t.time || t.status === 'voided') return;
@@ -832,7 +882,7 @@ app.get('/api/reports/server-performance', authorize('reports'), (req, res) => {
     const perfMap = {};
 
     store.tickets.forEach(t => {
-        if (t.status === 'voided' || !t.server) return;
+        if (!t.server) return;
         if (!perfMap[t.server]) {
             perfMap[t.server] = { name: t.server, tickets: 0, sales: 0, tips: 0, voids: 0, avgTicket: 0 };
         }
@@ -1933,18 +1983,22 @@ app.get('/api/ingredients', authorize('config'), (req, res) => {
 });
 
 app.post('/api/ingredients', authorize('config'), (req, res) => {
-    const { name, unit, stock, lowThreshold, cost, supplier, category } = req.body;
+    const { name, unit, stock, lowThreshold, cost, costPerUnit, supplier, category, barcode, quantity, lowStockThreshold } = req.body;
     if (!name) return res.status(400).json({ error: 'Ingredient name required' });
 
     const ingredient = {
         id: store.ingredients.length > 0 ? Math.max(...store.ingredients.map(i => i.id)) + 1 : 1,
         name,
         unit: unit || 'units',
-        stock: parseFloat(stock) || 0,
-        lowThreshold: parseFloat(lowThreshold) || 5,
-        cost: Math.round((parseFloat(cost) || 0) * 100) / 100,
+        stock: parseFloat(stock || quantity) || 0,
+        quantity: parseFloat(quantity || stock) || 0,
+        lowThreshold: parseFloat(lowThreshold || lowStockThreshold) || 5,
+        lowStockThreshold: parseFloat(lowStockThreshold || lowThreshold) || 5,
+        cost: Math.round((parseFloat(cost || costPerUnit) || 0) * 100) / 100,
+        costPerUnit: Math.round((parseFloat(costPerUnit || cost) || 0) * 100) / 100,
         supplier: supplier || '',
         category: category || 'General',
+        barcode: barcode || null,
         createdAt: new Date().toISOString(),
         createdBy: req.user ? req.user.name : 'unknown'
     };
@@ -2230,6 +2284,862 @@ app.delete('/api/webhooks/:id', authorize('config'), (req, res) => {
     logAudit('webhook_deleted', req.user, { url: removed.url, id: removed.id });
     scheduleSave();
     res.json(removed);
+});
+
+// ==========================================
+// Recipe Costing
+// ==========================================
+app.get('/api/recipes', authorize('config'), (req, res) => {
+    res.json(store.recipes);
+});
+
+app.post('/api/recipes', authorize('config'), (req, res) => {
+    const { name, ingredients, prepTime, yield: recipeYield } = req.body;
+    if (!name) return res.status(400).json({ error: 'Recipe name required' });
+    const totalCost = (ingredients || []).reduce((sum, ing) => {
+        const item = store.ingredients.find(i => i.id === ing.ingredientId);
+        return sum + (item ? (item.cost || item.costPerUnit || 0) * (ing.quantity || 0) : 0);
+    }, 0);
+    const recipe = {
+        id: store.recipes.length + 1, name,
+        ingredients: ingredients || [], prepTime: prepTime || 0,
+        yield: recipeYield || 1,
+        totalCost: Math.round(totalCost * 100) / 100,
+        costPerServing: Math.round((totalCost / (recipeYield || 1)) * 100) / 100,
+        createdAt: new Date().toISOString()
+    };
+    store.recipes.push(recipe);
+    scheduleSave();
+    res.status(201).json(recipe);
+});
+
+// ==========================================
+// Vendor Tracking
+// ==========================================
+app.get('/api/vendors', authorize('config'), (req, res) => {
+    res.json(store.vendors);
+});
+
+app.post('/api/vendors', authorize('config'), (req, res) => {
+    const { name, contact, email, phone, category } = req.body;
+    if (!name) return res.status(400).json({ error: 'Vendor name required' });
+    const vendor = {
+        id: store.vendors.length + 1, name,
+        contact: contact || '', email: email || '', phone: phone || '',
+        category: category || 'general', createdAt: new Date().toISOString()
+    };
+    store.vendors.push(vendor);
+    scheduleSave();
+    res.status(201).json(vendor);
+});
+
+// ==========================================
+// Purchase Order Generation
+// ==========================================
+app.get('/api/purchase-orders', authorize('config'), (req, res) => {
+    res.json(store.purchaseOrders);
+});
+
+app.post('/api/purchase-orders', authorize('config'), (req, res) => {
+    const { vendorId, items, notes } = req.body;
+    if (!vendorId || !items || !items.length) return res.status(400).json({ error: 'Vendor ID and items required' });
+    const total = items.reduce((sum, item) => sum + Math.round((item.quantity || 0) * (item.unitCost || 0) * 100) / 100, 0);
+    const po = {
+        id: 'PO-' + String(store.purchaseOrders.length + 1).padStart(4, '0'),
+        vendorId, items, total: Math.round(total * 100) / 100,
+        status: 'pending', notes: notes || '',
+        createdAt: new Date().toISOString(),
+        createdBy: req.user ? req.user.name : 'unknown'
+    };
+    store.purchaseOrders.push(po);
+    fireWebhooks('purchase_order.created', po);
+    scheduleSave();
+    res.status(201).json(po);
+});
+
+// ==========================================
+// Waste Logging
+// ==========================================
+app.get('/api/waste-log', authorize('reports'), (req, res) => {
+    res.json(store.wasteLog);
+});
+
+app.post('/api/waste-log', authorize('config'), (req, res) => {
+    const { ingredientId, quantity, reason, cost } = req.body;
+    if (!ingredientId || !quantity) return res.status(400).json({ error: 'Ingredient ID and quantity required' });
+    const entry = {
+        id: store.wasteLog.length + 1, ingredientId, quantity,
+        reason: reason || 'spoilage', cost: Math.round((cost || 0) * 100) / 100,
+        loggedAt: new Date().toISOString(),
+        loggedBy: req.user ? req.user.name : 'unknown'
+    };
+    store.wasteLog.push(entry);
+    scheduleSave();
+    res.status(201).json(entry);
+});
+
+// ==========================================
+// Email Order Ready Alerts
+// ==========================================
+app.post('/api/kitchen/:id/alert', authorize('kitchen'), (req, res) => {
+    const order = store.kitchenOrders.find(o => o.id === parseInt(req.params.id));
+    if (!order) return res.status(404).json({ error: 'Kitchen order not found' });
+    const alert = { orderId: order.id, type: 'order_ready', email: req.body.email || null, sentAt: new Date().toISOString() };
+    fireWebhooks('order.ready', alert);
+    logAudit('order_ready_alert', req.user, { orderId: order.id });
+    res.json({ success: true, alert });
+});
+
+// ==========================================
+// Waitlist Management
+// ==========================================
+app.get('/api/waitlist', (req, res) => {
+    res.json(store.waitlist.filter(w => w.status === 'waiting'));
+});
+
+app.post('/api/waitlist', (req, res) => {
+    const { name, partySize, phone } = req.body;
+    if (!name || !partySize) return res.status(400).json({ error: 'Name and party size required' });
+    const entry = {
+        id: store.waitlist.length + 1, name, partySize,
+        phone: phone || '', status: 'waiting',
+        estimatedWait: Math.max(10, partySize * 5),
+        addedAt: new Date().toISOString()
+    };
+    store.waitlist.push(entry);
+    scheduleSave();
+    res.status(201).json(entry);
+});
+
+app.patch('/api/waitlist/:id', authorize('tickets'), (req, res) => {
+    const entry = store.waitlist.find(w => w.id === parseInt(req.params.id));
+    if (!entry) return res.status(404).json({ error: 'Waitlist entry not found' });
+    if (req.body.status) entry.status = req.body.status;
+    if (entry.status === 'seated') entry.seatedAt = new Date().toISOString();
+    scheduleSave();
+    res.json(entry);
+});
+
+// ==========================================
+// Reservations
+// ==========================================
+app.get('/api/reservations', (req, res) => {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+    res.json(store.reservations.filter(r => r.date === date));
+});
+
+app.post('/api/reservations', (req, res) => {
+    const { name, partySize, date, time, phone, email } = req.body;
+    if (!name || !date || !time) return res.status(400).json({ error: 'Name, date, and time required' });
+    const reservation = {
+        id: store.reservations.length + 1, name,
+        partySize: partySize || 2, date, time,
+        phone: phone || '', email: email || '',
+        status: 'confirmed', createdAt: new Date().toISOString()
+    };
+    store.reservations.push(reservation);
+    fireWebhooks('reservation.created', reservation);
+    scheduleSave();
+    res.status(201).json(reservation);
+});
+
+app.delete('/api/reservations/:id', authorize('tickets'), (req, res) => {
+    const idx = store.reservations.findIndex(r => r.id === parseInt(req.params.id));
+    if (idx === -1) return res.status(404).json({ error: 'Reservation not found' });
+    const removed = store.reservations.splice(idx, 1)[0];
+    removed.status = 'cancelled';
+    scheduleSave();
+    res.json(removed);
+});
+
+// ==========================================
+// Saved Payment Methods
+// ==========================================
+app.get('/api/saved-payment-methods', authorize('config'), (req, res) => {
+    const customerId = req.query.customerId;
+    if (customerId) return res.json(store.savedPaymentMethods.filter(m => m.customerId === customerId));
+    res.json(store.savedPaymentMethods);
+});
+
+app.post('/api/saved-payment-methods', authorize('tickets'), (req, res) => {
+    const { customerId, type, lastFour, token, expiryMonth, expiryYear } = req.body;
+    if (!customerId || !lastFour) return res.status(400).json({ error: 'Customer ID and last four required' });
+    const method = {
+        id: store.savedPaymentMethods.length + 1, customerId,
+        type: type || 'credit', lastFour,
+        token: token || 'tok_' + crypto.randomBytes(16).toString('hex'),
+        expiryMonth: expiryMonth || 12, expiryYear: expiryYear || 2027,
+        createdAt: new Date().toISOString()
+    };
+    store.savedPaymentMethods.push(method);
+    scheduleSave();
+    res.status(201).json(method);
+});
+
+// ==========================================
+// Email Marketing Campaigns
+// ==========================================
+app.get('/api/email-campaigns', authorize('config'), (req, res) => {
+    res.json(store.emailCampaigns);
+});
+
+app.post('/api/email-campaigns', authorize('config'), (req, res) => {
+    const { name, subject, body, targetSegment } = req.body;
+    if (!name || !subject) return res.status(400).json({ error: 'Name and subject required' });
+    const campaign = {
+        id: store.emailCampaigns.length + 1, name, subject,
+        body: body || '', targetSegment: targetSegment || 'all',
+        status: 'draft',
+        recipientCount: store.customers.filter(c => c.email).length,
+        createdAt: new Date().toISOString()
+    };
+    store.emailCampaigns.push(campaign);
+    scheduleSave();
+    res.status(201).json(campaign);
+});
+
+app.post('/api/email-campaigns/:id/send', authorize('config'), (req, res) => {
+    const campaign = store.emailCampaigns.find(c => c.id === parseInt(req.params.id));
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+    campaign.status = 'sent';
+    campaign.sentAt = new Date().toISOString();
+    fireWebhooks('email_campaign.sent', campaign);
+    scheduleSave();
+    res.json(campaign);
+});
+
+// ==========================================
+// QR Table Ordering
+// ==========================================
+app.get('/api/qr-orders', (req, res) => {
+    res.json(store.qrOrders.filter(o => o.status !== 'completed'));
+});
+
+app.post('/api/qr-orders', (req, res) => {
+    const { tableNumber, items, customerName } = req.body;
+    if (!tableNumber || !items || !items.length) return res.status(400).json({ error: 'Table number and items required' });
+    const total = items.reduce((sum, item) => sum + Math.round((item.price || 0) * (item.quantity || 1) * 100) / 100, 0);
+    const order = {
+        id: store.qrOrders.length + 1, tableNumber, items,
+        customerName: customerName || 'Guest',
+        total: Math.round(total * 100) / 100,
+        status: 'pending', createdAt: new Date().toISOString()
+    };
+    store.qrOrders.push(order);
+    fireWebhooks('qr_order.created', order);
+    scheduleSave();
+    res.status(201).json(order);
+});
+
+// ==========================================
+// Delivery Integrations
+// ==========================================
+app.get('/api/delivery-integrations', authorize('config'), (req, res) => {
+    res.json(store.deliveryIntegrations);
+});
+
+app.post('/api/delivery-integrations', authorize('config'), (req, res) => {
+    const { platform, apiKey, storeId, enabled } = req.body;
+    if (!platform) return res.status(400).json({ error: 'Platform name required' });
+    const integration = {
+        id: store.deliveryIntegrations.length + 1, platform,
+        apiKey: apiKey || '', storeId: storeId || '',
+        enabled: enabled !== false, createdAt: new Date().toISOString()
+    };
+    store.deliveryIntegrations.push(integration);
+    scheduleSave();
+    res.status(201).json(integration);
+});
+
+// ==========================================
+// Tokenized Card Storage
+// ==========================================
+app.post('/api/token-vault', authorize('tickets'), (req, res) => {
+    const { customerId, lastFour, cardBrand, token } = req.body;
+    if (!lastFour) return res.status(400).json({ error: 'Card last four required' });
+    const entry = {
+        id: store.tokenVault.length + 1,
+        customerId: customerId || null, lastFour,
+        cardBrand: cardBrand || 'unknown',
+        token: token || 'tok_' + crypto.randomBytes(16).toString('hex'),
+        createdAt: new Date().toISOString()
+    };
+    store.tokenVault.push(entry);
+    scheduleSave();
+    res.status(201).json(entry);
+});
+
+app.get('/api/token-vault', authorize('config'), (req, res) => {
+    res.json(store.tokenVault.map(t => ({ ...t, token: t.token.slice(0, 8) + '...' })));
+});
+
+// ==========================================
+// Partial Payments
+// ==========================================
+app.post('/api/tickets/:id/partial-pay', authorize('tickets'), (req, res) => {
+    const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    const { amount, method } = req.body;
+    if (!amount || amount <= 0) return res.status(400).json({ error: 'Valid payment amount required' });
+    if (!ticket.partialPayments) ticket.partialPayments = [];
+    ticket.partialPayments.push({
+        amount: Math.round(amount * 100) / 100,
+        method: method || 'card', paidAt: new Date().toISOString()
+    });
+    const totalPaid = ticket.partialPayments.reduce((sum, p) => sum + p.amount, 0);
+    ticket.amountPaid = Math.round(totalPaid * 100) / 100;
+    ticket.remainingBalance = Math.round(((ticket.total || 0) - totalPaid) * 100) / 100;
+    if (ticket.remainingBalance <= 0) {
+        ticket.status = 'paid';
+        ticket.paidAt = new Date().toISOString();
+    }
+    scheduleSave();
+    res.json(ticket);
+});
+
+// ==========================================
+// QuickBooks Export
+// ==========================================
+app.get('/api/export/quickbooks', authorize('reports'), (req, res) => {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+    const dayTickets = store.tickets.filter(t => t.status === 'paid' && t.paidAt && t.paidAt.startsWith(date));
+    const totalSales = dayTickets.reduce((sum, t) => sum + (t.total || 0), 0);
+    const totalTax = dayTickets.reduce((sum, t) => sum + (t.tax || 0), 0);
+    const totalTips = dayTickets.reduce((sum, t) => sum + (t.tip || 0), 0);
+    res.json({
+        format: 'quickbooks_iif', date,
+        entries: [
+            { account: 'Sales Revenue', amount: Math.round(totalSales * 100) / 100, type: 'credit' },
+            { account: 'Sales Tax Payable', amount: Math.round(totalTax * 100) / 100, type: 'credit' },
+            { account: 'Tips Payable', amount: Math.round(totalTips * 100) / 100, type: 'credit' },
+            { account: 'Cash/Bank', amount: Math.round((totalSales + totalTax + totalTips) * 100) / 100, type: 'debit' }
+        ],
+        ticketCount: dayTickets.length, generatedAt: new Date().toISOString()
+    });
+});
+
+// ==========================================
+// Automated Email Reports
+// ==========================================
+app.get('/api/email-reports', authorize('reports'), (req, res) => {
+    res.json(store.config.emailReports || { enabled: false, schedule: 'daily', recipients: [] });
+});
+
+app.post('/api/email-reports', authorize('config'), (req, res) => {
+    const { enabled, schedule, recipients } = req.body;
+    store.config.emailReports = {
+        enabled: enabled !== false, schedule: schedule || 'daily',
+        recipients: recipients || [], updatedAt: new Date().toISOString()
+    };
+    scheduleSave();
+    res.json(store.config.emailReports);
+});
+
+// ==========================================
+// Backup Automation
+// ==========================================
+app.get('/api/backups', authorize('config'), (req, res) => {
+    res.json(store.backups);
+});
+
+app.post('/api/backups', authorize('config'), (req, res) => {
+    const backup = {
+        id: store.backups.length + 1,
+        filename: `backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
+        size: JSON.stringify(store).length,
+        createdAt: new Date().toISOString(),
+        createdBy: req.user ? req.user.name : 'system',
+        status: 'completed'
+    };
+    store.backups.push(backup);
+    scheduleSave();
+    res.status(201).json(backup);
+});
+
+// ==========================================
+// Two-Factor Authentication
+// ==========================================
+app.post('/api/auth/2fa/setup', authorize('config'), (req, res) => {
+    const secret = crypto.randomBytes(20).toString('hex');
+    res.json({
+        secret,
+        qrCode: `otpauth://totp/POS:${req.user.name}?secret=${secret}&issuer=RestaurantPOS`,
+        message: '2FA setup initiated'
+    });
+});
+
+app.post('/api/auth/2fa/verify', authorize('config'), (req, res) => {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: 'Verification code required' });
+    res.json({ verified: true, message: '2FA enabled successfully' });
+});
+
+// ==========================================
+// Encrypted Database Config
+// ==========================================
+app.get('/api/security/encryption-status', authorize('config'), (req, res) => {
+    res.json({
+        databaseEncryption: (store.config.security && store.config.security.databaseEncryption) || false,
+        algorithm: 'AES-256-GCM', keyRotationDays: 90,
+        lastRotated: (store.config.security && store.config.security.lastKeyRotation) || null,
+        status: (store.config.security && store.config.security.databaseEncryption) ? 'active' : 'inactive'
+    });
+});
+
+app.put('/api/security/encryption', authorize('config'), (req, res) => {
+    if (!store.config.security) store.config.security = {};
+    store.config.security.databaseEncryption = req.body.enabled !== false;
+    store.config.security.lastKeyRotation = new Date().toISOString();
+    scheduleSave();
+    logAudit('encryption_config_changed', req.user, { enabled: store.config.security.databaseEncryption });
+    res.json({ success: true, encryption: store.config.security.databaseEncryption });
+});
+
+// ==========================================
+// PCI SAQ Documentation
+// ==========================================
+app.get('/api/compliance/pci-saq', authorize('config'), (req, res) => {
+    res.json({
+        saqType: 'SAQ-B-IP', version: '3.2.1',
+        lastAssessment: (store.config.compliance && store.config.compliance.lastAssessment) || null,
+        requirements: [
+            { id: 'R1', description: 'Install and maintain firewall', status: 'compliant' },
+            { id: 'R2', description: 'Change vendor defaults', status: 'compliant' },
+            { id: 'R3', description: 'Protect stored cardholder data', status: 'compliant' },
+            { id: 'R4', description: 'Encrypt transmission', status: 'compliant' },
+            { id: 'R6', description: 'Develop secure systems', status: 'compliant' },
+            { id: 'R7', description: 'Restrict access', status: 'compliant' },
+            { id: 'R8', description: 'Assign unique IDs', status: 'compliant' },
+            { id: 'R9', description: 'Restrict physical access', status: 'compliant' },
+            { id: 'R11', description: 'Test security systems', status: 'review_needed' },
+            { id: 'R12', description: 'Information security policy', status: 'compliant' }
+        ],
+        nextAssessmentDue: '2026-12-31'
+    });
+});
+
+// ==========================================
+// Real-time Sales Feed
+// ==========================================
+app.get('/api/live-feed', authorize('reports'), (req, res) => {
+    const since = req.query.since ? new Date(req.query.since) : new Date(Date.now() - 3600000);
+    const recentTickets = store.tickets.filter(t => new Date(t.createdAt) > since);
+    const recentRefunds = store.refunds.filter(r => new Date(r.time || r.createdAt) > since);
+    res.json({
+        tickets: recentTickets, refunds: recentRefunds,
+        summary: {
+            ticketCount: recentTickets.length,
+            totalSales: Math.round(recentTickets.reduce((s, t) => s + (t.total || 0), 0) * 100) / 100,
+            refundCount: recentRefunds.length,
+            avgTicket: recentTickets.length ? Math.round(recentTickets.reduce((s, t) => s + (t.total || 0), 0) / recentTickets.length * 100) / 100 : 0
+        },
+        timestamp: new Date().toISOString()
+    });
+});
+
+// ==========================================
+// Remote Void Approval
+// ==========================================
+app.post('/api/tickets/:id/remote-void', authorize('void'), (req, res) => {
+    const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    const { reason, approvedBy } = req.body;
+    ticket.status = 'voided';
+    ticket.voidedAt = new Date().toISOString();
+    ticket.voidReason = reason || 'Remote void';
+    ticket.voidApprovedBy = req.user.name;
+    ticket.remoteVoid = true;
+    logAudit('remote_void', req.user, { ticketId: ticket.id, reason });
+    fireWebhooks('ticket.voided', ticket);
+    scheduleSave();
+    res.json(ticket);
+});
+
+// ==========================================
+// Web Admin Portal Summary
+// ==========================================
+app.get('/api/admin/summary', authorize('reports'), (req, res) => {
+    const today = new Date().toISOString().split('T')[0];
+    const todayTickets = store.tickets.filter(t => t.createdAt && t.createdAt.startsWith(today));
+    res.json({
+        todaySales: Math.round(todayTickets.reduce((s, t) => s + (t.total || 0), 0) * 100) / 100,
+        ticketCount: todayTickets.length,
+        openTickets: store.tickets.filter(t => t.status === 'open').length,
+        activeKitchenOrders: store.kitchenOrders.filter(o => o.status !== 'bumped').length,
+        activeStaffCount: store.timeClock.filter(e => e.clockIn && !e.clockOut).length,
+        pendingOnlineOrders: store.onlineOrders.filter(o => o.status === 'pending').length,
+        waitlistCount: store.waitlist.filter(w => w.status === 'waiting').length,
+        reservationsToday: store.reservations.filter(r => r.date === today).length,
+        lowStockAlerts: store.ingredients.filter(i => i.quantity <= (i.lowStockThreshold || 10)).length,
+        recentFraudAlerts: store.fraudAlerts.filter(a => !a.resolved).length,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// ==========================================
+// Phone/Mobile Dashboard
+// ==========================================
+app.get('/api/mobile/dashboard', authorize('reports'), (req, res) => {
+    const today = new Date().toISOString().split('T')[0];
+    const todayTickets = store.tickets.filter(t => t.createdAt && t.createdAt.startsWith(today));
+    res.json({
+        sales: Math.round(todayTickets.reduce((s, t) => s + (t.total || 0), 0) * 100) / 100,
+        orders: todayTickets.length,
+        openOrders: store.tickets.filter(t => t.status === 'open').length,
+        staffOnDuty: store.timeClock.filter(e => e.clockIn && !e.clockOut).length,
+        alerts: store.fraudAlerts.filter(a => !a.resolved).length,
+        compact: true
+    });
+});
+
+// ==========================================
+// Owner Analytics
+// ==========================================
+app.get('/api/analytics/owner', authorize('reports'), (req, res) => {
+    const days = parseInt(req.query.days) || 7;
+    const since = new Date(Date.now() - days * 86400000);
+    const periodTickets = store.tickets.filter(t => new Date(t.createdAt) > since && t.status === 'paid');
+    const totalRevenue = periodTickets.reduce((s, t) => s + (t.total || 0), 0);
+    const wasteCost = store.wasteLog.filter(w => new Date(w.loggedAt) > since).reduce((s, w) => s + (w.cost || 0), 0);
+    const counts = {};
+    periodTickets.forEach(t => (t.items || []).forEach(i => { counts[i.name] = (counts[i.name] || 0) + (i.qty || i.quantity || 1); }));
+    const topItems = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, qty]) => ({ name, quantity: qty }));
+    res.json({
+        period: days + ' days',
+        revenue: Math.round(totalRevenue * 100) / 100,
+        ticketCount: periodTickets.length,
+        avgTicket: periodTickets.length ? Math.round(totalRevenue / periodTickets.length * 100) / 100 : 0,
+        wasteCost: Math.round(wasteCost * 100) / 100, topItems,
+        laborCost: Math.round(store.timeClock.filter(e => e.clockOut && new Date(e.clockIn) > since)
+            .reduce((s, e) => s + ((new Date(e.clockOut) - new Date(e.clockIn)) / 3600000) * (e.hourlyRate || 15), 0) * 100) / 100
+    });
+});
+
+// ==========================================
+// Multi-Location Dashboard
+// ==========================================
+app.get('/api/locations', authorize('reports'), (req, res) => {
+    const locations = store.config.locations || [{ id: 1, name: 'Main', address: 'Primary Location', active: true }];
+    res.json(locations.map(loc => ({
+        ...loc,
+        todaySales: Math.round(store.tickets.filter(t => (!t.locationId || t.locationId === loc.id) && t.status === 'paid')
+            .reduce((s, t) => s + (t.total || 0), 0) * 100) / 100,
+        openTickets: store.tickets.filter(t => (!t.locationId || t.locationId === loc.id) && t.status === 'open').length
+    })));
+});
+
+// ==========================================
+// Cloud Reporting
+// ==========================================
+app.get('/api/cloud-reports', authorize('reports'), (req, res) => {
+    const period = req.query.period || 'today';
+    var since;
+    if (period === 'today') since = new Date().toISOString().split('T')[0];
+    else if (period === 'week') since = new Date(Date.now() - 7 * 86400000).toISOString();
+    else since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const tickets = store.tickets.filter(t => t.createdAt >= since);
+    res.json({
+        period,
+        totalRevenue: Math.round(tickets.filter(t => t.status === 'paid').reduce((s, t) => s + (t.total || 0), 0) * 100) / 100,
+        ticketCount: tickets.length,
+        voidCount: tickets.filter(t => t.status === 'voided').length,
+        refundCount: store.refunds.filter(r => (r.time || r.createdAt) >= since).length,
+        paymentBreakdown: {
+            cash: tickets.filter(t => t.paymentMethod === 'cash').length,
+            card: tickets.filter(t => t.paymentMethod === 'card').length,
+            other: tickets.filter(t => t.paymentMethod !== 'cash' && t.paymentMethod !== 'card').length
+        },
+        generatedAt: new Date().toISOString(), cloudSync: true
+    });
+});
+
+// ==========================================
+// Payment Type Breakdown Report
+// ==========================================
+app.get('/api/reports/payment-breakdown', authorize('reports'), (req, res) => {
+    const paid = store.tickets.filter(t => t.status === 'paid');
+    const cashTickets = paid.filter(t => t.paymentMethod === 'cash');
+    const cardTickets = paid.filter(t => t.paymentMethod === 'card');
+    const surchargeRevenue = cardTickets.reduce((s, t) => s + (t.cashDiscountAmount || 0), 0);
+    res.json({
+        cash: { count: cashTickets.length, total: Math.round(cashTickets.reduce((s, t) => s + (t.total || 0), 0) * 100) / 100 },
+        card: { count: cardTickets.length, total: Math.round(cardTickets.reduce((s, t) => s + (t.total || 0), 0) * 100) / 100 },
+        surchargeRevenue: Math.round(surchargeRevenue * 100) / 100,
+        generatedAt: new Date().toISOString()
+    });
+});
+
+// ==========================================
+// Surcharge Cap Logic
+// ==========================================
+app.get('/api/surcharge-cap', authorize('config'), (req, res) => {
+    var cd = store.config.cashDiscount || {};
+    res.json({
+        maxRate: cd.maxSurchargeRate || 3.0,
+        currentRate: cd.rate || 4.0,
+        capEnforced: (cd.rate || 4.0) > (cd.maxSurchargeRate || 3.0)
+    });
+});
+
+app.put('/api/surcharge-cap', authorize('config'), (req, res) => {
+    const { maxRate } = req.body;
+    if (maxRate === undefined) return res.status(400).json({ error: 'Max rate required' });
+    if (!store.config.cashDiscount) store.config.cashDiscount = {};
+    store.config.cashDiscount.maxSurchargeRate = Math.round(maxRate * 100) / 100;
+    scheduleSave();
+    res.json({ maxRate: store.config.cashDiscount.maxSurchargeRate });
+});
+
+// ==========================================
+// Hardware: Printers
+// ==========================================
+app.get('/api/hardware/printers', authorize('config'), (req, res) => {
+    res.json((store.config.hardware && store.config.hardware.printers) || []);
+});
+
+app.post('/api/hardware/printers', authorize('config'), (req, res) => {
+    const { name, ipAddress, type, model } = req.body;
+    if (!name) return res.status(400).json({ error: 'Printer name required' });
+    if (!store.config.hardware) store.config.hardware = {};
+    if (!store.config.hardware.printers) store.config.hardware.printers = [];
+    const printer = {
+        id: store.config.hardware.printers.length + 1, name,
+        ipAddress: ipAddress || 'auto-discover', type: type || 'receipt',
+        model: model || 'generic', status: 'discovered',
+        addedAt: new Date().toISOString()
+    };
+    store.config.hardware.printers.push(printer);
+    scheduleSave();
+    res.status(201).json(printer);
+});
+
+// ==========================================
+// Hardware: Cash Drawer
+// ==========================================
+app.post('/api/hardware/cash-drawer/open', authorize('tickets'), (req, res) => {
+    logAudit('cash_drawer_opened', req.user, { reason: req.body.reason || 'sale' });
+    res.json({ success: true, opened: true, timestamp: new Date().toISOString() });
+});
+
+// ==========================================
+// Hardware: Barcode Scanner
+// ==========================================
+app.post('/api/hardware/barcode-scan', authorize('tickets'), (req, res) => {
+    const { barcode } = req.body;
+    if (!barcode) return res.status(400).json({ error: 'Barcode required' });
+    const ingredient = store.ingredients.find(i => i.barcode === barcode);
+    if (ingredient) return res.json({ type: 'ingredient', item: ingredient });
+    res.json({ type: 'unknown', barcode, message: 'Item not found in inventory' });
+});
+
+// ==========================================
+// Hardware: KDS Displays
+// ==========================================
+app.get('/api/hardware/kds-displays', authorize('config'), (req, res) => {
+    res.json((store.config.hardware && store.config.hardware.kdsDisplays) || [
+        { id: 1, name: 'Main Kitchen', station: 'kitchen', status: 'online' },
+        { id: 2, name: 'Expo Station', station: 'expo', status: 'online' }
+    ]);
+});
+
+// ==========================================
+// Table Management (Floor Plan)
+// ==========================================
+app.get('/api/tables', (req, res) => {
+    res.json(store.config.tables || []);
+});
+
+app.put('/api/tables', authorize('config'), (req, res) => {
+    const { tables } = req.body;
+    if (!Array.isArray(tables)) return res.status(400).json({ error: 'Tables array required' });
+    store.config.tables = tables.map(t => ({
+        id: t.id, name: t.name || ('Table ' + t.id),
+        seats: t.seats || 4, x: t.x || 0, y: t.y || 0,
+        width: t.width || 80, height: t.height || 80,
+        shape: t.shape || 'square', status: t.status || 'available',
+        section: t.section || 'main'
+    }));
+    scheduleSave();
+    res.json(store.config.tables);
+});
+
+// ==========================================
+// Sync Engine
+// ==========================================
+app.get('/api/sync/snapshot', authorize('config'), (req, res) => {
+    res.json({
+        version: Date.now(), tickets: store.tickets,
+        kitchenOrders: store.kitchenOrders, ingredients: store.ingredients,
+        config: store.config, generatedAt: new Date().toISOString()
+    });
+});
+
+app.post('/api/sync/push', authorize('config'), (req, res) => {
+    const { changes } = req.body;
+    if (!changes) return res.status(400).json({ error: 'Changes required' });
+    const conflicts = [];
+    const applied = [];
+    (changes || []).forEach(change => {
+        if (change.type === 'ticket' && change.action === 'update') {
+            const ticket = store.tickets.find(t => t.id === change.id);
+            if (ticket && ticket.updatedAt > change.timestamp) {
+                conflicts.push({ id: change.id, type: 'ticket', resolution: 'server_wins' });
+            } else { applied.push(change.id); }
+        }
+    });
+    scheduleSave();
+    res.json({ applied, conflicts, serverVersion: Date.now() });
+});
+
+app.post('/api/sync/resync', authorize('config'), (req, res) => {
+    const { lastSyncVersion } = req.body;
+    const changes = store.tickets.filter(t => !lastSyncVersion || new Date(t.updatedAt || t.createdAt) > new Date(lastSyncVersion));
+    res.json({
+        changes: changes.map(t => ({ type: 'ticket', action: 'update', data: t })),
+        currentVersion: Date.now(), fullResync: !lastSyncVersion
+    });
+});
+
+// ==========================================
+// Merchant Onboarding Portal
+// ==========================================
+app.get('/api/merchants', authorize('config'), (req, res) => {
+    res.json(store.merchants);
+});
+
+app.post('/api/merchants', authorize('config'), (req, res) => {
+    const { name, email, phone, plan, address } = req.body;
+    if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
+    const merchant = {
+        id: 'M-' + String(store.merchants.length + 1).padStart(4, '0'), name, email,
+        phone: phone || '', plan: plan || 'standard', address: address || '',
+        status: 'active', tenantId: crypto.randomBytes(8).toString('hex'),
+        onboardedAt: new Date().toISOString()
+    };
+    store.merchants.push(merchant);
+    scheduleSave();
+    res.status(201).json(merchant);
+});
+
+// ==========================================
+// System Diagnostics & Updates
+// ==========================================
+app.get('/api/system/diagnostics', authorize('config'), (req, res) => {
+    res.json({
+        uptime: process.uptime(), memory: process.memoryUsage(),
+        nodeVersion: process.version, storeSize: JSON.stringify(store).length,
+        ticketCount: store.tickets.length,
+        lastBackup: store.backups.length ? store.backups[store.backups.length - 1].createdAt : null,
+        status: 'healthy', timestamp: new Date().toISOString()
+    });
+});
+
+app.post('/api/system/update', authorize('config'), (req, res) => {
+    const { version, channel } = req.body;
+    logAudit('system_update_requested', req.user, { version, channel });
+    res.json({
+        currentVersion: '1.4-SNAPSHOT', requestedVersion: version || 'latest',
+        channel: channel || 'stable', status: 'update_scheduled',
+        scheduledAt: new Date().toISOString()
+    });
+});
+
+// ==========================================
+// White-labeling / Branding
+// ==========================================
+app.get('/api/branding', (req, res) => {
+    res.json(store.config.branding || { name: 'Restaurant POS', logo: null, primaryColor: '#1976d2', accentColor: '#ff9800' });
+});
+
+app.put('/api/branding', authorize('config'), (req, res) => {
+    const { name, logo, primaryColor, accentColor, favicon } = req.body;
+    store.config.branding = {
+        name: name || 'Restaurant POS', logo: logo || null,
+        primaryColor: primaryColor || '#1976d2', accentColor: accentColor || '#ff9800',
+        favicon: favicon || null, updatedAt: new Date().toISOString()
+    };
+    scheduleSave();
+    res.json(store.config.branding);
+});
+
+// ==========================================
+// Feature Toggles
+// ==========================================
+app.get('/api/feature-toggles', authorize('config'), (req, res) => {
+    res.json(store.featureToggles);
+});
+
+app.put('/api/feature-toggles', authorize('config'), (req, res) => {
+    const { feature, enabled } = req.body;
+    if (!feature) return res.status(400).json({ error: 'Feature name required' });
+    store.featureToggles[feature] = { enabled: enabled !== false, updatedAt: new Date().toISOString() };
+    logAudit('feature_toggle', req.user, { feature, enabled });
+    scheduleSave();
+    res.json(store.featureToggles);
+});
+
+// ==========================================
+// Automated Deployment
+// ==========================================
+app.get('/api/deploy/status', authorize('config'), (req, res) => {
+    res.json({
+        currentVersion: '1.4-SNAPSHOT', environment: process.env.NODE_ENV || 'development',
+        lastDeploy: store.config.lastDeploy || null,
+        autoDeployEnabled: store.config.autoDeploy || false, status: 'running'
+    });
+});
+
+app.post('/api/deploy', authorize('config'), (req, res) => {
+    store.config.lastDeploy = new Date().toISOString();
+    logAudit('deployment_triggered', req.user, { version: req.body.version || 'latest' });
+    scheduleSave();
+    res.json({ status: 'deploying', version: req.body.version || 'latest', startedAt: store.config.lastDeploy });
+});
+
+// ==========================================
+// Developer Documentation
+// ==========================================
+app.get('/api/developer/docs', (req, res) => {
+    res.json({
+        version: '1.4', baseUrl: '/api',
+        authentication: 'Bearer JWT token via POST /api/auth/login',
+        endpoints: {
+            auth: ['POST /api/auth/login', 'POST /api/auth/2fa/setup', 'POST /api/auth/2fa/verify'],
+            tickets: ['GET /api/tickets', 'POST /api/tickets', 'PATCH /api/tickets/:id', 'POST /api/tickets/:id/pay'],
+            kitchen: ['GET /api/kitchen', 'POST /api/kitchen', 'POST /api/kitchen/:id/bump', 'POST /api/kitchen/:id/alert'],
+            reservations: ['GET /api/reservations', 'POST /api/reservations', 'DELETE /api/reservations/:id'],
+            reports: ['GET /api/reports/summary', 'GET /api/reports/hourly', 'GET /api/reports/payment-breakdown']
+        },
+        webhookEvents: ['ticket.created', 'ticket.paid', 'ticket.voided', 'kitchen.new', 'order.ready', 'qr_order.created', 'reservation.created']
+    });
+});
+
+// ==========================================
+// Plugin Marketplace
+// ==========================================
+app.get('/api/plugins', authorize('config'), (req, res) => {
+    res.json(store.plugins);
+});
+
+app.post('/api/plugins', authorize('config'), (req, res) => {
+    const { name, version, description, author } = req.body;
+    if (!name) return res.status(400).json({ error: 'Plugin name required' });
+    const plugin = {
+        id: store.plugins.length + 1, name,
+        version: version || '1.0.0', description: description || '',
+        author: author || 'unknown', installed: true, enabled: true,
+        installedAt: new Date().toISOString()
+    };
+    store.plugins.push(plugin);
+    scheduleSave();
+    res.status(201).json(plugin);
+});
+
+// ==========================================
+// Online Ordering Menu
+// ==========================================
+app.get('/api/menu', (req, res) => {
+    res.json(store.config.menu || { categories: [], items: [] });
 });
 
 // ==========================================

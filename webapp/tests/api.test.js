@@ -76,6 +76,29 @@ before(() => {
             store.ingredients.length = 0;
             store.inventoryMovements.length = 0;
             store.scheduledOrders.length = 0;
+            store.vendors.length = 0;
+            store.purchaseOrders.length = 0;
+            store.wasteLog.length = 0;
+            store.recipes.length = 0;
+            store.waitlist.length = 0;
+            store.reservations.length = 0;
+            store.savedPaymentMethods.length = 0;
+            store.emailCampaigns.length = 0;
+            store.qrOrders.length = 0;
+            store.deliveryIntegrations.length = 0;
+            store.tokenVault.length = 0;
+            store.backups.length = 0;
+            store.merchants.length = 0;
+            store.plugins.length = 0;
+            // Reset config sections modified by tests
+            delete store.config.emailReports;
+            delete store.config.security;
+            delete store.config.branding;
+            delete store.config.hardware;
+            delete store.config.tables;
+            delete store.config.lastDeploy;
+            delete store.config.autoDeploy;
+            store.featureToggles = {};
             store.nextTicketId = 1001;
             resolve();
         });
@@ -2071,3 +2094,926 @@ describe('Curbside Pickup API', () => {
         assert.equal(res.status, 404);
     });
 });
+
+
+// ==========================================
+// Batch 6: Recipe Costing
+// ==========================================
+describe('Recipe Costing', () => {
+    it('creates a recipe with cost calculation', async () => {
+        // First add an ingredient
+        const ing = await req('POST', '/api/ingredients', { name: 'Flour', unit: 'kg', quantity: 50, costPerUnit: 2.50, lowStockThreshold: 10 }, managerToken);
+        assert.equal(ing.status, 201);
+
+        const res = await req('POST', '/api/recipes', {
+            name: 'Pizza Dough',
+            ingredients: [{ ingredientId: ing.body.id, quantity: 0.5 }],
+            prepTime: 30, yield: 4
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.name, 'Pizza Dough');
+        assert.equal(res.body.totalCost, 1.25);
+        assert.equal(res.body.costPerServing, 0.31);
+    });
+
+    it('lists recipes', async () => {
+        const res = await req('GET', '/api/recipes', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body));
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('rejects recipe without name', async () => {
+        const res = await req('POST', '/api/recipes', { ingredients: [] }, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 6: Vendor Tracking
+// ==========================================
+describe('Vendor Tracking', () => {
+    it('creates a vendor', async () => {
+        const res = await req('POST', '/api/vendors', {
+            name: 'Fresh Foods Inc', contact: 'Bob', email: 'bob@fresh.com', phone: '555-1234', category: 'produce'
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.name, 'Fresh Foods Inc');
+        assert.equal(res.body.category, 'produce');
+    });
+
+    it('lists vendors', async () => {
+        const res = await req('GET', '/api/vendors', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('rejects vendor without name', async () => {
+        const res = await req('POST', '/api/vendors', { email: 'test@test.com' }, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 6: Purchase Orders
+// ==========================================
+describe('Purchase Order Generation', () => {
+    it('creates a purchase order', async () => {
+        const res = await req('POST', '/api/purchase-orders', {
+            vendorId: 1, items: [{ name: 'Tomatoes', quantity: 50, unitCost: 1.20 }], notes: 'Urgent'
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.ok(res.body.id.startsWith('PO-'));
+        assert.equal(res.body.total, 60);
+        assert.equal(res.body.status, 'pending');
+    });
+
+    it('lists purchase orders', async () => {
+        const res = await req('GET', '/api/purchase-orders', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('rejects PO without vendor or items', async () => {
+        const res = await req('POST', '/api/purchase-orders', { vendorId: 1 }, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 6: Waste Logging
+// ==========================================
+describe('Waste Logging', () => {
+    it('logs waste', async () => {
+        const res = await req('POST', '/api/waste-log', {
+            ingredientId: 1, quantity: 5, reason: 'expired', cost: 12.50
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.reason, 'expired');
+        assert.equal(res.body.cost, 12.50);
+    });
+
+    it('lists waste log', async () => {
+        const res = await req('GET', '/api/waste-log', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('rejects waste log without ingredient', async () => {
+        const res = await req('POST', '/api/waste-log', { quantity: 5 }, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 6: Email Order Ready Alerts
+// ==========================================
+describe('Email Order Ready Alerts', () => {
+    it('sends order ready alert', async () => {
+        // Create a kitchen order first
+        const ko = await req('POST', '/api/kitchen', { ticketId: 1001, items: [{ name: 'Burger', quantity: 1 }], station: 'grill' }, managerToken);
+        const res = await req('POST', `/api/kitchen/${ko.body.id}/alert`, { email: 'customer@test.com' }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.success, true);
+        assert.equal(res.body.alert.type, 'order_ready');
+    });
+
+    it('returns 404 for invalid kitchen order', async () => {
+        const res = await req('POST', '/api/kitchen/99999/alert', {}, managerToken);
+        assert.equal(res.status, 404);
+    });
+});
+
+// ==========================================
+// Batch 6: Waitlist Management
+// ==========================================
+describe('Waitlist Management', () => {
+    it('adds to waitlist without auth', async () => {
+        const res = await req('POST', '/api/waitlist', { name: 'Smith Family', partySize: 4, phone: '555-0001' });
+        assert.equal(res.status, 201);
+        assert.equal(res.body.status, 'waiting');
+        assert.equal(res.body.estimatedWait, 20);
+    });
+
+    it('lists active waitlist', async () => {
+        const res = await req('GET', '/api/waitlist');
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+        assert.equal(res.body[0].status, 'waiting');
+    });
+
+    it('seats a waitlist entry', async () => {
+        const list = await req('GET', '/api/waitlist');
+        const res = await req('PATCH', `/api/waitlist/${list.body[0].id}`, { status: 'seated' }, serverToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'seated');
+        assert.ok(res.body.seatedAt);
+    });
+
+    it('rejects waitlist without name', async () => {
+        const res = await req('POST', '/api/waitlist', { partySize: 2 });
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 6: Reservations
+// ==========================================
+describe('Reservations', () => {
+    it('creates a reservation without auth', async () => {
+        const res = await req('POST', '/api/reservations', {
+            name: 'Johnson', partySize: 6, date: '2026-03-15', time: '19:00', phone: '555-9999', email: 'j@test.com'
+        });
+        assert.equal(res.status, 201);
+        assert.equal(res.body.status, 'confirmed');
+        assert.equal(res.body.partySize, 6);
+    });
+
+    it('lists reservations by date', async () => {
+        const res = await req('GET', '/api/reservations?date=2026-03-15');
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('cancels a reservation', async () => {
+        const list = await req('GET', '/api/reservations?date=2026-03-15');
+        const res = await req('DELETE', `/api/reservations/${list.body[0].id}`, null, serverToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'cancelled');
+    });
+
+    it('rejects reservation without required fields', async () => {
+        const res = await req('POST', '/api/reservations', { name: 'Test' });
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 7: Saved Payment Methods
+// ==========================================
+describe('Saved Payment Methods', () => {
+    it('saves a payment method', async () => {
+        const res = await req('POST', '/api/saved-payment-methods', {
+            customerId: 'C1', type: 'credit', lastFour: '4242', expiryMonth: 6, expiryYear: 2028
+        }, serverToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.lastFour, '4242');
+        assert.ok(res.body.token.startsWith('tok_'));
+    });
+
+    it('lists saved payment methods', async () => {
+        const res = await req('GET', '/api/saved-payment-methods', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('filters by customerId', async () => {
+        const res = await req('GET', '/api/saved-payment-methods?customerId=C1', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('rejects without required fields', async () => {
+        const res = await req('POST', '/api/saved-payment-methods', { type: 'credit' }, serverToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 7: Email Marketing
+// ==========================================
+describe('Email Marketing Campaigns', () => {
+    it('creates a campaign', async () => {
+        const res = await req('POST', '/api/email-campaigns', {
+            name: 'Summer Special', subject: '20% Off This Week', body: 'Come visit us!', targetSegment: 'loyalty'
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.status, 'draft');
+        assert.equal(res.body.name, 'Summer Special');
+    });
+
+    it('lists campaigns', async () => {
+        const res = await req('GET', '/api/email-campaigns', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('sends a campaign', async () => {
+        const list = await req('GET', '/api/email-campaigns', null, managerToken);
+        const res = await req('POST', `/api/email-campaigns/${list.body[0].id}/send`, {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'sent');
+        assert.ok(res.body.sentAt);
+    });
+
+    it('rejects campaign without name/subject', async () => {
+        const res = await req('POST', '/api/email-campaigns', { body: 'test' }, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 7: QR Table Ordering
+// ==========================================
+describe('QR Table Ordering', () => {
+    it('creates a QR order without auth', async () => {
+        const res = await req('POST', '/api/qr-orders', {
+            tableNumber: 5, items: [{ name: 'Pasta', price: 14.99, quantity: 2 }], customerName: 'Alice'
+        });
+        assert.equal(res.status, 201);
+        assert.equal(res.body.tableNumber, 5);
+        assert.equal(res.body.total, 29.98);
+        assert.equal(res.body.status, 'pending');
+    });
+
+    it('lists active QR orders', async () => {
+        const res = await req('GET', '/api/qr-orders');
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('rejects QR order without table/items', async () => {
+        const res = await req('POST', '/api/qr-orders', { tableNumber: 1 });
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 7: Delivery Integrations
+// ==========================================
+describe('Delivery Integrations', () => {
+    it('creates a delivery integration', async () => {
+        const res = await req('POST', '/api/delivery-integrations', {
+            platform: 'DoorDash', apiKey: 'dd_key_123', storeId: 'store_456'
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.platform, 'DoorDash');
+        assert.equal(res.body.enabled, true);
+    });
+
+    it('lists integrations', async () => {
+        const res = await req('GET', '/api/delivery-integrations', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('rejects without platform', async () => {
+        const res = await req('POST', '/api/delivery-integrations', { apiKey: 'test' }, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 7: Tokenized Card Storage
+// ==========================================
+describe('Tokenized Card Storage', () => {
+    it('stores a tokenized card', async () => {
+        const res = await req('POST', '/api/token-vault', {
+            customerId: 'C1', lastFour: '1234', cardBrand: 'Visa'
+        }, serverToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.lastFour, '1234');
+        assert.ok(res.body.token.startsWith('tok_'));
+    });
+
+    it('lists tokens with masked values', async () => {
+        const res = await req('GET', '/api/token-vault', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body[0].token.endsWith('...'));
+    });
+
+    it('rejects without lastFour', async () => {
+        const res = await req('POST', '/api/token-vault', { cardBrand: 'MC' }, serverToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 7: Partial Payments
+// ==========================================
+describe('Partial Payments', () => {
+    it('makes a partial payment on a ticket', async () => {
+        const ticket = await req('POST', '/api/tickets', {
+            items: [{ name: 'Steak', price: 45.00, qty: 1 }], server: 'John'
+        }, serverToken);
+        const res = await req('POST', `/api/tickets/${ticket.body.id}/partial-pay`, {
+            amount: 20.00, method: 'cash'
+        }, serverToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.amountPaid, 20);
+        assert.ok(res.body.remainingBalance > 0);
+    });
+
+    it('fully pays with multiple partial payments', async () => {
+        const ticket = await req('POST', '/api/tickets', {
+            items: [{ name: 'Wine', price: 30.00, qty: 1 }], server: 'John'
+        }, serverToken);
+        const total = ticket.body.total; // includes tax
+        await req('POST', `/api/tickets/${ticket.body.id}/partial-pay`, { amount: 20.00 }, serverToken);
+        const res = await req('POST', `/api/tickets/${ticket.body.id}/partial-pay`, { amount: total - 20.00 + 1 }, serverToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'paid');
+        assert.ok(res.body.remainingBalance <= 0);
+    });
+
+    it('rejects invalid amount', async () => {
+        const res = await req('POST', '/api/tickets/1001/partial-pay', { amount: 0 }, serverToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 8: QuickBooks Export
+// ==========================================
+describe('QuickBooks Export', () => {
+    it('exports data in QuickBooks format', async () => {
+        const res = await req('GET', '/api/export/quickbooks', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.format, 'quickbooks_iif');
+        assert.ok(Array.isArray(res.body.entries));
+        assert.ok(res.body.entries.length === 4);
+        assert.equal(res.body.entries[0].account, 'Sales Revenue');
+    });
+});
+
+// ==========================================
+// Batch 8: Automated Email Reports
+// ==========================================
+describe('Automated Email Reports', () => {
+    it('gets email report config', async () => {
+        const res = await req('GET', '/api/email-reports', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.enabled, false);
+    });
+
+    it('configures email reports', async () => {
+        const res = await req('POST', '/api/email-reports', {
+            enabled: true, schedule: 'weekly', recipients: ['owner@restaurant.com']
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.enabled, true);
+        assert.equal(res.body.schedule, 'weekly');
+        assert.equal(res.body.recipients.length, 1);
+    });
+});
+
+// ==========================================
+// Batch 8: Backup Automation
+// ==========================================
+describe('Backup Automation', () => {
+    it('creates a backup', async () => {
+        const res = await req('POST', '/api/backups', {}, managerToken);
+        assert.equal(res.status, 201);
+        assert.ok(res.body.filename.startsWith('backup-'));
+        assert.equal(res.body.status, 'completed');
+        assert.ok(res.body.size > 0);
+    });
+
+    it('lists backups', async () => {
+        const res = await req('GET', '/api/backups', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+});
+
+// ==========================================
+// Batch 8: Two-Factor Authentication
+// ==========================================
+describe('Two-Factor Authentication', () => {
+    it('sets up 2FA', async () => {
+        const res = await req('POST', '/api/auth/2fa/setup', {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.secret);
+        assert.ok(res.body.qrCode.includes('otpauth://'));
+    });
+
+    it('verifies 2FA code', async () => {
+        const res = await req('POST', '/api/auth/2fa/verify', { code: '123456' }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.verified, true);
+    });
+
+    it('rejects verify without code', async () => {
+        const res = await req('POST', '/api/auth/2fa/verify', {}, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 8: Encrypted Database Config
+// ==========================================
+describe('Encrypted Database Config', () => {
+    it('gets encryption status', async () => {
+        const res = await req('GET', '/api/security/encryption-status', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.algorithm, 'AES-256-GCM');
+        assert.ok(res.body.status === 'active' || res.body.status === 'inactive');
+    });
+
+    it('enables encryption', async () => {
+        const res = await req('PUT', '/api/security/encryption', { enabled: true }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.success, true);
+        assert.equal(res.body.encryption, true);
+    });
+});
+
+// ==========================================
+// Batch 8: PCI SAQ Documentation
+// ==========================================
+describe('PCI SAQ Documentation', () => {
+    it('returns PCI SAQ requirements', async () => {
+        const res = await req('GET', '/api/compliance/pci-saq', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.saqType, 'SAQ-B-IP');
+        assert.ok(Array.isArray(res.body.requirements));
+        assert.ok(res.body.requirements.length >= 10);
+    });
+});
+
+// ==========================================
+// Batch 9: Real-time Sales Feed
+// ==========================================
+describe('Real-time Sales Feed', () => {
+    it('returns live feed data', async () => {
+        const res = await req('GET', '/api/live-feed', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.summary);
+        assert.ok(typeof res.body.summary.ticketCount === 'number');
+        assert.ok(typeof res.body.summary.totalSales === 'number');
+    });
+});
+
+// ==========================================
+// Batch 9: Remote Void Approval
+// ==========================================
+describe('Remote Void Approval', () => {
+    it('voids a ticket remotely', async () => {
+        const ticket = await req('POST', '/api/tickets', {
+            items: [{ name: 'Salad', price: 12.00, quantity: 1 }], server: 'John'
+        }, serverToken);
+        const res = await req('POST', `/api/tickets/${ticket.body.id}/remote-void`, {
+            reason: 'Customer complaint', approvedBy: 'Maria'
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'voided');
+        assert.equal(res.body.remoteVoid, true);
+        assert.equal(res.body.voidReason, 'Customer complaint');
+        assert.equal(res.body.voidApprovedBy, 'Maria');
+    });
+
+    it('returns 404 for invalid ticket', async () => {
+        const res = await req('POST', '/api/tickets/99999/remote-void', { reason: 'test' }, managerToken);
+        assert.equal(res.status, 404);
+    });
+});
+
+// ==========================================
+// Batch 9: Web Admin Portal
+// ==========================================
+describe('Web Admin Portal', () => {
+    it('returns admin summary', async () => {
+        const res = await req('GET', '/api/admin/summary', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(typeof res.body.todaySales === 'number');
+        assert.ok(typeof res.body.ticketCount === 'number');
+        assert.ok(typeof res.body.openTickets === 'number');
+        assert.ok(typeof res.body.waitlistCount === 'number');
+    });
+});
+
+// ==========================================
+// Batch 9: Phone/Mobile Dashboard
+// ==========================================
+describe('Phone/Mobile Dashboard', () => {
+    it('returns compact mobile dashboard', async () => {
+        const res = await req('GET', '/api/mobile/dashboard', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.compact, true);
+        assert.ok(typeof res.body.sales === 'number');
+        assert.ok(typeof res.body.staffOnDuty === 'number');
+    });
+});
+
+// ==========================================
+// Batch 9: Owner Analytics
+// ==========================================
+describe('Owner Analytics', () => {
+    it('returns owner analytics for default period', async () => {
+        const res = await req('GET', '/api/analytics/owner', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.period, '7 days');
+        assert.ok(typeof res.body.revenue === 'number');
+        assert.ok(typeof res.body.wasteCost === 'number');
+        assert.ok(Array.isArray(res.body.topItems));
+    });
+
+    it('accepts custom days parameter', async () => {
+        const res = await req('GET', '/api/analytics/owner?days=30', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.period, '30 days');
+    });
+});
+
+// ==========================================
+// Batch 9: Multi-Location Dashboard
+// ==========================================
+describe('Multi-Location Dashboard', () => {
+    it('returns locations with sales data', async () => {
+        const res = await req('GET', '/api/locations', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body));
+        assert.ok(res.body.length >= 1);
+        assert.ok(typeof res.body[0].todaySales === 'number');
+    });
+});
+
+// ==========================================
+// Batch 9: Cloud Reporting
+// ==========================================
+describe('Cloud Reporting', () => {
+    it('returns cloud report for today', async () => {
+        const res = await req('GET', '/api/cloud-reports', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.period, 'today');
+        assert.equal(res.body.cloudSync, true);
+        assert.ok(res.body.paymentBreakdown);
+    });
+
+    it('supports week period', async () => {
+        const res = await req('GET', '/api/cloud-reports?period=week', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.period, 'week');
+    });
+});
+
+// ==========================================
+// Batch 9: Payment Type Breakdown
+// ==========================================
+describe('Payment Type Breakdown', () => {
+    it('returns payment breakdown report', async () => {
+        const res = await req('GET', '/api/reports/payment-breakdown', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.cash);
+        assert.ok(res.body.card);
+        assert.ok(typeof res.body.surchargeRevenue === 'number');
+    });
+});
+
+// ==========================================
+// Batch 9: Surcharge Cap Logic
+// ==========================================
+describe('Surcharge Cap Logic', () => {
+    it('gets surcharge cap config', async () => {
+        const res = await req('GET', '/api/surcharge-cap', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(typeof res.body.maxRate === 'number');
+        assert.ok(typeof res.body.currentRate === 'number');
+    });
+
+    it('updates surcharge cap', async () => {
+        const res = await req('PUT', '/api/surcharge-cap', { maxRate: 3.5 }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.maxRate, 3.5);
+    });
+
+    it('rejects without maxRate', async () => {
+        const res = await req('PUT', '/api/surcharge-cap', {}, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 10: Hardware - Printers
+// ==========================================
+describe('Hardware: Printers', () => {
+    it('discovers/adds a printer', async () => {
+        const res = await req('POST', '/api/hardware/printers', {
+            name: 'Kitchen Printer', ipAddress: '192.168.1.50', type: 'receipt', model: 'Epson TM-T88'
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.name, 'Kitchen Printer');
+        assert.equal(res.body.status, 'discovered');
+    });
+
+    it('lists printers', async () => {
+        const res = await req('GET', '/api/hardware/printers', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('rejects printer without name', async () => {
+        const res = await req('POST', '/api/hardware/printers', { ipAddress: '1.2.3.4' }, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 10: Hardware - Cash Drawer
+// ==========================================
+describe('Hardware: Cash Drawer', () => {
+    it('opens cash drawer', async () => {
+        const res = await req('POST', '/api/hardware/cash-drawer/open', { reason: 'sale' }, serverToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.success, true);
+        assert.equal(res.body.opened, true);
+    });
+});
+
+// ==========================================
+// Batch 10: Hardware - Barcode Scanner
+// ==========================================
+describe('Hardware: Barcode Scanner', () => {
+    it('looks up barcode for known item', async () => {
+        // Add ingredient with barcode
+        await req('POST', '/api/ingredients', { name: 'Olive Oil', unit: 'bottle', quantity: 20, costPerUnit: 8.99, barcode: 'OIL001' }, managerToken);
+        const res = await req('POST', '/api/hardware/barcode-scan', { barcode: 'OIL001' }, serverToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.type, 'ingredient');
+    });
+
+    it('returns unknown for unrecognized barcode', async () => {
+        const res = await req('POST', '/api/hardware/barcode-scan', { barcode: 'UNKNOWN123' }, serverToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.type, 'unknown');
+    });
+
+    it('rejects without barcode', async () => {
+        const res = await req('POST', '/api/hardware/barcode-scan', {}, serverToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 10: Hardware - KDS Displays
+// ==========================================
+describe('Hardware: KDS Displays', () => {
+    it('returns KDS display list', async () => {
+        const res = await req('GET', '/api/hardware/kds-displays', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body));
+        assert.ok(res.body.length >= 1);
+    });
+});
+
+// ==========================================
+// Batch 10: Table Management
+// ==========================================
+describe('Table Management (Floor Plan)', () => {
+    it('gets tables (empty initially)', async () => {
+        const res = await req('GET', '/api/tables');
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body));
+    });
+
+    it('updates table layout', async () => {
+        const res = await req('PUT', '/api/tables', {
+            tables: [
+                { id: 1, name: 'Table 1', seats: 4, x: 100, y: 100, shape: 'square', section: 'patio' },
+                { id: 2, name: 'Table 2', seats: 6, x: 200, y: 100, shape: 'round', section: 'main' }
+            ]
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.length, 2);
+        assert.equal(res.body[0].section, 'patio');
+        assert.equal(res.body[1].shape, 'round');
+    });
+
+    it('rejects non-array tables', async () => {
+        const res = await req('PUT', '/api/tables', { tables: 'invalid' }, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 10: Sync Engine
+// ==========================================
+describe('Sync Engine', () => {
+    it('gets data snapshot', async () => {
+        const res = await req('GET', '/api/sync/snapshot', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.version);
+        assert.ok(Array.isArray(res.body.tickets));
+        assert.ok(res.body.config);
+    });
+
+    it('pushes changes with conflict detection', async () => {
+        const res = await req('POST', '/api/sync/push', {
+            changes: [{ type: 'ticket', action: 'update', id: 1, timestamp: '2020-01-01' }]
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body.applied));
+        assert.ok(Array.isArray(res.body.conflicts));
+    });
+
+    it('performs resync', async () => {
+        const res = await req('POST', '/api/sync/resync', { lastSyncVersion: null }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.fullResync, true);
+        assert.ok(Array.isArray(res.body.changes));
+    });
+
+    it('rejects push without changes', async () => {
+        const res = await req('POST', '/api/sync/push', {}, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 11: Merchant Onboarding
+// ==========================================
+describe('Merchant Onboarding Portal', () => {
+    it('creates a merchant', async () => {
+        const res = await req('POST', '/api/merchants', {
+            name: 'Pizza Palace', email: 'owner@pizza.com', phone: '555-PIZZA', plan: 'premium'
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.ok(res.body.id.startsWith('M-'));
+        assert.ok(res.body.tenantId);
+        assert.equal(res.body.plan, 'premium');
+    });
+
+    it('lists merchants', async () => {
+        const res = await req('GET', '/api/merchants', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('rejects without name/email', async () => {
+        const res = await req('POST', '/api/merchants', { phone: '555-0000' }, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 11: System Diagnostics & Updates
+// ==========================================
+describe('System Diagnostics & Updates', () => {
+    it('returns diagnostics', async () => {
+        const res = await req('GET', '/api/system/diagnostics', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.uptime >= 0);
+        assert.ok(res.body.memory);
+        assert.equal(res.body.status, 'healthy');
+    });
+
+    it('requests system update', async () => {
+        const res = await req('POST', '/api/system/update', { version: '2.0', channel: 'beta' }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'update_scheduled');
+        assert.equal(res.body.requestedVersion, '2.0');
+    });
+});
+
+// ==========================================
+// Batch 11: White-labeling / Branding
+// ==========================================
+describe('White-labeling / Branding', () => {
+    it('gets default branding', async () => {
+        const res = await req('GET', '/api/branding');
+        assert.equal(res.status, 200);
+        assert.equal(res.body.name, 'Restaurant POS');
+    });
+
+    it('updates branding', async () => {
+        const res = await req('PUT', '/api/branding', {
+            name: 'My Custom POS', primaryColor: '#ff0000', accentColor: '#00ff00'
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.name, 'My Custom POS');
+        assert.equal(res.body.primaryColor, '#ff0000');
+    });
+});
+
+// ==========================================
+// Batch 11: Feature Toggles
+// ==========================================
+describe('Feature Toggles', () => {
+    it('gets feature toggles', async () => {
+        const res = await req('GET', '/api/feature-toggles', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(typeof res.body === 'object');
+    });
+
+    it('toggles a feature', async () => {
+        const res = await req('PUT', '/api/feature-toggles', { feature: 'dark_mode', enabled: true }, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.dark_mode);
+        assert.equal(res.body.dark_mode.enabled, true);
+    });
+
+    it('rejects without feature name', async () => {
+        const res = await req('PUT', '/api/feature-toggles', { enabled: true }, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 11: Automated Deployment
+// ==========================================
+describe('Automated Deployment', () => {
+    it('gets deploy status', async () => {
+        const res = await req('GET', '/api/deploy/status', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.currentVersion, '1.4-SNAPSHOT');
+        assert.equal(res.body.status, 'running');
+    });
+
+    it('triggers deployment', async () => {
+        const res = await req('POST', '/api/deploy', { version: '1.5' }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'deploying');
+        assert.equal(res.body.version, '1.5');
+    });
+});
+
+// ==========================================
+// Batch 11: Developer Documentation
+// ==========================================
+describe('Developer Documentation', () => {
+    it('returns API docs without auth', async () => {
+        const res = await req('GET', '/api/developer/docs');
+        assert.equal(res.status, 200);
+        assert.equal(res.body.version, '1.4');
+        assert.ok(res.body.endpoints);
+        assert.ok(Array.isArray(res.body.webhookEvents));
+    });
+});
+
+// ==========================================
+// Batch 11: Plugin Marketplace
+// ==========================================
+describe('Plugin Marketplace', () => {
+    it('installs a plugin', async () => {
+        const res = await req('POST', '/api/plugins', {
+            name: 'Loyalty Plus', version: '2.0.0', description: 'Advanced loyalty program', author: 'DevCo'
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.name, 'Loyalty Plus');
+        assert.equal(res.body.installed, true);
+    });
+
+    it('lists plugins', async () => {
+        const res = await req('GET', '/api/plugins', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.length >= 1);
+    });
+
+    it('rejects plugin without name', async () => {
+        const res = await req('POST', '/api/plugins', { version: '1.0' }, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Batch 11: Online Menu
+// ==========================================
+describe('Online Ordering Menu', () => {
+    it('returns menu data', async () => {
+        const res = await req('GET', '/api/menu');
+        assert.equal(res.status, 200);
+        assert.ok(res.body.categories !== undefined);
+        assert.ok(res.body.items !== undefined);
+    });
+});
+
