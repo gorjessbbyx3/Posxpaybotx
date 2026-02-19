@@ -196,12 +196,18 @@ for entry in "${MIGRATIONS[@]}"; do
         duration=$(( (end_time - start_time) / 1000000 ))
 
         checksum=$(sha256sum "$SCRIPT_DIR/$file" | cut -d' ' -f1)
-        run_sql "INSERT INTO schema_version (version, description, script, applied_by, execution_time, checksum, success) VALUES ($ver, '$desc', '$file', 'migrate.sh', $duration, '$checksum', TRUE);"
+        # Escape single quotes in desc and file to prevent SQL injection
+        safe_desc="${desc//\'/\'\'}"
+        safe_file="${file//\'/\'\'}"
+        safe_checksum="${checksum//\'/\'\'}"
+        run_sql "INSERT INTO schema_version (version, description, script, applied_by, execution_time, checksum, success) VALUES (${ver}, '${safe_desc}', '${safe_file}', 'migrate.sh', ${duration}, '${safe_checksum}', TRUE);"
 
         echo "    DONE (${duration}ms)"
         pending_count=$((pending_count + 1))
     else
-        run_sql "INSERT INTO schema_version (version, description, script, applied_by, success) VALUES ($ver, '$desc', '$file', 'migrate.sh', FALSE);"
+        safe_desc="${desc//\'/\'\'}"
+        safe_file="${file//\'/\'\'}"
+        run_sql "INSERT INTO schema_version (version, description, script, applied_by, success) VALUES (${ver}, '${safe_desc}', '${safe_file}', 'migrate.sh', FALSE);"
         echo "    FAILED!"
         exit 1
     fi

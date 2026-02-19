@@ -57,16 +57,30 @@ public class PaybotXProxyServer implements HttpHandler {
 	private int port;
 	private DecimalFormat amountFormat = new DecimalFormat("0.00");
 
+	// Configurable CORS origin — defaults to localhost, override via env or config
+	private String allowedOrigin;
+
 	public PaybotXProxyServer() throws Exception {
 		this.port = Integer.parseInt(AppConfig.getString("paybotx.proxy.port", "8080"));
+		initCors();
 		Application application = Application.getInstance();
 		application.initializeSystemHeadless();
 	}
 
 	public PaybotXProxyServer(int port) throws Exception {
 		this.port = port;
+		initCors();
 		Application application = Application.getInstance();
 		application.initializeSystemHeadless();
+	}
+
+	private void initCors() {
+		String envOrigin = System.getenv("CORS_ALLOWED_ORIGIN");
+		if (envOrigin != null && !envOrigin.isEmpty()) {
+			this.allowedOrigin = envOrigin;
+		} else {
+			this.allowedOrigin = AppConfig.getString("paybotx.cors.origin", "http://localhost");
+		}
 	}
 
 	public void start() throws Exception {
@@ -97,10 +111,11 @@ public class PaybotXProxyServer implements HttpHandler {
 
 	@Override
 	public void handle(HttpExchange exchange) throws IOException {
-		// Add CORS headers for web clients
-		exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+		// Restricted CORS headers
+		exchange.getResponseHeaders().add("Access-Control-Allow-Origin", allowedOrigin);
 		exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-		exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, X-Api-Key");
+		exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+		exchange.getResponseHeaders().add("Access-Control-Allow-Credentials", "true");
 
 		if ("OPTIONS".equals(exchange.getRequestMethod())) {
 			exchange.sendResponseHeaders(204, -1);
@@ -535,7 +550,7 @@ public class PaybotXProxyServer implements HttpHandler {
 	}
 
 	/**
-	 * Simple JSON value extractor (avoids external JSON library dependency).
+	 * Simple JSON value extractor — handles escaped quotes correctly.
 	 */
 	private String extractJsonValue(String json, String key) {
 		String search = "\"" + key + "\"";
@@ -556,10 +571,20 @@ public class PaybotXProxyServer implements HttpHandler {
 		char firstChar = json.charAt(valueStart);
 
 		if (firstChar == '"') {
-			// String value
-			int valueEnd = json.indexOf('"', valueStart + 1);
-			if (valueEnd == -1) return null;
-			return json.substring(valueStart + 1, valueEnd);
+			// String value — find closing quote, handling escapes
+			int pos = valueStart + 1;
+			while (pos < json.length()) {
+				char ch = json.charAt(pos);
+				if (ch == '\\') {
+					pos += 2; // skip escaped character
+					continue;
+				}
+				if (ch == '"') {
+					return json.substring(valueStart + 1, pos);
+				}
+				pos++;
+			}
+			return null;
 		} else {
 			// Number/boolean/null value
 			int valueEnd = valueStart;
@@ -569,7 +594,8 @@ public class PaybotXProxyServer implements HttpHandler {
 					json.charAt(valueEnd) != ']') {
 				valueEnd++;
 			}
-			return json.substring(valueStart, valueEnd).trim();
+			String value = json.substring(valueStart, valueEnd).trim();
+			return "null".equals(value) ? null : value;
 		}
 	}
 

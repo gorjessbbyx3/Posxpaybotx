@@ -52,7 +52,7 @@ function updatePinDots() {
 }
 
 function doLogin(pin) {
-    const staff = STAFF[pin];
+    const staff = lookupStaffByPin(pin);
     if (!staff && pin !== 'quick') {
         showToast('Invalid PIN', 'error');
         state.pin = '';
@@ -471,7 +471,7 @@ function updateTicketDisplay() {
     let subtotal = 0;
 
     items.forEach((item, index) => {
-        const lineTotal = item.price * item.qty;
+        const lineTotal = Math.round(item.price * item.qty * 100) / 100;
         subtotal += lineTotal;
 
         const el = document.createElement('div');
@@ -479,8 +479,8 @@ function updateTicketDisplay() {
         el.innerHTML = `
             <button class="ticket-item-qty" onclick="updateItemQty(${index}, 1)">${item.qty}</button>
             <div class="ticket-item-details">
-                <div class="ticket-item-name">${item.name}</div>
-                ${item.mods.length ? '<div class="ticket-item-mods">' + item.mods.join(', ') + '</div>' : ''}
+                <div class="ticket-item-name">${escapeHtml(item.name)}</div>
+                ${item.mods.length ? '<div class="ticket-item-mods">' + item.mods.map(m => escapeHtml(m)).join(', ') + '</div>' : ''}
             </div>
             <span class="ticket-item-price">${formatCurrency(lineTotal)}</span>
             <button class="ticket-item-remove" onclick="removeFromTicket(${index})">&times;</button>
@@ -489,24 +489,25 @@ function updateTicketDisplay() {
     });
 
     // Calculate discount
+    subtotal = Math.round(subtotal * 100) / 100;
     let discountAmount = 0;
     if (state.ticket.discount) {
         if (state.ticket.discount.type === 'percent') {
-            discountAmount = subtotal * (state.ticket.discount.value / 100);
+            discountAmount = Math.round(subtotal * (state.ticket.discount.value / 100) * 100) / 100;
         } else {
-            discountAmount = Math.min(state.ticket.discount.value, subtotal);
+            discountAmount = Math.round(Math.min(state.ticket.discount.value, subtotal) * 100) / 100;
         }
     }
 
-    const afterDiscount = subtotal - discountAmount;
+    const afterDiscount = Math.round(Math.max(0, subtotal - discountAmount) * 100) / 100;
 
     // Delivery fee
     const isDelivery = state.ticket.type === 'delivery';
     const currentDeliveryFee = isDelivery ? calculateDeliveryFee(subtotal) : 0;
     deliveryFee = currentDeliveryFee;
 
-    const tax = afterDiscount * (CONFIG.taxRate / 100);
-    const total = afterDiscount + tax + currentDeliveryFee;
+    const tax = Math.round(afterDiscount * (CONFIG.taxRate / 100) * 100) / 100;
+    const total = Math.round((afterDiscount + tax + currentDeliveryFee) * 100) / 100;
 
     updateTotals(subtotal, tax, total, discountAmount, currentDeliveryFee);
 
@@ -579,18 +580,18 @@ function updateTotals(subtotal, tax, total, discountAmount, deliveryFeeAmt) {
 
         if (CONFIG.cashDiscount.mode === 'CASH_DISCOUNT') {
             cardTotal = total;
-            cashTotal = total * (1 - rate);
+            cashTotal = Math.round(total * (1 - rate) * 100) / 100;
             $('#discount-row').style.display = 'flex';
             $('#surcharge-row').style.display = 'none';
             $('#discount-label').textContent = CONFIG.cashDiscount.cashLabel + ' (' + CONFIG.cashDiscount.rate + '%)';
-            $('#discount-amount').textContent = '-' + formatCurrency(total * rate);
+            $('#discount-amount').textContent = '-' + formatCurrency(Math.round(total * rate * 100) / 100);
         } else {
             cashTotal = total;
-            cardTotal = total * (1 + rate);
+            cardTotal = Math.round(total * (1 + rate) * 100) / 100;
             $('#discount-row').style.display = 'none';
             $('#surcharge-row').style.display = 'flex';
             $('#surcharge-label').textContent = CONFIG.cashDiscount.surchargeLabel + ' (' + CONFIG.cashDiscount.rate + '%)';
-            $('#surcharge-amount').textContent = '+' + formatCurrency(total * rate);
+            $('#surcharge-amount').textContent = '+' + formatCurrency(Math.round(total * rate * 100) / 100);
         }
 
         $('#dual-price-display').style.display = 'flex';
@@ -606,13 +607,8 @@ function updateTotals(subtotal, tax, total, discountAmount, deliveryFeeAmt) {
 // ==========================================
 // Order Type (base handler - overridden by delivery support)
 // ==========================================
-// Note: primary handler is in delivery support section
-$('#order-type-select').removeEventListener('change', () => {});
-$('#order-type-select').addEventListener('change', (e) => {
-    // handled by delivery support section
-    state.ticket.type = e.target.value;
-    updateTicketDisplay();
-});
+// Note: primary handler is in delivery support section below.
+// Base handler removed - the delivery support section binds the full change handler.
 
 // ==========================================
 // Action Buttons
@@ -636,15 +632,13 @@ $('#btn-send').addEventListener('click', () => {
     state.kitchenOrders.push(kitchenOrder);
 
     // Also add to all tickets
-    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
-    const tax = subtotal * (CONFIG.taxRate / 100);
-    const total = subtotal + tax;
+    const subtotal = state.ticket.items.reduce((s, i) => s + Math.round(i.price * i.qty * 100) / 100, 0);
 
     const discountAmount = state.ticket.discount ? state.ticket.discount.amount : 0;
-    const afterDiscount = subtotal - discountAmount;
+    const afterDiscount = Math.round(Math.max(0, subtotal - discountAmount) * 100) / 100;
     const currentDeliveryFee = state.ticket.type === 'delivery' ? calculateDeliveryFee(subtotal) : 0;
-    const adjustedTax = afterDiscount * (CONFIG.taxRate / 100);
-    const adjustedTotal = afterDiscount + adjustedTax + currentDeliveryFee;
+    const adjustedTax = Math.round(afterDiscount * (CONFIG.taxRate / 100) * 100) / 100;
+    const adjustedTotal = Math.round((afterDiscount + adjustedTax + currentDeliveryFee) * 100) / 100;
 
     state.allTickets.push({
         id: state.ticket.id,
@@ -709,6 +703,7 @@ $('#btn-hold').addEventListener('click', () => {
     showToast('Order #' + state.ticket.id + ' held (' + heldOrders.length + ' held)');
     updateHeldBadge();
     newTicket();
+    saveState();
 });
 
 function updateHeldBadge() {
@@ -825,6 +820,7 @@ function recallHeldOrder(idx) {
     if (modal) modal.classList.remove('active');
 
     showToast('Order #' + order.id + ' recalled from hold');
+    saveState();
 }
 window.recallHeldOrder = recallHeldOrder;
 
@@ -834,6 +830,7 @@ function deleteHeldOrder(idx) {
     updateHeldBadge();
     openHeldOrdersModal(); // Refresh display
     showToast('Held order discarded');
+    saveState();
 }
 window.deleteHeldOrder = deleteHeldOrder;
 
@@ -861,9 +858,12 @@ function openPayment(method) {
     state.paymentMethod = method;
     state.tenderedAmount = '';
 
-    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
-    const tax = subtotal * (CONFIG.taxRate / 100);
-    let total = subtotal + tax;
+    const subtotal = state.ticket.items.reduce((s, i) => s + Math.round(i.price * i.qty * 100) / 100, 0);
+    const discountAmount = state.ticket.discount ? (state.ticket.discount.amount || 0) : 0;
+    const afterDiscount = Math.round(Math.max(0, subtotal - discountAmount) * 100) / 100;
+    const tax = Math.round(afterDiscount * (CONFIG.taxRate / 100) * 100) / 100;
+    const currentDeliveryFee = state.ticket.type === 'delivery' ? calculateDeliveryFee(subtotal) : 0;
+    let total = Math.round((afterDiscount + tax + currentDeliveryFee) * 100) / 100;
     const rate = CONFIG.cashDiscount.rate / 100;
 
     let cashPrice = total;
@@ -927,16 +927,19 @@ $$('.payment-method-btn').forEach(btn => {
         $('#btn-send-terminal').style.display = isCash ? 'none' : 'block';
 
         // Update due amount
-        const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
-        const tax = subtotal * (CONFIG.taxRate / 100);
-        let total = subtotal + tax;
+        const subtotal = state.ticket.items.reduce((s, i) => s + Math.round(i.price * i.qty * 100) / 100, 0);
+        const discountAmt = state.ticket.discount ? (state.ticket.discount.amount || 0) : 0;
+        const afterDisc = Math.round(Math.max(0, subtotal - discountAmt) * 100) / 100;
+        const tax = Math.round(afterDisc * (CONFIG.taxRate / 100) * 100) / 100;
+        const currentDelFee = state.ticket.type === 'delivery' ? calculateDeliveryFee(subtotal) : 0;
+        let total = Math.round((afterDisc + tax + currentDelFee) * 100) / 100;
         const rate = CONFIG.cashDiscount.rate / 100;
 
         if (CONFIG.cashDiscount.enabled) {
             if (CONFIG.cashDiscount.mode === 'CASH_DISCOUNT' && isCash) {
-                total = total * (1 - rate);
+                total = Math.round(total * (1 - rate) * 100) / 100;
             } else if (CONFIG.cashDiscount.mode === 'CARD_SURCHARGE' && !isCash) {
-                total = total * (1 + rate);
+                total = Math.round(total * (1 + rate) * 100) / 100;
             }
         }
 
@@ -996,9 +999,12 @@ $('#btn-send-terminal').addEventListener('click', () => {
 });
 
 function processPayment(via) {
-    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
-    const tax = subtotal * (CONFIG.taxRate / 100);
-    let total = subtotal + tax;
+    const subtotal = state.ticket.items.reduce((s, i) => s + Math.round(i.price * i.qty * 100) / 100, 0);
+    const discountAmount = state.ticket.discount ? (state.ticket.discount.amount || 0) : 0;
+    const afterDiscount = Math.round(Math.max(0, subtotal - discountAmount) * 100) / 100;
+    const tax = Math.round(afterDiscount * (CONFIG.taxRate / 100) * 100) / 100;
+    const currentDeliveryFee = state.ticket.type === 'delivery' ? calculateDeliveryFee(subtotal) : 0;
+    let total = Math.round((afterDiscount + tax + currentDeliveryFee) * 100) / 100;
 
     if (via === 'terminal') {
         // Simulate sending to PaybotX terminal
@@ -1015,6 +1021,11 @@ function processPayment(via) {
 }
 
 function completePayment(total, method) {
+    // Run beforeComplete hooks (may adjust total or cancel payment)
+    const adjustedTotal = runBeforeHooks('beforeComplete', total, method);
+    if (adjustedTotal === false) return; // hook cancelled the payment
+    total = (typeof adjustedTotal === 'number') ? adjustedTotal : total;
+
     // Find and update ticket in allTickets
     const ticketIndex = state.allTickets.findIndex(t => t.id === state.ticket.id);
     if (ticketIndex >= 0) {
@@ -1023,6 +1034,7 @@ function completePayment(total, method) {
         t.paid = true;
         t.paymentMethod = method;
         t.paidAt = new Date().toISOString();
+        t.total = Math.round(total * 100) / 100;
         t.deliveryFee = deliveryFee || 0;
         t.deliveryAddress = deliveryAddress || '';
         t.discount = state.ticket.discount || null;
@@ -1048,6 +1060,10 @@ function completePayment(total, method) {
     $('#payment-modal').classList.remove('active');
     showToast('Payment received - Ticket #' + state.ticket.id + ' (' + method + ')');
     newTicket();
+    saveState();
+
+    // Run afterComplete hooks (for logging, etc.)
+    runAfterHooks('afterComplete', total, method);
 }
 
 
@@ -1595,10 +1611,13 @@ function settleBatch() {
         showToast('Terminal processing batch...', 'warning');
     }, 2000);
 
+    // Capture ticket IDs at batch start to avoid settling late-arriving transactions
+    const batchTicketIds = new Set(batchState.transactions.map(t => t.ticketId));
+
     setTimeout(() => {
-        // Mark all transactions as settled
+        // Mark only the captured transactions as settled (not late-arriving ones)
         state.allTickets.forEach(t => {
-            if (t.paid && t.paymentMethod !== 'cash' && t.paymentMethod !== 'gift' && !t.batchSettled) {
+            if (batchTicketIds.has(t.id) && !t.batchSettled) {
                 t.batchSettled = true;
                 t.batchNumber = batchState.batchNum;
                 t.settledAt = new Date().toISOString();
@@ -1876,21 +1895,21 @@ populateTicketsList = function() {
         const timeStr = ticket.time ? new Date(ticket.time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
 
         const itemsSummary = ticket.items.slice(0, 3).map(i =>
-            (i.qty > 1 ? i.qty + 'x ' : '') + i.name
+            (i.qty > 1 ? i.qty + 'x ' : '') + escapeHtml(i.name)
         ).join(', ') + (ticket.items.length > 3 ? ' +' + (ticket.items.length - 3) + ' more' : '');
 
         el.innerHTML = `
             <div class="ticket-card-header">
-                <span class="ticket-card-id">#${ticket.id}</span>
-                <span class="ticket-card-status ${ticket.status}">${ticket.status}</span>
+                <span class="ticket-card-id">#${parseInt(ticket.id) || 0}</span>
+                <span class="ticket-card-status ${escapeHtml(ticket.status)}">${escapeHtml(ticket.status)}</span>
             </div>
             <div class="ticket-card-details">
-                ${ticket.server} &bull; ${ticket.type} &bull; ${ticket.items.length} items &bull; ${timeStr}
+                ${escapeHtml(ticket.server)} &bull; ${escapeHtml(ticket.type)} &bull; ${ticket.items.length} items &bull; ${timeStr}
             </div>
             <div class="ticket-card-items-preview">${itemsSummary}</div>
             ${ticket.discount ? `
                 <div class="ticket-card-discount">
-                    <span>${ticket.discount.reason}</span>
+                    <span>${escapeHtml(ticket.discount.reason)}</span>
                     <span>-${formatCurrency(ticket.discount.amount)}</span>
                 </div>
             ` : ''}
@@ -1964,6 +1983,9 @@ function voidTicket(ticketId) {
     if (idx >= 0) {
         state.allTickets[idx].status = 'voided';
 
+        // Restore inventory for voided items
+        restoreInventory(state.allTickets[idx].items);
+
         // Sync void to API backend
         if (typeof APIClient !== 'undefined') {
             APIClient.voidTicket(ticketId, state.currentUser, 'User void').catch(() => {});
@@ -1971,6 +1993,7 @@ function voidTicket(ticketId) {
 
         showToast('Ticket #' + ticketId + ' voided');
         populateTicketsList();
+        saveState();
     }
 }
 window.voidTicket = voidTicket;
@@ -2113,6 +2136,8 @@ function openRefundModal(ticket) {
         // Update ticket status
         if (!isPartial) {
             ticket.status = 'refunded';
+            // Restore inventory on full refund
+            restoreInventory(ticket.items);
         } else {
             ticket.refundedAmount = (ticket.refundedAmount || 0) + refundAmount;
         }
@@ -2125,6 +2150,7 @@ function openRefundModal(ticket) {
         modal.classList.remove('active');
         showToast('Refund of ' + formatCurrency(refundAmount) + ' processed for ticket #' + ticket.id);
         populateTicketsList();
+        saveState();
     });
 
     modal.classList.add('active');
@@ -2513,10 +2539,10 @@ function populateLaborReport() {
             };
         }
         if (record.clockOut) {
-            laborData[record.empId].hours += (record.clockOut - record.clockIn) / 3600000;
+            laborData[record.empId].hours += Math.round((record.clockOut - record.clockIn) / 36000) / 100;
         } else {
             // Still clocked in
-            laborData[record.empId].hours += (new Date() - record.clockIn) / 3600000;
+            laborData[record.empId].hours += Math.round((new Date() - record.clockIn) / 36000) / 100;
         }
     });
 
@@ -2725,7 +2751,6 @@ document.getElementById('close-timeclock').addEventListener('click', () => {
 });
 
 // Override the side menu clock-in to open the full time clock modal
-document.getElementById('menu-clock-in').removeEventListener('click', () => {});
 document.getElementById('menu-clock-in').addEventListener('click', () => {
     openTimeClockModal();
     $('#side-menu').classList.remove('open');
@@ -3459,9 +3484,9 @@ function openNotesModal() {
     } else {
         listEl.innerHTML = state.ticket.items.map((item, idx) => `
             <div class="notes-item-row">
-                <span class="notes-item-name">${item.qty}x ${item.name}</span>
+                <span class="notes-item-name">${item.qty}x ${escapeHtml(item.name)}</span>
                 <input type="text" class="notes-item-input" data-index="${idx}"
-                    value="${item.note || ''}" placeholder="Add note...">
+                    value="${escapeHtml(item.note || '')}" placeholder="Add note...">
             </div>
         `).join('');
     }
@@ -3545,8 +3570,8 @@ function refreshTabList() {
         listEl.innerHTML = tabs.map((tab, idx) => `
             <div class="tab-card">
                 <div class="tab-card-info">
-                    <strong>${tab.name}</strong>
-                    <span class="tab-card-phone">${tab.phone || 'No phone'}</span>
+                    <strong>${escapeHtml(tab.name)}</strong>
+                    <span class="tab-card-phone">${escapeHtml(tab.phone || 'No phone')}</span>
                 </div>
                 <div class="tab-card-balance">
                     <span class="tab-running">${formatCurrency(tab.runningTotal)}</span>
@@ -3626,7 +3651,8 @@ function addToTab(tabIndex) {
     });
 
     refreshTabList();
-    showToast(`${formatCurrency(subtotal)} added to ${tab.name}'s tab`);
+    showToast(`${formatCurrency(subtotal)} added to ${escapeHtml(tab.name)}'s tab`);
+    saveState();
 }
 window.addToTab = addToTab;
 
@@ -3638,7 +3664,8 @@ function closeTab(tabIndex) {
     tab.closedAt = new Date().toISOString();
 
     refreshTabList();
-    showToast(`Tab closed for ${tab.name} - Total: ${formatCurrency(tab.runningTotal)}`);
+    showToast(`Tab closed for ${escapeHtml(tab.name)} - Total: ${formatCurrency(tab.runningTotal)}`);
+    saveState();
 }
 window.closeTab = closeTab;
 
@@ -3647,6 +3674,35 @@ window.closeTab = closeTab;
 // ==========================================
 const giftCardModal = document.getElementById('giftcard-modal');
 const giftCards = {};
+
+// Cross-tab gift card sync via localStorage
+function syncGiftCardsToStorage() {
+    try {
+        localStorage.setItem('pos-gift-cards', JSON.stringify(giftCards));
+    } catch (e) {}
+}
+
+function loadGiftCardsFromStorage() {
+    try {
+        const stored = localStorage.getItem('pos-gift-cards');
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            Object.keys(parsed).forEach(k => { giftCards[k] = parsed[k]; });
+        }
+    } catch (e) {}
+}
+
+// Listen for gift card changes from other tabs
+window.addEventListener('storage', (e) => {
+    if (e.key === 'pos-gift-cards' && e.newValue) {
+        try {
+            const updated = JSON.parse(e.newValue);
+            Object.keys(updated).forEach(k => { giftCards[k] = updated[k]; });
+        } catch (err) {}
+    }
+});
+
+loadGiftCardsFromStorage();
 
 document.getElementById('close-giftcard').addEventListener('click', () => {
     giftCardModal.classList.remove('active');
@@ -3725,6 +3781,8 @@ function activateGiftCard(amount) {
     document.getElementById('gc-card-number').value = cardNum;
     showGiftCardResult(giftCards[cardNum]);
     showToast(`Gift card activated: ${cardNum} for ${formatCurrency(amount)}`);
+    syncGiftCardsToStorage();
+    saveState();
 }
 
 // Reload card
@@ -3736,51 +3794,86 @@ document.getElementById('gc-reload-btn').addEventListener('click', () => {
     const reloadAmount = parseFloat(prompt('Reload amount:'));
     if (!reloadAmount || reloadAmount <= 0) return;
 
-    card.balance += reloadAmount;
+    card.balance = Math.round((card.balance + reloadAmount) * 100) / 100;
     card.history.push({ type: 'reload', amount: reloadAmount, time: new Date().toISOString() });
     showGiftCardResult(card);
     showToast(`Reloaded ${formatCurrency(reloadAmount)} to ${cardNum}`);
+    syncGiftCardsToStorage();
+    saveState();
 });
 
 // Pay with gift card
 document.getElementById('gc-pay-btn').addEventListener('click', () => {
+    // Reload latest balances from other tabs before checking
+    loadGiftCardsFromStorage();
+
     const cardNum = document.getElementById('gc-card-number').value.trim();
     const card = giftCards[cardNum];
     if (!card) return;
+
+    if (card._processing) {
+        showToast('Payment already in progress', 'warning');
+        return;
+    }
 
     if (state.ticket.items.length === 0) {
         showToast('No items in current order', 'warning');
         return;
     }
 
-    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
-    const tax = subtotal * (CONFIG.taxRate / 100);
-    const total = subtotal + tax;
+    const subtotal = state.ticket.items.reduce((s, i) => s + Math.round(i.price * i.qty * 100) / 100, 0);
+    const discountAmount = state.ticket.discount ? (state.ticket.discount.amount || 0) : 0;
+    const afterDiscount = Math.round(Math.max(0, subtotal - discountAmount) * 100) / 100;
+    const tax = Math.round(afterDiscount * (CONFIG.taxRate / 100) * 100) / 100;
+    const currentDeliveryFee = state.ticket.type === 'delivery' ? calculateDeliveryFee(subtotal) : 0;
+    const total = Math.round((afterDiscount + tax + currentDeliveryFee) * 100) / 100;
 
     if (card.balance < total) {
         showToast(`Insufficient balance. Card: ${formatCurrency(card.balance)}, Total: ${formatCurrency(total)}`, 'error');
         return;
     }
 
-    card.balance -= total;
+    // Lock card to prevent double-spend
+    card._processing = true;
+    card.balance = Math.round((card.balance - total) * 100) / 100;
     card.history.push({ type: 'charge', amount: total, time: new Date().toISOString(), ticketId: state.ticket.id });
     showGiftCardResult(card);
+    card._processing = false;
 
-    // Complete the payment
-    state.ticket.table = state.ticket.table;
-    state.allTickets.push({
-        ...state.ticket,
-        id: state.ticket.id,
-        status: 'paid',
-        paid: true,
-        paymentMethod: 'gift',
-        giftCardNumber: cardNum,
-        total,
-        subtotal,
-        tax,
-        time: new Date(),
-        paidAt: new Date().toISOString()
-    });
+    // Update existing ticket in allTickets instead of duplicating
+    const existingIdx = state.allTickets.findIndex(t => t.id === state.ticket.id);
+    if (existingIdx >= 0) {
+        const t = state.allTickets[existingIdx];
+        t.status = 'paid';
+        t.paid = true;
+        t.paymentMethod = 'gift';
+        t.giftCardNumber = cardNum;
+        t.total = total;
+        t.subtotal = subtotal;
+        t.tax = tax;
+        t.discount = state.ticket.discount || null;
+        t.deliveryFee = currentDeliveryFee;
+        t.paidAt = new Date().toISOString();
+    } else {
+        state.allTickets.push({
+            id: state.ticket.id,
+            server: state.currentUser,
+            type: state.ticket.type,
+            items: [...state.ticket.items],
+            status: 'paid',
+            paid: true,
+            paymentMethod: 'gift',
+            giftCardNumber: cardNum,
+            total,
+            subtotal,
+            tax,
+            discount: state.ticket.discount || null,
+            deliveryFee: currentDeliveryFee,
+            table: state.ticket.table,
+            time: new Date(),
+            paidAt: new Date().toISOString()
+        });
+    }
 
     giftCardModal.classList.remove('active');
     showToast(`Paid ${formatCurrency(total)} with gift card ${cardNum}. Remaining: ${formatCurrency(card.balance)}`);
@@ -3909,8 +4002,12 @@ populateTicketsList = function() {
     const container = document.getElementById('tickets-list');
     if (!container) return;
 
-    container.querySelectorAll('.ticket-card').forEach((el, idx) => {
-        const ticket = state.allTickets[idx];
+    container.querySelectorAll('.ticket-card').forEach((el) => {
+        // Extract ticket ID from the card's header to avoid index mismatch with filtered lists
+        const idEl = el.querySelector('.ticket-card-id');
+        if (!idEl) return;
+        const ticketId = parseInt(idEl.textContent.replace('#', ''));
+        const ticket = state.allTickets.find(t => t.id === ticketId);
         if (!ticket || !ticket.paid) return;
 
         // Add tip info and adjust button
@@ -3966,6 +4063,19 @@ function checkInventory(itemId) {
     if (!inv) return true; // unknown items are always available
     if (inv.stock <= 0) return false;
     return true;
+}
+
+function restoreInventory(items) {
+    if (!items || !Array.isArray(items)) return;
+    items.forEach(item => {
+        const inv = inventory[item.id];
+        if (!inv) return;
+        inv.stock += (item.qty || 1);
+        // Remove from 86'd list if restored above zero
+        if (inv.stock > 0 && eightySixed.has(item.id)) {
+            eightySixed.delete(item.id);
+        }
+    });
 }
 
 function deductInventory(itemId, qty) {

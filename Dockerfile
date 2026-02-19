@@ -16,12 +16,15 @@ RUN for jar in local-lib/com/miglayout/miglayout/2.0/miglayout-2.0.jar \
         artifactId=$(basename "$(dirname "$(dirname "$jar")")"); \
         version=$(basename "$(dirname "$jar")"); \
         mvn install:install-file -Dfile="$jar" -DgroupId="$groupId" \
-          -DartifactId="$artifactId" -Dversion="$version" -Dpackaging=jar -q 2>/dev/null || true; \
+          -DartifactId="$artifactId" -Dversion="$version" -Dpackaging=jar -q \
+          || echo "WARNING: Failed to install $jar"; \
+      else \
+        echo "WARNING: Local dependency not found: $jar"; \
       fi; \
     done
 
-# Build (allow failures for missing deps in headless env)
-RUN mvn package -DskipTests -q 2>/dev/null || true
+# Build — fail loudly if compilation fails
+RUN mvn package -DskipTests
 
 # --- Runtime ---
 FROM openjdk:11-jre-slim
@@ -29,7 +32,8 @@ FROM openjdk:11-jre-slim
 WORKDIR /opt/floreantpos
 
 # Copy build artifacts or raw classes
-COPY --from=builder /build/target/ target/ 2>/dev/null || true
+# Copy build artifacts
+COPY --from=builder /build/target/ target/
 COPY --from=builder /build/src/ src/
 COPY --from=builder /build/resources/ resources/
 COPY --from=builder /build/config/ config/

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Main POS Application
   pos:
@@ -11,7 +9,6 @@ services:
     volumes:
       - pos-data:/opt/floreantpos/data
       - ./config:/opt/floreantpos/config
-      - ./resources/paybotx-terminals.xml:/opt/floreantpos/resources/paybotx-terminals.xml
     environment:
       - JAVA_OPTS=-Xmx512m
       - DB_TYPE=DERBY           # DERBY (embedded), MYSQL, or POSTGRESQL
@@ -20,7 +17,13 @@ services:
       - DB_NAME=floreantpos
       - DB_USER=floreant
       - DB_PASS=floreant
+      # Payment gateway — set these via .env file or deployment secrets
       - PAYBOTX_GATEWAY_URL=https://vt.isoaccess.com
+      - PAYBOTX_MERCHANT_ID=${PAYBOTX_MERCHANT_ID:-}
+      - PAYBOTX_API_KEY=${PAYBOTX_API_KEY:-}
+      # CORS — restrict to your deployment domain
+      - CORS_ALLOWED_ORIGIN=${CORS_ALLOWED_ORIGIN:-http://localhost}
+      # Cash discount settings
       - CASH_DISCOUNT_ENABLED=true
       - CASH_DISCOUNT_RATE=4.0
       - CASH_DISCOUNT_MODE=CASH_DISCOUNT

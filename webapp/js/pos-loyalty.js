@@ -170,8 +170,8 @@ function showLoyaltyMember(member) {
     document.getElementById('loyalty-member-card').innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
             <div>
-                <div style="font-weight:700; font-size:1.1rem;">${member.name}</div>
-                <div style="font-size:0.8rem; color:var(--text-muted);">${member.phone}</div>
+                <div style="font-weight:700; font-size:1.1rem;">${escapeHtml(member.name)}</div>
+                <div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(member.phone)}</div>
             </div>
             <span style="padding:4px 12px; border-radius:12px; background:${tierColors[member.tier]}; color:#333; font-weight:700; font-size:0.75rem; text-transform:uppercase;">${member.tier}</span>
         </div>
@@ -400,17 +400,16 @@ function toggleTrainingMode() {
     }
 }
 
-// Intercept completePayment in training mode
-const _origCompletePaymentTrain = completePayment;
-completePayment = function(total, method) {
+// Register training mode as a beforeComplete hook (can cancel payment)
+registerHook('beforeComplete', function(total, method) {
     if (trainingMode) {
         showToast('TRAINING: Payment of ' + formatCurrency(total) + ' via ' + method + ' (not processed)', 'warning');
         $('#payment-modal').classList.remove('active');
         newTicket();
-        return;
+        return false; // cancel the payment
     }
-    _origCompletePaymentTrain(total, method);
-};
+    return total;
+});
 
 // ==========================================
 // Audit Log
@@ -435,11 +434,10 @@ addItemDirectly = function(menuItem, selectedMods) {
     _origAddItemDirectlyAudit(menuItem, selectedMods);
 };
 
-const _origCompletePaymentAudit = completePayment;
-completePayment = function(total, method) {
+// Register audit logging as an afterComplete hook
+registerHook('afterComplete', function(total, method) {
     logAudit('PAYMENT', 'Ticket #' + state.ticket.id + ' - ' + formatCurrency(total) + ' via ' + method);
-    _origCompletePaymentAudit(total, method);
-};
+});
 
 function openAuditLogModal() {
     let modal = document.getElementById('audit-modal');
@@ -479,7 +477,7 @@ function openAuditLogModal() {
 
     const users = [...new Set(auditLog.map(e => e.user))];
     const userSelect = document.getElementById('audit-filter-user');
-    userSelect.innerHTML = '<option value="">All Users</option>' + users.map(u => `<option value="${u}">${u}</option>`).join('');
+    userSelect.innerHTML = '<option value="">All Users</option>' + users.map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join('');
 
     renderAuditLog();
     modal.classList.add('active');
@@ -526,9 +524,9 @@ function renderAuditLog() {
                     return `
                         <tr style="border-bottom:1px solid var(--border-light);">
                             <td style="padding:6px 8px; white-space:nowrap;">${timeStr}</td>
-                            <td style="padding:6px 8px;">${e.user}</td>
-                            <td style="padding:6px 8px;"><span style="padding:2px 8px; border-radius:10px; font-size:0.7rem; font-weight:600; background:${actionColors[e.action] || 'var(--text-muted)'}22; color:${actionColors[e.action] || 'var(--text-muted)'};">${e.action}</span></td>
-                            <td style="padding:6px 8px; color:var(--text-secondary);">${e.details}</td>
+                            <td style="padding:6px 8px;">${escapeHtml(e.user)}</td>
+                            <td style="padding:6px 8px;"><span style="padding:2px 8px; border-radius:10px; font-size:0.7rem; font-weight:600; background:${actionColors[e.action] || 'var(--text-muted)'}22; color:${actionColors[e.action] || 'var(--text-muted)'};">${escapeHtml(e.action)}</span></td>
+                            <td style="padding:6px 8px; color:var(--text-secondary);">${escapeHtml(e.details)}</td>
                         </tr>
                     `;
                 }).join('')}

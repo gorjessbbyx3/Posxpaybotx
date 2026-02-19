@@ -88,10 +88,10 @@ function refreshWaitlist() {
         return `
             <div class="wl-entry ${statusClass}" data-id="${entry.id}">
                 <div class="wl-entry-info">
-                    <strong>${entry.name}</strong>
-                    <span class="wl-party">Party of ${entry.partySize}</span>
-                    ${entry.phone ? '<span class="wl-phone">' + entry.phone + '</span>' : ''}
-                    ${entry.notes ? '<span class="wl-note">' + entry.notes + '</span>' : ''}
+                    <strong>${escapeHtml(entry.name)}</strong>
+                    <span class="wl-party">Party of ${parseInt(entry.partySize) || 0}</span>
+                    ${entry.phone ? '<span class="wl-phone">' + escapeHtml(entry.phone) + '</span>' : ''}
+                    ${entry.notes ? '<span class="wl-note">' + escapeHtml(entry.notes) + '</span>' : ''}
                 </div>
                 <div class="wl-entry-time">
                     <span class="wl-elapsed ${isOverdue ? 'overdue' : ''}">${elapsed}m wait</span>
@@ -182,13 +182,16 @@ if (_origOpenPayment) {
         const partySize = getTicketPartySize();
 
         if (AUTO_GRATUITY_CONFIG.enabled && partySize >= AUTO_GRATUITY_CONFIG.minPartySize) {
-            const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+            // Calculate on post-discount subtotal (gratuity should not include discounted amount)
+            const subtotal = state.ticket.items.reduce((s, i) => s + Math.round(i.price * i.qty * 100) / 100, 0);
+            const discountAmt = state.ticket.discount ? (state.ticket.discount.amount || 0) : 0;
+            const afterDiscount = Math.round(Math.max(0, subtotal - discountAmt) * 100) / 100;
             let gratAmount = 0;
 
             if (typeof Calculations !== 'undefined' && typeof Calculations.autoGratuity === 'function') {
-                gratAmount = Calculations.autoGratuity(subtotal, partySize, AUTO_GRATUITY_CONFIG);
+                gratAmount = Calculations.autoGratuity(afterDiscount, partySize, AUTO_GRATUITY_CONFIG);
             } else {
-                gratAmount = Math.round(subtotal * (AUTO_GRATUITY_CONFIG.percentage / 100) * 100) / 100;
+                gratAmount = Math.round(afterDiscount * (AUTO_GRATUITY_CONFIG.percentage / 100) * 100) / 100;
             }
 
             if (gratAmount > 0) {
@@ -208,16 +211,9 @@ if (_origOpenPayment) {
 }
 
 function getTicketPartySize() {
-    // Check if ticket has explicit party size
-    if (state.ticket.partySize) return state.ticket.partySize;
-
-    // Check table seats
-    if (state.ticket.table) {
-        const tbl = TABLES.find(t => t.number === state.ticket.table);
-        if (tbl && tbl.seats >= AUTO_GRATUITY_CONFIG.minPartySize) return tbl.seats;
-    }
-
-    return 0;
+    // Only use explicitly set party size - never infer from table seats
+    // (table seats != actual party size; a 2-person party at a 6-seat table shouldn't trigger auto-gratuity)
+    return state.ticket.partySize || 0;
 }
 
 function showAutoGratuityNotice() {
@@ -244,24 +240,21 @@ function showAutoGratuityNotice() {
     }
 }
 
-// Monkey-patch completePayment to add gratuity to the total
-const _origCompletePaymentGrat = typeof completePayment === 'function' ? completePayment : null;
-if (_origCompletePaymentGrat) {
-    completePayment = function(total, method) {
-        let adjustedTotal = total;
-        if (state.ticket.autoGratuity && state.ticket.autoGratuity > 0) {
-            adjustedTotal += state.ticket.autoGratuity;
-            // Store on ticket for receipt
-            const t = state.allTickets.find(t => t.id === state.ticket.id);
-            if (t) {
-                t.autoGratuity = state.ticket.autoGratuity;
-                t.autoGratuityRate = state.ticket.autoGratuityRate;
-                t.tip = (t.tip || 0) + state.ticket.autoGratuity;
-            }
+// Register auto-gratuity as a beforeComplete hook (adjusts total before payment)
+registerHook('beforeComplete', function(total, method) {
+    if (state.ticket.autoGratuity && state.ticket.autoGratuity > 0) {
+        const adjustedTotal = total + state.ticket.autoGratuity;
+        // Store on ticket for receipt
+        const t = state.allTickets.find(t => t.id === state.ticket.id);
+        if (t) {
+            t.autoGratuity = state.ticket.autoGratuity;
+            t.autoGratuityRate = state.ticket.autoGratuityRate;
+            t.tip = (t.tip || 0) + state.ticket.autoGratuity;
         }
-        _origCompletePaymentGrat(adjustedTotal, method);
-    };
-}
+        return adjustedTotal;
+    }
+    return total;
+});
 
 // Allow setting party size on a ticket
 function setTicketPartySize(size) {
@@ -560,7 +553,7 @@ function showVoidApprovalModal(ticketId) {
 
     newBtn.addEventListener('click', () => {
         const pin = $('#void-approval-pin').value;
-        const staff = STAFF[pin];
+        const staff = lookupStaffByPin(pin);
 
         if (!staff) {
             $('#void-approval-error').textContent = 'Invalid PIN';

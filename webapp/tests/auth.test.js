@@ -7,7 +7,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { createToken, verifyToken, EMPLOYEES, ROLE_PERMISSIONS } = require('../api/auth');
+const { createToken, verifyToken, hashPin, EMPLOYEES, ROLE_PERMISSIONS } = require('../api/auth');
 
 // ==========================================
 // Token Creation & Verification
@@ -71,10 +71,16 @@ describe('verifyToken', () => {
 // Employee Database
 // ==========================================
 describe('EMPLOYEES', () => {
-    it('has all expected PINs', () => {
-        assert.ok(EMPLOYEES['1234']); // manager
-        assert.ok(EMPLOYEES['1111']); // server
-        assert.ok(EMPLOYEES['9999']); // admin
+    it('has all expected employees via hashed PINs', () => {
+        assert.ok(EMPLOYEES[hashPin('1234')]); // manager
+        assert.ok(EMPLOYEES[hashPin('1111')]); // server
+        assert.ok(EMPLOYEES[hashPin('9999')]); // admin
+    });
+
+    it('keys are hashed (no plaintext PINs)', () => {
+        Object.keys(EMPLOYEES).forEach(key => {
+            assert.ok(key.startsWith('ph_'), `Key ${key} should be a PIN hash`);
+        });
     });
 
     it('each employee has required fields', () => {
@@ -82,7 +88,6 @@ describe('EMPLOYEES', () => {
             assert.ok(emp.id, 'Employee missing id');
             assert.ok(emp.name, 'Employee missing name');
             assert.ok(emp.role, 'Employee missing role');
-            assert.ok(emp.pin, 'Employee missing pin');
         });
     });
 

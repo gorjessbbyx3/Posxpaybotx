@@ -96,18 +96,18 @@ window.printKitchenOrder = printKitchenOrder;
 // ==========================================
 // Course Firing for Kitchen
 // ==========================================
-const COURSES = ['appetizer', 'main', 'dessert'];
+const COURSES = ['beverage', 'appetizer', 'main', 'dessert'];
 
 function assignCourses(items) {
     return items.map(item => {
         if (item.course) return item;
         const catName = findItemCategory(item.id);
-        if (catName === 'appetizers' || catName === 'sides') {
+        if (catName === 'drinks') {
+            item.course = 'beverage';
+        } else if (catName === 'appetizers' || catName === 'sides') {
             item.course = 'appetizer';
         } else if (catName === 'desserts') {
             item.course = 'dessert';
-        } else if (catName === 'drinks') {
-            item.course = 'appetizer';
         } else {
             item.course = 'main';
         }
@@ -179,7 +179,7 @@ function populateKitchen() {
                         <div class="kds-item">
                             <span class="kds-item-name">${item.name}</span>
                             <span class="kds-item-qty">x${item.qty}</span>
-                            ${item.note ? '<div class="kds-item-note">' + item.note + '</div>' : ''}
+                            ${item.note ? '<div class="kds-item-note">' + escapeHtml(item.note) + '</div>' : ''}
                         </div>
                     `).join('')}
                 </div>
@@ -191,7 +191,7 @@ function populateKitchen() {
                 <span>#${order.id} - ${order.type}</span>
                 <span class="kds-ticket-time ${timeClass}">${timeStr}</span>
             </div>
-            ${order.server ? '<div class="kds-ticket-server">Server: ' + order.server + (order.table ? ' | T' + order.table : '') + '</div>' : ''}
+            ${order.server ? '<div class="kds-ticket-server">Server: ' + escapeHtml(order.server) + (order.table ? ' | T' + escapeHtml(String(order.table)) : '') + '</div>' : ''}
             <div class="kds-ticket-courses">${coursesHtml}</div>
             <div class="kds-ticket-footer">
                 <button class="kds-reprint-btn" data-order-id="${order.id}">REPRINT</button>

@@ -102,23 +102,38 @@ const Calculations = (function () {
 
     /**
      * Calculate cash discount / card surcharge dual pricing.
+     * Supports optional maxSurcharge cap (e.g., max 3% or max dollar amount).
      * @param {number} total - Base total
-     * @param {{enabled: boolean, mode: string, rate: number}} config
-     * @returns {{cashPrice: number, cardPrice: number, savings: number}}
+     * @param {{enabled: boolean, mode: string, rate: number, maxSurcharge?: number}} config
+     * @returns {{cashPrice: number, cardPrice: number, savings: number, capped: boolean}}
      */
     function dualPricing(total, config) {
         if (!config || !config.enabled) {
-            return { cashPrice: total, cardPrice: total, savings: 0 };
+            return { cashPrice: total, cardPrice: total, savings: 0, capped: false };
         }
 
         const rate = (parseFloat(config.rate) || 0) / 100;
+        const maxSurcharge = config.maxSurcharge !== undefined && config.maxSurcharge !== null
+            ? parseFloat(config.maxSurcharge) : null;
 
         if (config.mode === 'CASH_DISCOUNT') {
-            const cashPrice = round(total * (1 - rate));
-            return { cashPrice, cardPrice: total, savings: round(total * rate) };
+            let savings = round(total * rate);
+            let capped = false;
+            if (maxSurcharge !== null && savings > maxSurcharge) {
+                savings = round(maxSurcharge);
+                capped = true;
+            }
+            const cashPrice = round(total - savings);
+            return { cashPrice, cardPrice: total, savings, capped };
         } else {
-            const cardPrice = round(total * (1 + rate));
-            return { cashPrice: total, cardPrice, savings: round(total * rate) };
+            let surcharge = round(total * rate);
+            let capped = false;
+            if (maxSurcharge !== null && surcharge > maxSurcharge) {
+                surcharge = round(maxSurcharge);
+                capped = true;
+            }
+            const cardPrice = round(total + surcharge);
+            return { cashPrice: total, cardPrice, savings: surcharge, capped };
         }
     }
 

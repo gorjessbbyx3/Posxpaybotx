@@ -82,7 +82,7 @@ function populateTables() {
             <span class="table-vis-number">${tbl.number}</span>
             <span class="table-vis-seats">${tbl.seats} <small>seats</small></span>
             ${data.amount ? '<span class="table-vis-amount">' + formatCurrency(data.amount) + '</span>' : ''}
-            ${data.server ? '<span class="table-vis-server">' + data.server + '</span>' : ''}
+            ${data.server ? '<span class="table-vis-server">' + escapeHtml(data.server) + '</span>' : ''}
             ${timeStr ? '<span class="table-vis-time">' + timeStr + '</span>' : ''}
         `;
 
@@ -190,7 +190,7 @@ function openTableDetailModal(tbl, data) {
             </div>
             <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
                 <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Server</div>
-                <div style="font-weight: 600;">${data.server || 'Unassigned'}</div>
+                <div style="font-weight: 600;">${escapeHtml(data.server || 'Unassigned')}</div>
             </div>
             <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
                 <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Amount</div>
@@ -395,7 +395,7 @@ function openReservationModal() {
     const tableSelect = document.getElementById('res-table');
     tableSelect.innerHTML = '<option value="">Auto-assign</option>';
     TABLES.forEach(t => {
-        tableSelect.innerHTML += `<option value="${t.number}">Table ${t.number} (${t.seats} seats)</option>`;
+        tableSelect.innerHTML += `<option value="${escapeHtml(String(t.number))}">Table ${escapeHtml(String(t.number))} (${parseInt(t.seats) || 0} seats)</option>`;
     });
 
     refreshReservationList();
@@ -420,15 +420,15 @@ function refreshReservationList() {
             return `
                 <div class="res-card ${r.status}">
                     <div class="res-card-header">
-                        <strong>${r.name}</strong>
+                        <strong>${escapeHtml(r.name)}</strong>
                         <span class="res-time">${timeStr}</span>
                     </div>
                     <div class="res-card-details">
-                        <span>Party of ${r.partySize}</span>
-                        ${r.table ? '<span>Table ' + r.table + '</span>' : ''}
-                        ${r.phone ? '<span>' + r.phone + '</span>' : ''}
+                        <span>Party of ${parseInt(r.partySize) || 0}</span>
+                        ${r.table ? '<span>Table ' + escapeHtml(String(r.table)) + '</span>' : ''}
+                        ${r.phone ? '<span>' + escapeHtml(r.phone) + '</span>' : ''}
                     </div>
-                    ${r.notes ? '<div class="res-card-notes">' + r.notes + '</div>' : ''}
+                    ${r.notes ? '<div class="res-card-notes">' + escapeHtml(r.notes) + '</div>' : ''}
                     <div class="res-card-actions">
                         <button class="res-btn-sm" onclick="seatReservation(${reservations.indexOf(r)})">Seat</button>
                         <button class="res-btn-sm res-btn-noshow" onclick="noShowReservation(${reservations.indexOf(r)})">No Show</button>
@@ -450,7 +450,7 @@ function refreshReservationList() {
             return `
                 <div class="res-upcoming-row">
                     <span>${dateStr} ${formatResTime(r.time)}</span>
-                    <span>${r.name} (${r.partySize})</span>
+                    <span>${escapeHtml(r.name)} (${parseInt(r.partySize) || 0})</span>
                 </div>
             `;
         }).join('');

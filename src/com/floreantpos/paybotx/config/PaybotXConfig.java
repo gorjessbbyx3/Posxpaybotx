@@ -42,6 +42,10 @@ public class PaybotXConfig {
 	private static List<PaybotXTerminal> terminalList;
 
 	public static String getGatewayUrl() {
+		String envVal = System.getenv("PAYBOTX_GATEWAY_URL");
+		if (envVal != null && !envVal.isEmpty()) {
+			return envVal;
+		}
 		return AppConfig.getString(GATEWAY_URL, DEFAULT_GATEWAY_URL);
 	}
 
@@ -50,6 +54,11 @@ public class PaybotXConfig {
 	}
 
 	public static String getMerchantId() {
+		// Environment variable takes priority over config file
+		String envVal = System.getenv("PAYBOTX_MERCHANT_ID");
+		if (envVal != null && !envVal.isEmpty()) {
+			return envVal;
+		}
 		return AppConfig.getString(MERCHANT_ID, "");
 	}
 
@@ -58,6 +67,11 @@ public class PaybotXConfig {
 	}
 
 	public static String getApiKey() {
+		// Environment variable takes priority over config file
+		String envVal = System.getenv("PAYBOTX_API_KEY");
+		if (envVal != null && !envVal.isEmpty()) {
+			return envVal;
+		}
 		return AppConfig.getString(API_KEY, "");
 	}
 
