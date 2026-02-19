@@ -231,11 +231,32 @@ function scheduleSave() {
 loadStore();
 
 // ==========================================
+// Safe ID Generation (survives deletions)
+// ==========================================
+function nextId(arr, idField = 'id') {
+    if (!arr || arr.length === 0) return 1;
+    return Math.max(...arr.map(item => {
+        const val = item[idField];
+        return typeof val === 'number' ? val : 0;
+    })) + 1;
+}
+
+function nextPrefixId(arr, prefix, pad = 4) {
+    if (!arr || arr.length === 0) return prefix + '1'.padStart(pad, '0');
+    const max = Math.max(...arr.map(item => {
+        const s = String(item.id);
+        if (!s.startsWith(prefix)) return 0;
+        return parseInt(s.slice(prefix.length), 10) || 0;
+    }));
+    return prefix + String(max + 1).padStart(pad, '0');
+}
+
+// ==========================================
 // Audit Log Helper
 // ==========================================
 function logAudit(action, user, details) {
     store.auditLog.push({
-        id: store.auditLog.length + 1,
+        id: nextId(store.auditLog),
         action,
         user: user ? user.name : 'system',
         role: user ? user.role : 'system',
@@ -363,7 +384,7 @@ app.post('/api/tickets', authorize('tickets'), (req, res) => {
 
     // Calculate totals
     if (ticket.items.length > 0) {
-        const subtotal = ticket.items.reduce((s, i) => s + Math.round((parseFloat(i.price) || 0) * (parseInt(i.qty, 10) || 0) * 100) / 100, 0);
+        const subtotal = ticket.items.reduce((s, i) => s + Math.round((parseFloat(i.price) || 0) * (parseInt(i.qty, 10) || 1) * 100) / 100, 0);
         const discountAmt = ticket.discount ? (parseFloat(ticket.discount.amount) || 0) : 0;
         const afterDiscount = Math.round(Math.max(0, subtotal - discountAmt) * 100) / 100;
         const tax = Math.round(afterDiscount * (store.config.tax.rate / 100) * 100) / 100;
@@ -376,6 +397,7 @@ app.post('/api/tickets', authorize('tickets'), (req, res) => {
 
     store.tickets.push(ticket);
     fireWebhooks('ticket.created', { ticketId: ticket.id, type: ticket.type, server: ticket.server });
+    logAudit('ticket_created', req.user, { ticketId: ticket.id, items: ticket.items.length, total: ticket.total });
     scheduleSave();
     res.status(201).json(ticket);
 });
@@ -409,6 +431,7 @@ app.patch('/api/tickets/:id', authorize('tickets'), (req, res) => {
     ticket.updatedAt = new Date().toISOString();
     ticket.updatedBy = req.user ? req.user.name : 'unknown';
 
+    logAudit('ticket_updated', req.user, { ticketId: ticket.id });
     scheduleSave();
     res.json(ticket);
 });
@@ -489,6 +512,8 @@ app.post('/api/tickets/:id/pay', authorize('tickets'), (req, res) => {
     ticket.totalPaid = totalPaid;
     ticket.remaining = Math.round((ticket.total - totalPaid) * 100) / 100;
 
+    logAudit('payment', req.user, { ticketId: ticket.id, amount: payAmount, method, status: ticket.status });
+
     if (ticket.status === 'paid') {
         fireWebhooks('ticket.paid', { ticketId: ticket.id, total: ticket.total, method });
 
@@ -552,7 +577,7 @@ app.post('/api/refunds', authorize('refund'), (req, res) => {
     }
 
     const refund = {
-        id: store.refunds.length + 1,
+        id: nextId(store.refunds),
         ticketId: parseInt(ticketId),
         amount: refundAmount,
         reason: reason || 'No reason provided',
@@ -670,9 +695,9 @@ app.get('/api/held-orders', (req, res) => {
 
 app.post('/api/held-orders', authorize('tickets'), (req, res) => {
     const { items, type, server: serverName, table, discount, note } = req.body;
-    const nextId = store.heldOrders.length > 0 ? Math.max(...store.heldOrders.map(h => h.id || 0)) + 1 : 1;
+    const heldId = nextId(store.heldOrders);
     const held = {
-        id: nextId,
+        id: heldId,
         items: items || [],
         type: type || 'dine-in',
         server: serverName || (req.user ? req.user.name : 'unknown'),
@@ -724,7 +749,7 @@ app.post('/api/timeclock/clock-in', authorize('timeclock'), (req, res) => {
     if (existing) return res.status(400).json({ error: 'Already clocked in' });
 
     const record = {
-        id: store.timeClock.length + 1,
+        id: nextId(store.timeClock),
         empId,
         empName: empName || (req.user ? req.user.name : 'Unknown'),
         role: role || (req.user ? req.user.role : 'server'),
@@ -732,6 +757,7 @@ app.post('/api/timeclock/clock-in', authorize('timeclock'), (req, res) => {
         clockOut: null
     };
     store.timeClock.push(record);
+    logAudit('clock_in', req.user, { empId, empName: record.empName });
     scheduleSave();
     res.status(201).json(record);
 });
@@ -746,6 +772,7 @@ app.post('/api/timeclock/clock-out', authorize('timeclock'), (req, res) => {
     record.clockOut = new Date().toISOString();
     const hours = (new Date(record.clockOut) - new Date(record.clockIn)) / 3600000;
     record.hoursWorked = Math.round(hours * 100) / 100;
+    logAudit('clock_out', req.user, { empId, hours: record.hoursWorked });
 
     scheduleSave();
     res.json(record);
@@ -1251,7 +1278,7 @@ app.post('/api/customers', authorize('tickets'), (req, res) => {
     if (!name) return res.status(400).json({ error: 'Customer name required' });
 
     const customer = {
-        id: store.customers.length > 0 ? Math.max(...store.customers.map(c => c.id)) + 1 : 1,
+        id: nextId(store.customers),
         name,
         email: email || '',
         phone: phone || '',
@@ -1265,6 +1292,7 @@ app.post('/api/customers', authorize('tickets'), (req, res) => {
         createdBy: req.user ? req.user.name : 'unknown'
     };
     store.customers.push(customer);
+    logAudit('customer_created', req.user, { customerId: customer.id, name });
     scheduleSave();
     res.status(201).json(customer);
 });
@@ -1277,6 +1305,7 @@ app.patch('/api/customers/:id', authorize('tickets'), (req, res) => {
         if (req.body[field] !== undefined) customer[field] = req.body[field];
     });
     customer.updatedAt = new Date().toISOString();
+    logAudit('customer_updated', req.user, { customerId: customer.id });
     scheduleSave();
     res.json(customer);
 });
@@ -1285,6 +1314,7 @@ app.delete('/api/customers/:id', authorize('config'), (req, res) => {
     const idx = store.customers.findIndex(c => c.id === parseInt(req.params.id));
     if (idx === -1) return res.status(404).json({ error: 'Customer not found' });
     const removed = store.customers.splice(idx, 1)[0];
+    logAudit('customer_deleted', req.user, { customerId: removed.id, name: removed.name });
     scheduleSave();
     res.json(removed);
 });
@@ -1313,7 +1343,7 @@ app.post('/api/gift-cards', authorize('config'), (req, res) => {
     }
 
     const card = {
-        id: store.giftCards.length > 0 ? Math.max(...store.giftCards.map(g => g.id)) + 1 : 1,
+        id: nextId(store.giftCards),
         code,
         initialBalance: balance,
         balance,
@@ -1325,6 +1355,7 @@ app.post('/api/gift-cards', authorize('config'), (req, res) => {
         createdBy: req.user ? req.user.name : 'unknown'
     };
     store.giftCards.push(card);
+    logAudit('gift_card_created', req.user, { code, balance });
     scheduleSave();
     res.status(201).json(card);
 });
@@ -1349,6 +1380,7 @@ app.post('/api/gift-cards/:code/charge', authorize('tickets'), (req, res) => {
         processedBy: req.user ? req.user.name : 'unknown',
         time: new Date().toISOString()
     });
+    logAudit('gift_card_charged', req.user, { code: card.code, amount, remaining: card.balance });
     scheduleSave();
     res.json({ card, charged: amount });
 });
@@ -1368,6 +1400,7 @@ app.post('/api/gift-cards/:code/reload', authorize('tickets'), (req, res) => {
         processedBy: req.user ? req.user.name : 'unknown',
         time: new Date().toISOString()
     });
+    logAudit('gift_card_reloaded', req.user, { code: card.code, amount, balance: card.balance });
     scheduleSave();
     res.json({ card, reloaded: amount });
 });
@@ -1446,7 +1479,7 @@ app.post('/api/promo-codes', authorize('config'), (req, res) => {
     }
 
     const promo = {
-        id: store.promoCodes.length > 0 ? Math.max(...store.promoCodes.map(p => p.id)) + 1 : 1,
+        id: nextId(store.promoCodes),
         code: code.toUpperCase(),
         type,
         value: val,
@@ -1460,6 +1493,7 @@ app.post('/api/promo-codes', authorize('config'), (req, res) => {
         createdBy: req.user ? req.user.name : 'unknown'
     };
     store.promoCodes.push(promo);
+    logAudit('promo_code_created', req.user, { code: promo.code, type, value: val });
     scheduleSave();
     res.status(201).json(promo);
 });
@@ -1510,6 +1544,7 @@ app.delete('/api/promo-codes/:id', authorize('config'), (req, res) => {
     const idx = store.promoCodes.findIndex(p => p.id === parseInt(req.params.id));
     if (idx === -1) return res.status(404).json({ error: 'Promo code not found' });
     const removed = store.promoCodes.splice(idx, 1)[0];
+    logAudit('promo_code_deleted', req.user, { code: removed.code });
     scheduleSave();
     res.json(removed);
 });
@@ -1750,7 +1785,7 @@ app.post('/api/online-orders', (req, res) => {
     const tax = Math.round(afterDiscount * (store.config.tax.rate / 100) * 100) / 100;
 
     const order = {
-        id: store.onlineOrders.length > 0 ? Math.max(...store.onlineOrders.map(o => o.id)) + 1 : 5001,
+        id: Math.max(nextId(store.onlineOrders), 5001),
         customerName,
         customerPhone: customerPhone || '',
         customerEmail: customerEmail || '',
@@ -1875,7 +1910,7 @@ function checkFraudPatterns(ticket, user) {
 
     // Store new alerts
     alerts.forEach(a => {
-        a.id = store.fraudAlerts.length + 1;
+        a.id = nextId(store.fraudAlerts);
         a.time = now.toISOString();
         a.resolved = false;
         store.fraudAlerts.push(a);
@@ -1916,7 +1951,7 @@ app.post('/api/fraud-alerts/scan', authorize('reports'), (req, res) => {
             );
             if (!existing) {
                 store.fraudAlerts.push({
-                    id: store.fraudAlerts.length + 1,
+                    id: nextId(store.fraudAlerts),
                     type: 'excessive_voids',
                     severity: 'high',
                     message: `${user} has voided ${count} tickets in the last hour`,
@@ -1936,7 +1971,7 @@ app.post('/api/fraud-alerts/scan', authorize('reports'), (req, res) => {
             );
             if (!existing) {
                 store.fraudAlerts.push({
-                    id: store.fraudAlerts.length + 1,
+                    id: nextId(store.fraudAlerts),
                     type: 'large_refund',
                     severity: 'medium',
                     message: `Ticket ${t.id} has been refunded ${Math.round(t.refundedAmount / t.total * 100)}%`,
@@ -2075,7 +2110,7 @@ app.post('/api/ingredients', authorize('config'), (req, res) => {
     if (!name) return res.status(400).json({ error: 'Ingredient name required' });
 
     const ingredient = {
-        id: store.ingredients.length > 0 ? Math.max(...store.ingredients.map(i => i.id)) + 1 : 1,
+        id: nextId(store.ingredients),
         name,
         unit: unit || 'units',
         stock: parseFloat(stock || quantity) || 0,
@@ -2091,6 +2126,7 @@ app.post('/api/ingredients', authorize('config'), (req, res) => {
         createdBy: req.user ? req.user.name : 'unknown'
     };
     store.ingredients.push(ingredient);
+    logAudit('ingredient_created', req.user, { ingredientId: ingredient.id, name });
     scheduleSave();
     res.status(201).json(ingredient);
 });
@@ -2111,6 +2147,7 @@ app.delete('/api/ingredients/:id', authorize('config'), (req, res) => {
     const idx = store.ingredients.findIndex(i => i.id === parseInt(req.params.id));
     if (idx === -1) return res.status(404).json({ error: 'Ingredient not found' });
     const removed = store.ingredients.splice(idx, 1)[0];
+    logAudit('ingredient_deleted', req.user, { ingredientId: removed.id, name: removed.name });
     scheduleSave();
     res.json(removed);
 });
@@ -2130,7 +2167,7 @@ app.post('/api/ingredients/:id/adjust', authorize('config'), (req, res) => {
     ingredient.stock = Math.round((ingredient.stock + qty) * 100) / 100;
 
     const movement = {
-        id: store.inventoryMovements.length + 1,
+        id: nextId(store.inventoryMovements),
         ingredientId: ingredient.id,
         ingredientName: ingredient.name,
         type: type || (qty > 0 ? 'restock' : 'usage'),
@@ -2142,6 +2179,7 @@ app.post('/api/ingredients/:id/adjust', authorize('config'), (req, res) => {
         time: new Date().toISOString()
     };
     store.inventoryMovements.push(movement);
+    logAudit('inventory_adjusted', req.user, { ingredientId: ingredient.id, qty, oldStock, newStock: ingredient.stock });
     scheduleSave();
 
     res.json({ ingredient, movement });
@@ -2235,7 +2273,7 @@ app.post('/api/scheduled-orders', (req, res) => {
     const tax = Math.round(subtotal * (store.config.tax.rate / 100) * 100) / 100;
 
     const order = {
-        id: store.scheduledOrders.length > 0 ? Math.max(...store.scheduledOrders.map(o => o.id)) + 1 : 7001,
+        id: Math.max(nextId(store.scheduledOrders), 7001),
         customerName,
         customerPhone: customerPhone || '',
         items,
@@ -2391,7 +2429,7 @@ app.post('/api/webhooks', authorize('config'), (req, res) => {
     }
 
     const webhook = {
-        id: store.webhooks.length + 1,
+        id: nextId(store.webhooks),
         url,
         events,
         secret: secret || null,
@@ -2430,7 +2468,7 @@ app.post('/api/recipes', authorize('config'), (req, res) => {
         return sum + (item ? (item.cost || item.costPerUnit || 0) * (ing.quantity || 0) : 0);
     }, 0);
     const recipe = {
-        id: store.recipes.length + 1, name,
+        id: nextId(store.recipes), name,
         ingredients: ingredients || [], prepTime: prepTime || 0,
         yield: recipeYield || 1,
         totalCost: Math.round(totalCost * 100) / 100,
@@ -2481,7 +2519,7 @@ app.post('/api/vendors', authorize('config'), (req, res) => {
     const { name, contact, email, phone, category } = req.body;
     if (!name) return res.status(400).json({ error: 'Vendor name required' });
     const vendor = {
-        id: store.vendors.length + 1, name,
+        id: nextId(store.vendors), name,
         contact: contact || '', email: email || '', phone: phone || '',
         category: category || 'general', createdAt: new Date().toISOString()
     };
@@ -2524,7 +2562,7 @@ app.post('/api/purchase-orders', authorize('config'), (req, res) => {
     if (!vendorId || !items || !items.length) return res.status(400).json({ error: 'Vendor ID and items required' });
     const total = items.reduce((sum, item) => sum + Math.round((item.quantity || 0) * (item.unitCost || 0) * 100) / 100, 0);
     const po = {
-        id: 'PO-' + String(store.purchaseOrders.length + 1).padStart(4, '0'),
+        id: nextPrefixId(store.purchaseOrders, 'PO-'),
         vendorId, items, total: Math.round(total * 100) / 100,
         status: 'pending', notes: notes || '',
         createdAt: new Date().toISOString(),
@@ -2532,6 +2570,7 @@ app.post('/api/purchase-orders', authorize('config'), (req, res) => {
     };
     store.purchaseOrders.push(po);
     fireWebhooks('purchase_order.created', po);
+    logAudit('purchase_order_created', req.user, { poId: po.id, vendorId, total: po.total });
     scheduleSave();
     res.status(201).json(po);
 });
@@ -2611,12 +2650,13 @@ app.post('/api/waste-log', authorize('config'), (req, res) => {
     }
 
     const entry = {
-        id: store.wasteLog.length + 1, ingredientId, quantity,
+        id: nextId(store.wasteLog), ingredientId, quantity,
         reason: reason || 'spoilage', cost: actualCost,
         loggedAt: new Date().toISOString(),
         loggedBy: req.user ? req.user.name : 'unknown'
     };
     store.wasteLog.push(entry);
+    logAudit('waste_logged', req.user, { ingredientId, quantity, cost: actualCost });
     scheduleSave();
     res.status(201).json(entry);
 });
@@ -2644,7 +2684,7 @@ app.post('/api/waitlist', (req, res) => {
     const { name, partySize, phone } = req.body;
     if (!name || !partySize) return res.status(400).json({ error: 'Name and party size required' });
     const entry = {
-        id: store.waitlist.length + 1, name, partySize,
+        id: nextId(store.waitlist), name, partySize,
         phone: phone || '', status: 'waiting',
         estimatedWait: Math.max(10, partySize * 5),
         addedAt: new Date().toISOString()
@@ -2675,7 +2715,7 @@ app.post('/api/reservations', (req, res) => {
     const { name, partySize, date, time, phone, email } = req.body;
     if (!name || !date || !time) return res.status(400).json({ error: 'Name, date, and time required' });
     const reservation = {
-        id: store.reservations.length + 1, name,
+        id: nextId(store.reservations), name,
         partySize: partySize || 2, date, time,
         phone: phone || '', email: email || '',
         status: 'confirmed', createdAt: new Date().toISOString()
@@ -2728,7 +2768,7 @@ app.post('/api/saved-payment-methods', authorize('tickets'), (req, res) => {
     const { customerId, type, lastFour, token, expiryMonth, expiryYear } = req.body;
     if (!customerId || !lastFour) return res.status(400).json({ error: 'Customer ID and last four required' });
     const method = {
-        id: store.savedPaymentMethods.length + 1, customerId,
+        id: nextId(store.savedPaymentMethods), customerId,
         type: type || 'credit', lastFour,
         token: token || 'tok_' + crypto.randomBytes(16).toString('hex'),
         expiryMonth: expiryMonth || 12, expiryYear: expiryYear || 2027,
@@ -2750,7 +2790,7 @@ app.post('/api/email-campaigns', authorize('config'), (req, res) => {
     const { name, subject, body, targetSegment } = req.body;
     if (!name || !subject) return res.status(400).json({ error: 'Name and subject required' });
     const campaign = {
-        id: store.emailCampaigns.length + 1, name, subject,
+        id: nextId(store.emailCampaigns), name, subject,
         body: body || '', targetSegment: targetSegment || 'all',
         status: 'draft',
         recipientCount: store.customers.filter(c => c.email).length,
@@ -2819,7 +2859,7 @@ app.post('/api/qr-orders', (req, res) => {
     if (!tableNumber || !items || !items.length) return res.status(400).json({ error: 'Table number and items required' });
     const total = items.reduce((sum, item) => sum + Math.round((item.price || 0) * (item.quantity || 1) * 100) / 100, 0);
     const order = {
-        id: store.qrOrders.length + 1, tableNumber, items,
+        id: nextId(store.qrOrders), tableNumber, items,
         customerName: customerName || 'Guest',
         total: Math.round(total * 100) / 100,
         status: 'pending', createdAt: new Date().toISOString()
@@ -2883,7 +2923,7 @@ app.post('/api/delivery-integrations', authorize('config'), (req, res) => {
         return res.status(409).json({ error: `${platform} integration already exists` });
     }
     const integration = {
-        id: store.deliveryIntegrations.length + 1, platform: platform.toLowerCase(),
+        id: nextId(store.deliveryIntegrations), platform: platform.toLowerCase(),
         apiKey: apiKey || '', storeId: storeId || '',
         enabled: enabled !== false,
         connectionStatus: apiKey ? 'configured' : 'pending_credentials',
@@ -2929,7 +2969,7 @@ app.post('/api/token-vault', authorize('tickets'), (req, res) => {
     const { customerId, lastFour, cardBrand, token } = req.body;
     if (!lastFour) return res.status(400).json({ error: 'Card last four required' });
     const entry = {
-        id: store.tokenVault.length + 1,
+        id: nextId(store.tokenVault),
         customerId: customerId || null, lastFour,
         cardBrand: cardBrand || 'unknown',
         token: token || 'tok_' + crypto.randomBytes(16).toString('hex'),
@@ -3042,7 +3082,7 @@ app.post('/api/backups', authorize('config'), (req, res) => {
         // Verify the backup was written
         const stats = fs.statSync(backupPath);
         const backup = {
-            id: store.backups.length + 1,
+            id: nextId(store.backups),
             filename, path: backupPath,
             size: stats.size,
             encrypted: !!(store.config.security && store.config.security.databaseEncryption),
@@ -3057,7 +3097,7 @@ app.post('/api/backups', authorize('config'), (req, res) => {
         res.status(201).json(backup);
     } catch (err) {
         const backup = {
-            id: store.backups.length + 1,
+            id: nextId(store.backups),
             filename, size: 0,
             createdAt: new Date().toISOString(),
             createdBy: req.user ? req.user.name : 'system',
@@ -3257,7 +3297,7 @@ app.post('/api/tickets/:id/remote-void', authorize('tickets'), (req, res) => {
     const { reason } = req.body;
     if (!store.voidRequests) store.voidRequests = [];
     const request = {
-        id: store.voidRequests.length + 1,
+        id: nextId(store.voidRequests),
         ticketId: ticket.id,
         reason: reason || 'Remote void',
         requestedBy: req.user.name,
@@ -3516,7 +3556,7 @@ app.post('/api/hardware/printers', authorize('config'), (req, res) => {
     if (!store.config.hardware) store.config.hardware = {};
     if (!store.config.hardware.printers) store.config.hardware.printers = [];
     const printer = {
-        id: store.config.hardware.printers.length + 1, name,
+        id: nextId(store.config.hardware.printers), name,
         ipAddress: ipAddress || 'auto-discover', type: type || 'receipt',
         model: model || 'generic', status: 'discovered',
         addedAt: new Date().toISOString()
@@ -3698,7 +3738,7 @@ app.post('/api/merchants', authorize('config'), (req, res) => {
     const { name, email, phone, plan, address } = req.body;
     if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
     const merchant = {
-        id: 'M-' + String(store.merchants.length + 1).padStart(4, '0'), name, email,
+        id: nextPrefixId(store.merchants, 'M-'), name, email,
         phone: phone || '', plan: plan || 'standard', address: address || '',
         status: 'active', tenantId: crypto.randomBytes(8).toString('hex'),
         onboardedAt: new Date().toISOString()
@@ -3757,7 +3797,7 @@ app.post('/api/system/update', authorize('config'), (req, res) => {
     // Track update request
     if (!store.config.systemUpdates) store.config.systemUpdates = [];
     const update = {
-        id: store.config.systemUpdates.length + 1,
+        id: nextId(store.config.systemUpdates),
         currentVersion,
         requestedVersion,
         channel: channel || 'stable',
@@ -3825,7 +3865,7 @@ app.get('/api/deploy/status', authorize('config'), (req, res) => {
 app.post('/api/deploy', authorize('config'), (req, res) => {
     if (!store.config.deployHistory) store.config.deployHistory = [];
     const deployment = {
-        id: store.config.deployHistory.length + 1,
+        id: nextId(store.config.deployHistory),
         version: req.body.version || 'latest',
         environment: req.body.environment || 'production',
         triggeredBy: req.user.name,
@@ -3902,7 +3942,7 @@ app.post('/api/plugins', authorize('config'), (req, res) => {
     const { name, version, description, author } = req.body;
     if (!name) return res.status(400).json({ error: 'Plugin name required' });
     const plugin = {
-        id: store.plugins.length + 1, name,
+        id: nextId(store.plugins), name,
         version: version || '1.0.0', description: description || '',
         author: author || 'unknown', installed: true, enabled: true,
         installedAt: new Date().toISOString()
