@@ -52,6 +52,7 @@ const store = {
     refunds: [],
     timeClock: [],
     auditLog: [],
+    webhooks: [],
     config: {
         cashDiscount: {
             enabled: true,
@@ -105,6 +106,7 @@ function loadStore() {
             if (data.refunds) store.refunds = data.refunds;
             if (data.timeClock) store.timeClock = data.timeClock;
             if (data.auditLog) store.auditLog = data.auditLog;
+            if (data.webhooks) store.webhooks = data.webhooks;
             if (data.nextTicketId) store.nextTicketId = data.nextTicketId;
             if (data.config) {
                 Object.keys(data.config).forEach(k => {
@@ -128,6 +130,7 @@ function saveStore() {
             refunds: store.refunds,
             timeClock: store.timeClock,
             auditLog: store.auditLog,
+            webhooks: store.webhooks,
             nextTicketId: store.nextTicketId,
             config: store.config,
             savedAt: new Date().toISOString()
@@ -162,6 +165,32 @@ function logAudit(action, user, details) {
         time: new Date().toISOString()
     });
     scheduleSave();
+}
+
+// ==========================================
+// Webhook Helper — fire-and-forget HTTP POST to registered URLs
+// ==========================================
+function fireWebhooks(event, payload) {
+    const hooks = store.webhooks.filter(w => w.active && w.events.includes(event));
+    hooks.forEach(w => {
+        const body = JSON.stringify({ event, data: payload, time: new Date().toISOString() });
+        try {
+            const url = new URL(w.url);
+            const options = {
+                hostname: url.hostname,
+                port: url.port || (url.protocol === 'https:' ? 443 : 80),
+                path: url.pathname + url.search,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+            };
+            if (w.secret) options.headers['X-Webhook-Secret'] = w.secret;
+            const proto = url.protocol === 'https:' ? require('https') : require('http');
+            const req = proto.request(options, () => {});
+            req.on('error', () => {}); // Fire and forget
+            req.write(body);
+            req.end();
+        } catch (e) { /* invalid URL — skip */ }
+    });
 }
 
 // ==========================================
@@ -349,6 +378,9 @@ app.post('/api/tickets/:id/pay', authorize('tickets'), (req, res) => {
     ticket.totalPaid = totalPaid;
     ticket.remaining = Math.round((ticket.total - totalPaid) * 100) / 100;
 
+    if (ticket.status === 'paid') {
+        fireWebhooks('ticket.paid', { ticketId: ticket.id, total: ticket.total, method });
+    }
     scheduleSave();
     res.json(ticket);
 });
@@ -434,18 +466,63 @@ app.get('/api/kitchen', (req, res) => {
 });
 
 app.post('/api/kitchen', authorize('kitchen'), (req, res) => {
+    const items = (req.body.items || []).map(item => ({
+        ...item,
+        station: item.station || 'general',
+        course: item.course || 1
+    }));
+
     const order = {
         id: req.body.ticketId,
-        items: req.body.items || [],
+        items,
         type: req.body.type || 'dine-in',
         server: req.body.server || (req.user ? req.user.name : 'Unknown'),
         table: req.body.table || null,
         status: 'new',
+        currentCourse: 1,
         time: new Date().toISOString()
     };
     store.kitchenOrders.push(order);
+    fireWebhooks('kitchen.new', { orderId: order.id, table: order.table, items: order.items.length });
     scheduleSave();
     res.status(201).json(order);
+});
+
+// Get orders routed to a specific station
+app.get('/api/kitchen/station/:station', (req, res) => {
+    const station = req.params.station;
+    const orders = store.kitchenOrders
+        .filter(o => o.status !== 'bumped')
+        .map(o => ({
+            ...o,
+            items: o.items.filter(i => i.station === station)
+        }))
+        .filter(o => o.items.length > 0);
+
+    res.json({ station, orders, active: orders.length });
+});
+
+// Fire next course for an order
+app.post('/api/kitchen/:id/fire-course', authorize('kitchen'), (req, res) => {
+    const order = store.kitchenOrders.find(o => o.id === parseInt(req.params.id));
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    const courseToFire = req.body.course || (order.currentCourse + 1);
+    const courseItems = order.items.filter(i => i.course === courseToFire);
+
+    if (courseItems.length === 0) {
+        return res.status(400).json({ error: 'No items in course ' + courseToFire });
+    }
+
+    order.currentCourse = courseToFire;
+    order.courseFiredAt = order.courseFiredAt || {};
+    order.courseFiredAt[courseToFire] = new Date().toISOString();
+    order.courseFiredBy = order.courseFiredBy || {};
+    order.courseFiredBy[courseToFire] = req.user ? req.user.name : 'unknown';
+
+    fireWebhooks('kitchen.course_fired', { orderId: order.id, course: courseToFire, items: courseItems.length });
+    scheduleSave();
+    res.json({ order, firedCourse: courseToFire, courseItems });
 });
 
 app.post('/api/kitchen/:id/bump', authorize('kitchen'), (req, res) => {
@@ -455,6 +532,7 @@ app.post('/api/kitchen/:id/bump', authorize('kitchen'), (req, res) => {
     order.status = 'bumped';
     order.bumpedAt = new Date().toISOString();
     order.bumpedBy = req.user ? req.user.name : 'unknown';
+    fireWebhooks('kitchen.bumped', { orderId: order.id, table: order.table });
     scheduleSave();
     res.json(order);
 });
@@ -683,6 +761,76 @@ app.get('/api/reports/labor', authorize('reports'), (req, res) => {
     res.json({ employees: entries });
 });
 
+app.get('/api/reports/labor-cost', authorize('reports'), (req, res) => {
+    const hourlyRates = {
+        admin: 25.00, manager: 22.00, server: 12.00,
+        cashier: 13.00, bartender: 14.00, kitchen: 15.00
+    };
+    let totalHours = 0, totalCost = 0, totalSales = 0;
+    const byRole = {};
+
+    store.timeClock.forEach(r => {
+        const end = r.clockOut ? new Date(r.clockOut) : new Date();
+        const hours = Math.round((end - new Date(r.clockIn)) / 36000) / 100;
+        const role = r.role || 'server';
+        const rate = hourlyRates[role] || 12.00;
+        const cost = Math.round(hours * rate * 100) / 100;
+
+        totalHours += hours;
+        totalCost += cost;
+
+        if (!byRole[role]) byRole[role] = { hours: 0, cost: 0, employees: 0 };
+        byRole[role].hours += hours;
+        byRole[role].cost += cost;
+        byRole[role].employees++;
+    });
+
+    store.tickets.forEach(t => {
+        if (t.status !== 'voided') totalSales += t.total || 0;
+    });
+
+    // Round everything
+    totalHours = Math.round(totalHours * 100) / 100;
+    totalCost = Math.round(totalCost * 100) / 100;
+    totalSales = Math.round(totalSales * 100) / 100;
+    Object.values(byRole).forEach(r => {
+        r.hours = Math.round(r.hours * 100) / 100;
+        r.cost = Math.round(r.cost * 100) / 100;
+    });
+
+    const laborPct = totalSales > 0 ? Math.round(totalCost / totalSales * 1000) / 10 : 0;
+
+    res.json({ totalHours, totalCost, totalSales, laborPct, byRole });
+});
+
+app.get('/api/reports/server-performance', authorize('reports'), (req, res) => {
+    const perfMap = {};
+
+    store.tickets.forEach(t => {
+        if (t.status === 'voided' || !t.server) return;
+        if (!perfMap[t.server]) {
+            perfMap[t.server] = { name: t.server, tickets: 0, sales: 0, tips: 0, voids: 0, avgTicket: 0 };
+        }
+        if (t.status === 'voided') {
+            perfMap[t.server].voids++;
+            return;
+        }
+        perfMap[t.server].tickets++;
+        perfMap[t.server].sales += t.total || 0;
+        perfMap[t.server].tips += t.tip || 0;
+    });
+
+    const servers = Object.values(perfMap).map(s => ({
+        ...s,
+        sales: Math.round(s.sales * 100) / 100,
+        tips: Math.round(s.tips * 100) / 100,
+        avgTicket: s.tickets > 0 ? Math.round(s.sales / s.tickets * 100) / 100 : 0,
+        tipPct: s.sales > 0 ? Math.round(s.tips / s.sales * 1000) / 10 : 0
+    })).sort((a, b) => b.sales - a.sales);
+
+    res.json({ servers });
+});
+
 // ==========================================
 // Audit Log Endpoints (requires reports permission)
 // ==========================================
@@ -811,6 +959,52 @@ app.get('/api/reports/surcharge', authorize('reports'), (req, res) => {
             ? Math.round(cardTickets / (cashTickets + cardTickets) * 1000) / 10
             : 0
     });
+});
+
+// ==========================================
+// Webhook Management Endpoints (requires config permission)
+// ==========================================
+const WEBHOOK_EVENTS = ['ticket.paid', 'kitchen.new', 'kitchen.bumped', 'kitchen.course_fired'];
+
+app.get('/api/webhooks', authorize('config'), (req, res) => {
+    res.json({ webhooks: store.webhooks, supportedEvents: WEBHOOK_EVENTS });
+});
+
+app.post('/api/webhooks', authorize('config'), (req, res) => {
+    const { url, events, secret } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL required' });
+    if (!Array.isArray(events) || events.length === 0) {
+        return res.status(400).json({ error: 'At least one event required', supportedEvents: WEBHOOK_EVENTS });
+    }
+
+    const invalid = events.filter(e => !WEBHOOK_EVENTS.includes(e));
+    if (invalid.length > 0) {
+        return res.status(400).json({ error: 'Invalid events: ' + invalid.join(', '), supportedEvents: WEBHOOK_EVENTS });
+    }
+
+    const webhook = {
+        id: store.webhooks.length + 1,
+        url,
+        events,
+        secret: secret || null,
+        active: true,
+        createdAt: new Date().toISOString(),
+        createdBy: req.user ? req.user.name : 'unknown'
+    };
+    store.webhooks.push(webhook);
+    logAudit('webhook_created', req.user, { url, events });
+    scheduleSave();
+    res.status(201).json(webhook);
+});
+
+app.delete('/api/webhooks/:id', authorize('config'), (req, res) => {
+    const idx = store.webhooks.findIndex(w => w.id === parseInt(req.params.id));
+    if (idx === -1) return res.status(404).json({ error: 'Webhook not found' });
+
+    const removed = store.webhooks.splice(idx, 1)[0];
+    logAudit('webhook_deleted', req.user, { url: removed.url, id: removed.id });
+    scheduleSave();
+    res.json(removed);
 });
 
 // ==========================================

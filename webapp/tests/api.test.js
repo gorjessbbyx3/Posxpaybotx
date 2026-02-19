@@ -67,6 +67,7 @@ before(() => {
             store.refunds.length = 0;
             store.timeClock.length = 0;
             store.auditLog.length = 0;
+            store.webhooks.length = 0;
             store.nextTicketId = 1001;
             resolve();
         });
@@ -645,5 +646,262 @@ describe('Surcharge Revenue Report', () => {
         const res = await req('GET', '/api/reports/surcharge', null, managerToken);
         assert.ok('surchargeTicketCount' in res.body);
         assert.equal(typeof res.body.surchargeTicketCount, 'number');
+    });
+});
+
+// ==========================================
+// Order Routing by Station
+// ==========================================
+describe('Kitchen Station Routing', () => {
+    it('sends order with station-tagged items', async () => {
+        const res = await req('POST', '/api/kitchen', {
+            ticketId: 9001,
+            items: [
+                { name: 'Burger', station: 'grill', qty: 1, course: 1 },
+                { name: 'Fries', station: 'fryer', qty: 1, course: 1 },
+                { name: 'Salad', station: 'salad', qty: 1, course: 1 }
+            ],
+            type: 'dine-in',
+            table: 5
+        }, kitchenToken);
+
+        assert.equal(res.status, 201);
+        assert.equal(res.body.items.length, 3);
+        assert.equal(res.body.items[0].station, 'grill');
+        assert.equal(res.body.currentCourse, 1);
+    });
+
+    it('filters orders by station', async () => {
+        const res = await req('GET', '/api/kitchen/station/grill');
+        assert.equal(res.status, 200);
+        assert.equal(res.body.station, 'grill');
+        assert.ok(res.body.orders.length > 0);
+        // Only grill items should be included
+        res.body.orders.forEach(o => {
+            o.items.forEach(i => assert.equal(i.station, 'grill'));
+        });
+    });
+
+    it('returns empty for station with no orders', async () => {
+        const res = await req('GET', '/api/kitchen/station/pizza');
+        assert.equal(res.status, 200);
+        assert.equal(res.body.orders.length, 0);
+    });
+
+    it('defaults station to general when not specified', async () => {
+        const res = await req('POST', '/api/kitchen', {
+            ticketId: 9002,
+            items: [{ name: 'Water', qty: 1 }]
+        }, kitchenToken);
+
+        assert.equal(res.status, 201);
+        assert.equal(res.body.items[0].station, 'general');
+    });
+});
+
+// ==========================================
+// Course Firing
+// ==========================================
+describe('Course Firing API', () => {
+    let courseOrderId;
+
+    it('creates multi-course order', async () => {
+        const res = await req('POST', '/api/kitchen', {
+            ticketId: 9010,
+            items: [
+                { name: 'Soup', station: 'salad', qty: 1, course: 1 },
+                { name: 'Steak', station: 'grill', qty: 1, course: 2 },
+                { name: 'Dessert', station: 'salad', qty: 1, course: 3 }
+            ]
+        }, kitchenToken);
+
+        assert.equal(res.status, 201);
+        courseOrderId = res.body.id;
+        assert.equal(res.body.currentCourse, 1);
+    });
+
+    it('fires course 2', async () => {
+        const res = await req('POST', `/api/kitchen/${courseOrderId}/fire-course`, {
+            course: 2
+        }, kitchenToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.firedCourse, 2);
+        assert.equal(res.body.courseItems.length, 1);
+        assert.equal(res.body.courseItems[0].name, 'Steak');
+        assert.equal(res.body.order.currentCourse, 2);
+    });
+
+    it('fires course 3', async () => {
+        const res = await req('POST', `/api/kitchen/${courseOrderId}/fire-course`, {
+            course: 3
+        }, kitchenToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.firedCourse, 3);
+        assert.equal(res.body.courseItems[0].name, 'Dessert');
+    });
+
+    it('rejects firing empty course', async () => {
+        const res = await req('POST', `/api/kitchen/${courseOrderId}/fire-course`, {
+            course: 99
+        }, kitchenToken);
+
+        assert.equal(res.status, 400);
+        assert.ok(res.body.error.includes('No items'));
+    });
+
+    it('rejects firing on missing order', async () => {
+        const res = await req('POST', '/api/kitchen/99999/fire-course', {
+            course: 1
+        }, kitchenToken);
+
+        assert.equal(res.status, 404);
+    });
+});
+
+// ==========================================
+// Labor Cost Tracking Report
+// ==========================================
+describe('Labor Cost Report', () => {
+    it('server cannot access labor-cost report', async () => {
+        const res = await req('GET', '/api/reports/labor-cost', null, serverToken);
+        assert.equal(res.status, 403);
+    });
+
+    it('manager can access labor-cost report', async () => {
+        const res = await req('GET', '/api/reports/labor-cost', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok('totalHours' in res.body);
+        assert.ok('totalCost' in res.body);
+        assert.ok('totalSales' in res.body);
+        assert.ok('laborPct' in res.body);
+        assert.ok('byRole' in res.body);
+    });
+
+    it('includes role breakdown', async () => {
+        const res = await req('GET', '/api/reports/labor-cost', null, managerToken);
+        // We have at least one timeclock entry from earlier tests
+        const roles = Object.keys(res.body.byRole);
+        if (roles.length > 0) {
+            const role = res.body.byRole[roles[0]];
+            assert.ok('hours' in role);
+            assert.ok('cost' in role);
+            assert.ok('employees' in role);
+        }
+    });
+});
+
+// ==========================================
+// Server Performance Metrics
+// ==========================================
+describe('Server Performance Report', () => {
+    it('server cannot access performance report', async () => {
+        const res = await req('GET', '/api/reports/server-performance', null, serverToken);
+        assert.equal(res.status, 403);
+    });
+
+    it('manager can access server performance', async () => {
+        const res = await req('GET', '/api/reports/server-performance', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body.servers));
+    });
+
+    it('includes per-server metrics', async () => {
+        const res = await req('GET', '/api/reports/server-performance', null, managerToken);
+        if (res.body.servers.length > 0) {
+            const s = res.body.servers[0];
+            assert.ok('name' in s);
+            assert.ok('tickets' in s);
+            assert.ok('sales' in s);
+            assert.ok('tips' in s);
+            assert.ok('avgTicket' in s);
+            assert.ok('tipPct' in s);
+        }
+    });
+
+    it('sorts by sales descending', async () => {
+        const res = await req('GET', '/api/reports/server-performance', null, managerToken);
+        const servers = res.body.servers;
+        for (let i = 1; i < servers.length; i++) {
+            assert.ok(servers[i - 1].sales >= servers[i].sales);
+        }
+    });
+});
+
+// ==========================================
+// Webhook Management
+// ==========================================
+describe('Webhook Management API', () => {
+    it('server cannot manage webhooks', async () => {
+        const res = await req('GET', '/api/webhooks', null, serverToken);
+        assert.equal(res.status, 403);
+    });
+
+    it('manager can list webhooks', async () => {
+        const res = await req('GET', '/api/webhooks', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body.webhooks));
+        assert.ok(Array.isArray(res.body.supportedEvents));
+    });
+
+    it('creates a webhook', async () => {
+        const res = await req('POST', '/api/webhooks', {
+            url: 'https://example.com/hook',
+            events: ['ticket.paid', 'kitchen.new'],
+            secret: 'test-secret'
+        }, managerToken);
+
+        assert.equal(res.status, 201);
+        assert.equal(res.body.url, 'https://example.com/hook');
+        assert.deepEqual(res.body.events, ['ticket.paid', 'kitchen.new']);
+        assert.equal(res.body.active, true);
+        assert.ok(res.body.id);
+    });
+
+    it('rejects webhook without URL', async () => {
+        const res = await req('POST', '/api/webhooks', {
+            events: ['ticket.paid']
+        }, managerToken);
+
+        assert.equal(res.status, 400);
+    });
+
+    it('rejects webhook without events', async () => {
+        const res = await req('POST', '/api/webhooks', {
+            url: 'https://example.com/hook',
+            events: []
+        }, managerToken);
+
+        assert.equal(res.status, 400);
+    });
+
+    it('rejects webhook with invalid events', async () => {
+        const res = await req('POST', '/api/webhooks', {
+            url: 'https://example.com/hook',
+            events: ['invalid.event']
+        }, managerToken);
+
+        assert.equal(res.status, 400);
+        assert.ok(res.body.error.includes('Invalid'));
+    });
+
+    it('deletes a webhook', async () => {
+        // Get the webhook we created
+        const list = await req('GET', '/api/webhooks', null, managerToken);
+        const hookId = list.body.webhooks[0].id;
+
+        const res = await req('DELETE', `/api/webhooks/${hookId}`, null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.id, hookId);
+
+        // Verify it's gone
+        const after = await req('GET', '/api/webhooks', null, managerToken);
+        assert.equal(after.body.webhooks.length, 0);
+    });
+
+    it('returns 404 for missing webhook', async () => {
+        const res = await req('DELETE', '/api/webhooks/99999', null, managerToken);
+        assert.equal(res.status, 404);
     });
 });

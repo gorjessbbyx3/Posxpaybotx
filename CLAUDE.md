@@ -172,7 +172,7 @@ Tests live in `webapp/tests/` and use the **Node.js native test runner** (no ext
 
 **Run tests:**
 ```bash
-cd webapp && npm test              # Runs calculations, auth, and api tests (150 tests)
+cd webapp && npm test              # Runs calculations, auth, and api tests (174 tests)
 node --test tests/extras.test.js   # Run extras tests separately
 ```
 
@@ -268,7 +268,8 @@ Express REST API with these endpoint groups:
 |-------|-----------|---------------|
 | Auth | `POST /api/auth/login` | No (login endpoint) |
 | Tickets | `GET/POST/PATCH /api/tickets`, `/api/tickets/:id/pay`, `/api/tickets/:id/void` | Yes |
-| Kitchen | `GET/POST /api/kitchen`, `/api/kitchen/:id/bump` | Yes |
+| Kitchen | `GET/POST /api/kitchen`, `/api/kitchen/:id/bump`, `/api/kitchen/:id/fire-course` | Yes |
+| Kitchen | `GET /api/kitchen/station/:station` | Yes |
 | Refunds | `GET/POST /api/refunds` | Yes (refund permission) |
 | Held Orders | `GET/POST/DELETE /api/held-orders` | Yes |
 | Time Clock | `GET /api/timeclock`, clock-in/clock-out | Yes |
@@ -276,7 +277,10 @@ Express REST API with these endpoint groups:
 | Reports | `GET /api/reports/summary\|hourly\|item-mix\|labor` | Yes (reports permission) |
 | Reports | `GET /api/reports/payment-type` | Yes (reports permission) |
 | Reports | `GET /api/reports/surcharge` | Yes (reports permission) |
+| Reports | `GET /api/reports/labor-cost` | Yes (reports permission) |
+| Reports | `GET /api/reports/server-performance` | Yes (reports permission) |
 | Audit | `GET /api/audit-log` | Yes (reports permission) |
+| Webhooks | `GET/POST/DELETE /api/webhooks` | Yes (config permission) |
 | Health | `GET /api/health` | No |
 
 ---
@@ -464,7 +468,7 @@ Volumes: `pos-data` (app data), `db-data` (MySQL persistence)
 
 ```bash
 cd webapp && npm install           # Install deps first (express required)
-npm test                           # Run core tests (150 tests) — must pass
+npm test                           # Run core tests (174 tests) — must pass
 npm run test:calculations          # Pricing/tax/discount math
 npm run test:auth                  # Auth and role-based access
 npm run test:api                   # API endpoints
@@ -521,9 +525,9 @@ Features already implemented are marked with checkmarks. This is the full compet
 - [ ] Advanced table management (visual floor plan drag-and-drop)
 - [ ] Split checks by seat
 - [ ] Seat-level ordering
-- [ ] Course firing
+- [x] Course firing
 - [x] Kitchen display system (KDS)
-- [ ] Order routing by prep station
+- [x] Order routing by prep station
 - [ ] Expo screen
 - [ ] Online order queue
 - [ ] Email "order ready" alerts
@@ -542,8 +546,8 @@ Features already implemented are marked with checkmarks. This is the full compet
 
 ### 6. Advanced Reporting & Analytics
 - [ ] Hourly sales heat maps
-- [ ] Labor cost tracking
-- [ ] Server performance metrics
+- [x] Labor cost tracking
+- [x] Server performance metrics
 - [ ] Modifier profitability
 - [ ] Food cost tracking
 - [ ] Inventory depletion tracking
@@ -627,7 +631,7 @@ Features already implemented are marked with checkmarks. This is the full compet
 ### 14. App Ecosystem
 - [x] Plugin framework (Floreant JSPF-based)
 - [x] REST API for integrations
-- [ ] Webhook support
+- [x] Webhook support
 - [ ] Developer documentation
 - [ ] App marketplace capability
 
