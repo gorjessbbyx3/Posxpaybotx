@@ -24,6 +24,9 @@ import java.util.TimerTask;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import com.floreantpos.PosLog;
+import com.floreantpos.model.Ticket;
+import com.floreantpos.model.dao.TicketDAO;
+import com.floreantpos.paybotx.config.PaybotXConfig;
 
 public class OfflinePaymentQueue {
 	private static OfflinePaymentQueue instance;
@@ -149,15 +152,37 @@ public class OfflinePaymentQueue {
 					qp.status = "processing";
 					qp.retryCount++;
 
-					// Attempt to process via PaybotX
-					// In a real implementation, this would call PaybotXProcessor
 					PosLog.info(OfflinePaymentQueue.class,
 							"Processing queued payment for ticket {}, attempt {}",
 							qp.ticketId, qp.retryCount);
 
+					// Verify terminal connectivity before processing
+					PaybotXTerminal terminal = PaybotXConfig.getActiveTerminal();
+					if (terminal == null) {
+						qp.status = "queued"; // No terminal configured, stay in queue
+						PosLog.warn(OfflinePaymentQueue.class,
+								"No active terminal — deferring ticket {}", qp.ticketId);
+						continue;
+					}
+
+					// Load the ticket from DB
+					Ticket ticket = TicketDAO.getInstance().get(Integer.parseInt(qp.ticketId));
+					if (ticket == null) {
+						PosLog.error(OfflinePaymentQueue.class,
+								"Ticket {} not found — removing from queue", qp.ticketId);
+						qp.status = "failed";
+						continue;
+					}
+
+					// Process via PaybotXProcessor
+					PaybotXProcessor processor = new PaybotXProcessor();
+					processor.chargeAmount(ticket, qp.amount, qp.tipAmount, terminal);
+
 					// Mark as completed on success
 					qp.status = "completed";
 					queue.remove(qp);
+					PosLog.info(OfflinePaymentQueue.class,
+							"Successfully processed queued payment for ticket {}", qp.ticketId);
 
 				} catch (Exception e) {
 					qp.status = "queued"; // Back to queue for retry

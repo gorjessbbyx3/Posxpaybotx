@@ -5,11 +5,18 @@
  * for menu management, reporting, split checks, user auth,
  * kitchen display, order lifecycle, and tip management.
  *
+ * SECURITY:
+ *   - Token-based authentication via SessionManager
+ *   - CORS restricted to configured origin
+ *   - PIN-based login validates against stored secret key
+ *   - /api/users requires manager-level auth
+ *
  * Endpoints:
+ *   POST /api/auth/login              - Authenticate user (public)
+ *   POST /api/auth/logout             - Invalidate session
  *   GET  /api/menu                    - Full menu with categories
  *   GET  /api/tables                  - Table statuses
- *   GET  /api/users                   - List users
- *   POST /api/auth/login              - Authenticate user
+ *   GET  /api/users                   - List users (manager only)
  *   POST /api/orders                  - Create new order
  *   POST /api/orders/{id}/items       - Add items to order
  *   POST /api/orders/{id}/send        - Send order to kitchen
@@ -20,7 +27,7 @@
  *   GET  /api/reports/daily           - Daily sales report
  *   GET  /api/reports/hourly          - Hourly breakdown
  *   GET  /api/config/cashdiscount     - Cash discount settings
- *   PUT  /api/config/cashdiscount     - Update cash discount settings
+ *   PUT  /api/config/cashdiscount     - Update cash discount settings (manager only)
  *   POST /api/tips/adjust             - Adjust tip on a ticket
  *   POST /api/tips/preset             - Get preset tip amounts
  */
@@ -34,9 +41,12 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executors;
 
@@ -71,9 +81,20 @@ public class WebApiServer implements HttpHandler {
 	private HttpServer server;
 	private int port;
 	private DecimalFormat df = new DecimalFormat("0.00");
+	private SessionManager sessionManager = SessionManager.getInstance();
+
+	// Configurable CORS origin — defaults to same-host, override via env or config
+	private String allowedOrigin;
 
 	public WebApiServer(int port) {
 		this.port = port;
+		// Read allowed origin from env > config > default
+		String envOrigin = System.getenv("CORS_ALLOWED_ORIGIN");
+		if (envOrigin != null && !envOrigin.isEmpty()) {
+			this.allowedOrigin = envOrigin;
+		} else {
+			this.allowedOrigin = AppConfig.getString("webapi.cors.origin", "http://localhost");
+		}
 	}
 
 	public void start() throws Exception {
@@ -83,6 +104,7 @@ public class WebApiServer implements HttpHandler {
 		server.setExecutor(Executors.newFixedThreadPool(10));
 		server.start();
 		System.out.println("Web API Server started on port " + port);
+		System.out.println("CORS allowed origin: " + allowedOrigin);
 	}
 
 	public void stop() {
@@ -93,9 +115,11 @@ public class WebApiServer implements HttpHandler {
 
 	@Override
 	public void handle(HttpExchange exchange) throws IOException {
-		exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+		// Restricted CORS headers
+		exchange.getResponseHeaders().add("Access-Control-Allow-Origin", allowedOrigin);
 		exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS");
 		exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type, Authorization");
+		exchange.getResponseHeaders().add("Access-Control-Allow-Credentials", "true");
 
 		if ("OPTIONS".equals(exchange.getRequestMethod())) {
 			exchange.sendResponseHeaders(204, -1);
@@ -105,21 +129,47 @@ public class WebApiServer implements HttpHandler {
 		String path = exchange.getRequestURI().getPath();
 		String method = exchange.getRequestMethod();
 		String body = readBody(exchange);
+		String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
 
 		try {
 			String response;
 
-			if (path.equals("/api/menu") && "GET".equals(method)) {
+			// --- Public endpoints (no auth required) ---
+			if (path.equals("/api/auth/login") && "POST".equals(method)) {
+				response = handleLogin(body);
+				sendResponse(exchange, response, 200);
+				return;
+			}
+
+			// --- All other endpoints require authentication ---
+			SessionManager.Session session = sessionManager.validateToken(authHeader);
+			if (session == null) {
+				sendResponse(exchange, "{\"error\":\"Authentication required\",\"code\":401}", 401);
+				return;
+			}
+
+			// Route authenticated requests
+			if (path.equals("/api/auth/logout") && "POST".equals(method)) {
+				sessionManager.invalidateSession(authHeader);
+				response = "{\"status\":\"success\",\"message\":\"Logged out\"}";
+			} else if (path.equals("/api/menu") && "GET".equals(method)) {
 				response = handleGetMenu();
 			} else if (path.equals("/api/tables") && "GET".equals(method)) {
 				response = handleGetTables();
 			} else if (path.equals("/api/users") && "GET".equals(method)) {
+				// Manager-only endpoint
+				if (!session.isManager()) {
+					sendResponse(exchange, "{\"error\":\"Manager access required\",\"code\":403}", 403);
+					return;
+				}
 				response = handleGetUsers();
-			} else if (path.equals("/api/auth/login") && "POST".equals(method)) {
-				response = handleLogin(body);
 			} else if (path.equals("/api/config/cashdiscount") && "GET".equals(method)) {
 				response = handleGetCashDiscountConfig();
 			} else if (path.equals("/api/config/cashdiscount") && "PUT".equals(method)) {
+				if (!session.isManager()) {
+					sendResponse(exchange, "{\"error\":\"Manager access required\",\"code\":403}", 403);
+					return;
+				}
 				response = handleUpdateCashDiscountConfig(body);
 			} else if (path.equals("/api/reports/daily") && "GET".equals(method)) {
 				response = handleDailyReport();
@@ -129,7 +179,7 @@ public class WebApiServer implements HttpHandler {
 				String id = path.replaceAll(".*/orders/(\\d+)/split", "$1");
 				response = handleSplitTicket(id, body);
 			} else if (path.equals("/api/orders") && "POST".equals(method)) {
-				response = handleCreateOrder(body);
+				response = handleCreateOrder(body, session);
 			} else if (path.matches("/api/orders/\\d+/items") && "POST".equals(method)) {
 				String id = path.replaceAll(".*/orders/(\\d+)/items", "$1");
 				response = handleAddItems(id, body);
@@ -160,11 +210,24 @@ public class WebApiServer implements HttpHandler {
 		}
 	}
 
-	// --- Menu ---
+	// --- Menu (fixed N+1 query) ---
 
 	private String handleGetMenu() {
 		try {
 			List<MenuCategory> categories = MenuCategoryDAO.getInstance().findAll();
+			// Single load of all menu items — avoids N+1 query per category
+			List<MenuItem> allItems = MenuItemDAO.getInstance().findAll();
+
+			// Group items by category ID
+			Map<Integer, List<MenuItem>> itemsByCategory = new HashMap<>();
+			for (MenuItem item : allItems) {
+				if (item.getParent() != null &&
+						item.getParent().getParent() != null) {
+					Integer catId = item.getParent().getParent().getId();
+					itemsByCategory.computeIfAbsent(catId, k -> new ArrayList<>()).add(item);
+				}
+			}
+
 			StringBuilder json = new StringBuilder();
 			json.append("{\"categories\":[");
 
@@ -175,17 +238,12 @@ public class WebApiServer implements HttpHandler {
 				json.append("\"id\":").append(cat.getId()).append(",");
 				json.append("\"name\":\"").append(escapeJson(cat.getName())).append("\",");
 
-				// Get items for this category
-				List<MenuItem> items = MenuItemDAO.getInstance().findAll();
 				json.append("\"items\":[");
-				int itemCount = 0;
-				for (MenuItem item : items) {
-					if (item.getParent() != null &&
-							item.getParent().getParent() != null &&
-							item.getParent().getParent().getId().equals(cat.getId())) {
-						if (itemCount > 0) json.append(",");
-						appendMenuItemJson(json, item);
-						itemCount++;
+				List<MenuItem> catItems = itemsByCategory.get(cat.getId());
+				if (catItems != null) {
+					for (int j = 0; j < catItems.size(); j++) {
+						if (j > 0) json.append(",");
+						appendMenuItemJson(json, catItems.get(j));
 					}
 				}
 				json.append("]");
@@ -255,7 +313,7 @@ public class WebApiServer implements HttpHandler {
 		}
 	}
 
-	// --- Users ---
+	// --- Users (manager-only, no secret keys exposed) ---
 
 	private String handleGetUsers() {
 		try {
@@ -281,46 +339,54 @@ public class WebApiServer implements HttpHandler {
 		}
 	}
 
-	// --- Auth ---
+	// --- Auth (validates PIN against stored secret key) ---
 
 	private String handleLogin(String body) {
 		try {
-			String pin = extractJsonValue(body, "pin");
-			String username = extractJsonValue(body, "username");
+			Map<String, String> params = parseJson(body);
+			String pin = params.get("pin");
 
-			if (pin != null && !pin.isEmpty()) {
-				int secret = Integer.parseInt(pin);
-				User user = UserDAO.getInstance().findUserBySecretKey(secret);
-				if (user != null) {
-					return buildUserJson(user);
-				}
+			if (pin == null || pin.isEmpty()) {
+				return "{\"error\":\"PIN is required\",\"authenticated\":false}";
 			}
 
-			if (username != null && !username.isEmpty()) {
-				List<User> users = UserDAO.getInstance().findAll();
-				for (User user : users) {
-					if (username.equalsIgnoreCase(user.getFirstName())) {
-						return buildUserJson(user);
-					}
-				}
+			// Validate PIN length (prevent brute-force via absurd inputs)
+			if (pin.length() < 1 || pin.length() > 10) {
+				return "{\"error\":\"Invalid PIN format\",\"authenticated\":false}";
 			}
 
-			return "{\"error\":\"Invalid credentials\",\"authenticated\":false}";
+			int secret;
+			try {
+				secret = Integer.parseInt(pin);
+			} catch (NumberFormatException e) {
+				return "{\"error\":\"PIN must be numeric\",\"authenticated\":false}";
+			}
+
+			// Authenticate against the user's stored secret key
+			User user = UserDAO.getInstance().findUserBySecretKey(secret);
+			if (user == null) {
+				// Small delay to slow brute-force attempts
+				try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+				return "{\"error\":\"Invalid PIN\",\"authenticated\":false}";
+			}
+
+			// Create session token
+			String token = sessionManager.createSession(user);
+
+			StringBuilder json = new StringBuilder();
+			json.append("{");
+			json.append("\"authenticated\":true,");
+			json.append("\"token\":\"").append(token).append("\",");
+			json.append("\"id\":").append(user.getUserId()).append(",");
+			json.append("\"firstName\":\"").append(escapeJson(user.getFirstName())).append("\",");
+			json.append("\"lastName\":\"").append(escapeJson(user.getLastName())).append("\",");
+			json.append("\"type\":\"").append(user.getType()).append("\"");
+			json.append("}");
+			return json.toString();
+
 		} catch (Exception e) {
 			return "{\"error\":\"" + escapeJson(e.getMessage()) + "\",\"authenticated\":false}";
 		}
-	}
-
-	private String buildUserJson(User user) {
-		StringBuilder json = new StringBuilder();
-		json.append("{");
-		json.append("\"authenticated\":true,");
-		json.append("\"id\":").append(user.getUserId()).append(",");
-		json.append("\"firstName\":\"").append(escapeJson(user.getFirstName())).append("\",");
-		json.append("\"lastName\":\"").append(escapeJson(user.getLastName())).append("\",");
-		json.append("\"type\":\"").append(user.getType()).append("\"");
-		json.append("}");
-		return json.toString();
 	}
 
 	// --- Cash Discount Config ---
@@ -343,11 +409,13 @@ public class WebApiServer implements HttpHandler {
 
 	private String handleUpdateCashDiscountConfig(String body) {
 		try {
-			String enabled = extractJsonValue(body, "enabled");
-			String mode = extractJsonValue(body, "mode");
-			String rate = extractJsonValue(body, "rate");
-			String cashLabel = extractJsonValue(body, "cashLabel");
-			String surchargeLabel = extractJsonValue(body, "surchargeLabel");
+			Map<String, String> params = parseJson(body);
+
+			String enabled = params.get("enabled");
+			String mode = params.get("mode");
+			String rate = params.get("rate");
+			String cashLabel = params.get("cashLabel");
+			String surchargeLabel = params.get("surchargeLabel");
 
 			if (enabled != null) CashDiscountConfig.setEnabled(Boolean.parseBoolean(enabled));
 			if (mode != null) CashDiscountConfig.setPricingMode(CashDiscountConfig.PricingMode.valueOf(mode));
@@ -361,12 +429,27 @@ public class WebApiServer implements HttpHandler {
 		}
 	}
 
-	// --- Reports ---
+	// --- Reports (fixed: filters by today, populates cash/card counts) ---
 
 	private String handleDailyReport() {
 		try {
 			SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
 			String today = sdf.format(new Date());
+
+			// Get start and end of today
+			Calendar calStart = Calendar.getInstance();
+			calStart.set(Calendar.HOUR_OF_DAY, 0);
+			calStart.set(Calendar.MINUTE, 0);
+			calStart.set(Calendar.SECOND, 0);
+			calStart.set(Calendar.MILLISECOND, 0);
+			Date todayStart = calStart.getTime();
+
+			Calendar calEnd = Calendar.getInstance();
+			calEnd.set(Calendar.HOUR_OF_DAY, 23);
+			calEnd.set(Calendar.MINUTE, 59);
+			calEnd.set(Calendar.SECOND, 59);
+			calEnd.set(Calendar.MILLISECOND, 999);
+			Date todayEnd = calEnd.getTime();
 
 			List<Ticket> closedTickets = TicketDAO.getInstance().getClosedTickets();
 			double totalSales = 0;
@@ -381,12 +464,34 @@ public class WebApiServer implements HttpHandler {
 
 			if (closedTickets != null) {
 				for (Ticket t : closedTickets) {
+					// Filter to today's tickets only
+					Date ticketDate = t.getClosingDate() != null ? t.getClosingDate() : t.getCreateDate();
+					if (ticketDate == null || ticketDate.before(todayStart) || ticketDate.after(todayEnd)) {
+						continue;
+					}
+
 					ticketCount++;
 					totalSales += t.getTotalAmount();
 					totalTax += t.getTaxAmount();
 					totalDiscount += t.getDiscountAmount();
 					if (t.getGratuity() != null) {
 						totalTips += t.getGratuity().getAmount();
+					}
+
+					// Count cash vs card transactions
+					Set<PosTransaction> transactions = t.getTransactions();
+					if (transactions != null) {
+						for (PosTransaction txn : transactions) {
+							String payType = txn.getPaymentType();
+							if ("CASH".equalsIgnoreCase(payType)) {
+								cashCount++;
+								cashTotal += txn.getAmount();
+							} else if (payType != null) {
+								// Credit, Debit, Gift Card — all non-cash
+								cardCount++;
+								cardTotal += txn.getAmount();
+							}
+						}
 					}
 				}
 			}
@@ -411,10 +516,18 @@ public class WebApiServer implements HttpHandler {
 		}
 	}
 
-	// --- Hourly Report ---
+	// --- Hourly Report (filtered to today) ---
 
 	private String handleHourlyReport() {
 		try {
+			// Get start of today
+			Calendar calStart = Calendar.getInstance();
+			calStart.set(Calendar.HOUR_OF_DAY, 0);
+			calStart.set(Calendar.MINUTE, 0);
+			calStart.set(Calendar.SECOND, 0);
+			calStart.set(Calendar.MILLISECOND, 0);
+			Date todayStart = calStart.getTime();
+
 			List<Ticket> closedTickets = TicketDAO.getInstance().getClosedTickets();
 			double[] hourlyTotals = new double[24];
 			int[] hourlyCounts = new int[24];
@@ -422,7 +535,7 @@ public class WebApiServer implements HttpHandler {
 			if (closedTickets != null) {
 				Calendar cal = Calendar.getInstance();
 				for (Ticket t : closedTickets) {
-					if (t.getCreateDate() != null) {
+					if (t.getCreateDate() != null && !t.getCreateDate().before(todayStart)) {
 						cal.setTime(t.getCreateDate());
 						int hour = cal.get(Calendar.HOUR_OF_DAY);
 						hourlyTotals[hour] += t.getTotalAmount();
@@ -449,12 +562,12 @@ public class WebApiServer implements HttpHandler {
 
 	// --- Order Lifecycle ---
 
-	private String handleCreateOrder(String body) {
+	private String handleCreateOrder(String body, SessionManager.Session session) {
 		try {
-			String orderType = extractJsonValue(body, "orderType");
-			String tableNum = extractJsonValue(body, "tableNumber");
-			String userId = extractJsonValue(body, "userId");
-			String guestCount = extractJsonValue(body, "guestCount");
+			Map<String, String> params = parseJson(body);
+			String orderType = params.get("orderType");
+			String tableNum = params.get("tableNumber");
+			String guestCount = params.get("guestCount");
 
 			Ticket ticket = new Ticket();
 			ticket.setCreateDate(new Date());
@@ -480,14 +593,13 @@ public class WebApiServer implements HttpHandler {
 				} catch (Exception ignored) {}
 			}
 
-			if (userId != null) {
-				try {
-					User user = UserDAO.getInstance().get(Integer.parseInt(userId));
-					if (user != null) {
-						ticket.setOwner(user);
-					}
-				} catch (Exception ignored) {}
-			}
+			// Set owner from authenticated session
+			try {
+				User user = UserDAO.getInstance().get(session.getUserId());
+				if (user != null) {
+					ticket.setOwner(user);
+				}
+			} catch (Exception ignored) {}
 
 			TicketDAO.getInstance().saveOrUpdate(ticket);
 
@@ -509,13 +621,10 @@ public class WebApiServer implements HttpHandler {
 				return "{\"error\":\"Ticket not found\"}";
 			}
 
-			// Parse items array - simple parsing for [{menuItemId, qty}]
-			String itemsStr = body;
+			Map<String, String> params = parseJson(body);
+			String menuItemIdStr = params.get("menuItemId");
+			String qtyStr = params.get("qty");
 			int addedCount = 0;
-
-			// Support single item: {"menuItemId": 1, "qty": 2}
-			String menuItemIdStr = extractJsonValue(itemsStr, "menuItemId");
-			String qtyStr = extractJsonValue(itemsStr, "qty");
 
 			if (menuItemIdStr != null) {
 				int menuItemId = Integer.parseInt(menuItemIdStr);
@@ -672,7 +781,6 @@ public class WebApiServer implements HttpHandler {
 			kt.setClosingDate(new Date());
 			KitchenTicketDAO.getInstance().saveOrUpdate(kt);
 
-			// Calculate how long it took
 			long elapsed = 0;
 			if (kt.getCreateDate() != null) {
 				elapsed = (kt.getClosingDate().getTime() - kt.getCreateDate().getTime()) / 1000;
@@ -708,9 +816,10 @@ public class WebApiServer implements HttpHandler {
 
 	private String handleTipAdjust(String body) {
 		try {
-			String ticketId = extractJsonValue(body, "ticketId");
-			String tipAmount = extractJsonValue(body, "tipAmount");
-			String tipPercent = extractJsonValue(body, "tipPercent");
+			Map<String, String> params = parseJson(body);
+			String ticketId = params.get("ticketId");
+			String tipAmount = params.get("tipAmount");
+			String tipPercent = params.get("tipPercent");
 
 			if (ticketId == null) {
 				return "{\"error\":\"ticketId is required\"}";
@@ -731,7 +840,6 @@ public class WebApiServer implements HttpHandler {
 				return "{\"error\":\"tipAmount or tipPercent is required\"}";
 			}
 
-			// Round to 2 decimal places
 			tip = Math.round(tip * 100.0) / 100.0;
 
 			Gratuity gratuity = ticket.getGratuity();
@@ -744,7 +852,6 @@ public class WebApiServer implements HttpHandler {
 			ticket.calculatePrice();
 			TicketDAO.getInstance().saveOrUpdate(ticket);
 
-			// Also update any existing transactions
 			Set<PosTransaction> transactions = ticket.getTransactions();
 			if (transactions != null) {
 				for (PosTransaction txn : transactions) {
@@ -758,7 +865,6 @@ public class WebApiServer implements HttpHandler {
 			json.append(",\"tipAmount\":").append(df.format(tip));
 			json.append(",\"newTotal\":").append(df.format(ticket.getTotalAmount()));
 
-			// Show dual pricing on new total
 			double[] dualPrices = CashDiscountCalculator.getDualPrices(ticket.getTotalAmount());
 			json.append(",\"cashTotal\":").append(df.format(dualPrices[0]));
 			json.append(",\"cardTotal\":").append(df.format(dualPrices[1]));
@@ -772,7 +878,8 @@ public class WebApiServer implements HttpHandler {
 
 	private String handleTipPresets(String body) {
 		try {
-			String subtotalStr = extractJsonValue(body, "subtotal");
+			Map<String, String> params = parseJson(body);
+			String subtotalStr = params.get("subtotal");
 			if (subtotalStr == null) {
 				return "{\"error\":\"subtotal is required\"}";
 			}
@@ -809,7 +916,8 @@ public class WebApiServer implements HttpHandler {
 
 	private String handleSplitTicket(String ticketId, String body) {
 		try {
-			String waysStr = extractJsonValue(body, "ways");
+			Map<String, String> params = parseJson(body);
+			String waysStr = params.get("ways");
 			int ways = waysStr != null ? Integer.parseInt(waysStr) : 2;
 
 			Ticket ticket = TicketDAO.getInstance().get(Integer.parseInt(ticketId));
@@ -848,6 +956,142 @@ public class WebApiServer implements HttpHandler {
 		}
 	}
 
+	// ====================================================================
+	// JSON PARSER — replaces fragile extractJsonValue with proper parsing
+	// ====================================================================
+
+	/**
+	 * Parse a flat JSON object into a key-value map.
+	 * Handles strings, numbers, booleans, nulls, and escaped quotes.
+	 * Does NOT handle nested objects/arrays (returns them as raw strings).
+	 */
+	private Map<String, String> parseJson(String json) {
+		Map<String, String> result = new HashMap<>();
+		if (json == null || json.trim().isEmpty()) return result;
+
+		json = json.trim();
+		if (json.startsWith("{")) json = json.substring(1);
+		if (json.endsWith("}")) json = json.substring(0, json.length() - 1);
+
+		int pos = 0;
+		int len = json.length();
+
+		while (pos < len) {
+			// Skip whitespace and commas
+			while (pos < len && (json.charAt(pos) == ',' || Character.isWhitespace(json.charAt(pos)))) {
+				pos++;
+			}
+			if (pos >= len) break;
+
+			// Parse key (must be a quoted string)
+			if (json.charAt(pos) != '"') break;
+			int keyStart = pos + 1;
+			int keyEnd = findClosingQuote(json, keyStart);
+			if (keyEnd < 0) break;
+			String key = json.substring(keyStart, keyEnd);
+			pos = keyEnd + 1;
+
+			// Skip whitespace and colon
+			while (pos < len && Character.isWhitespace(json.charAt(pos))) pos++;
+			if (pos >= len || json.charAt(pos) != ':') break;
+			pos++;
+			while (pos < len && Character.isWhitespace(json.charAt(pos))) pos++;
+			if (pos >= len) break;
+
+			// Parse value
+			char ch = json.charAt(pos);
+			String value;
+
+			if (ch == '"') {
+				// String value
+				int valStart = pos + 1;
+				int valEnd = findClosingQuote(json, valStart);
+				if (valEnd < 0) break;
+				value = unescapeJsonString(json.substring(valStart, valEnd));
+				pos = valEnd + 1;
+			} else if (ch == '{' || ch == '[') {
+				// Nested object/array — find matching close bracket
+				char open = ch;
+				char close = (ch == '{') ? '}' : ']';
+				int depth = 1;
+				int valStart = pos;
+				pos++;
+				while (pos < len && depth > 0) {
+					char c = json.charAt(pos);
+					if (c == '"') {
+						pos = findClosingQuote(json, pos + 1) + 1;
+						if (pos <= 0) break;
+						continue;
+					}
+					if (c == open) depth++;
+					else if (c == close) depth--;
+					pos++;
+				}
+				value = json.substring(valStart, pos);
+			} else {
+				// Number, boolean, null
+				int valStart = pos;
+				while (pos < len && json.charAt(pos) != ',' && json.charAt(pos) != '}' &&
+						json.charAt(pos) != ']' && !Character.isWhitespace(json.charAt(pos))) {
+					pos++;
+				}
+				value = json.substring(valStart, pos).trim();
+				if ("null".equals(value)) {
+					value = null;
+				}
+			}
+
+			result.put(key, value);
+		}
+
+		return result;
+	}
+
+	/**
+	 * Find the closing quote, handling escaped quotes.
+	 */
+	private int findClosingQuote(String json, int startAfterQuote) {
+		int pos = startAfterQuote;
+		while (pos < json.length()) {
+			char ch = json.charAt(pos);
+			if (ch == '\\') {
+				pos += 2; // skip escaped character
+				continue;
+			}
+			if (ch == '"') {
+				return pos;
+			}
+			pos++;
+		}
+		return -1;
+	}
+
+	/**
+	 * Unescape a JSON string value.
+	 */
+	private String unescapeJsonString(String s) {
+		if (s == null || !s.contains("\\")) return s;
+		StringBuilder sb = new StringBuilder(s.length());
+		for (int i = 0; i < s.length(); i++) {
+			char ch = s.charAt(i);
+			if (ch == '\\' && i + 1 < s.length()) {
+				char next = s.charAt(i + 1);
+				switch (next) {
+					case '"': sb.append('"'); i++; break;
+					case '\\': sb.append('\\'); i++; break;
+					case '/': sb.append('/'); i++; break;
+					case 'n': sb.append('\n'); i++; break;
+					case 'r': sb.append('\r'); i++; break;
+					case 't': sb.append('\t'); i++; break;
+					default: sb.append(ch); break;
+				}
+			} else {
+				sb.append(ch);
+			}
+		}
+		return sb.toString();
+	}
+
 	// --- Utilities ---
 
 	private String readBody(HttpExchange exchange) throws IOException {
@@ -870,29 +1114,6 @@ public class WebApiServer implements HttpHandler {
 		os.write(bytes);
 		os.flush();
 		os.close();
-	}
-
-	private String extractJsonValue(String json, String key) {
-		if (json == null) return null;
-		String search = "\"" + key + "\"";
-		int keyIndex = json.indexOf(search);
-		if (keyIndex == -1) return null;
-		int colonIndex = json.indexOf(':', keyIndex + search.length());
-		if (colonIndex == -1) return null;
-		int valueStart = colonIndex + 1;
-		while (valueStart < json.length() && Character.isWhitespace(json.charAt(valueStart)))
-			valueStart++;
-		if (valueStart >= json.length()) return null;
-		if (json.charAt(valueStart) == '"') {
-			int valueEnd = json.indexOf('"', valueStart + 1);
-			return valueEnd == -1 ? null : json.substring(valueStart + 1, valueEnd);
-		} else {
-			int valueEnd = valueStart;
-			while (valueEnd < json.length() && json.charAt(valueEnd) != ',' &&
-					json.charAt(valueEnd) != '}' && json.charAt(valueEnd) != ']')
-				valueEnd++;
-			return json.substring(valueStart, valueEnd).trim();
-		}
 	}
 
 	private String escapeJson(String input) {
