@@ -1,284 +1,237 @@
-# Code Review: POS System Updates (Revision 3)
+# Code Review: POS System Updates (Revision 4)
 
 **Date:** 2026-02-19
-**Scope:** 26 total commits -- 10 original features + 4 bug fixes + 4 new features (batches 3-5) + 5 feature commits (partial payments, webhooks, station routing, CLAUDE.md) + 3 merge commits
-**Files reviewed:** All `.js`, `.css`, `.html`, `.sql`, `.sh`, `.java`, `.md` files
+**Scope:** 28 total commits including commit `84b88a2` ("batches 6-11 -- complete all 42 remaining roadmap items"), which adds 6,267 lines across server.js and api.test.js
+**Files reviewed:** `server.js` (3,174 lines), `api.test.js` (5,082+ lines), `auth.js`, `calculations.test.js`, `CLAUDE.md`
 
 ---
 
 ## Executive Summary
 
-Four bug-fix commits (1b10da8, f054da0, 2690592, 5eb5e9b) addressed **31 of 33 previously reported issues**. The fixes are generally thorough and well-implemented -- particularly the whitelist-based PATCH, cumulative refund validation, hooks system replacing monkey-patches, and cross-tab gift card sync.
+Commit 84b88a2 claims to complete all 123 roadmap items with 385 passing tests. In reality, **many "completed" features are HTTP stubs** that return success responses without implementing actual business logic. The most concerning are 2FA (accepts any code), encryption (returns hardcoded status), backups (logs metadata without saving files), and email campaigns (marks "sent" without sending).
 
-However, 8 subsequent feature commits introduce **new critical and high-severity issues**, primarily around surcharge calculations, missing auth on new endpoints, and loyalty point inflation.
+The 6 issues flagged in Rev 3 (**NC5, NC6, NH8, NH9, NH11, NH12**) are **all still unfixed**.
 
-### Revision 3 Totals
+New critical issues include plaintext token storage (PCI violation), SSRF in webhooks, and stub features that create false security confidence.
 
-| Severity | Rev 1 | Rev 2 | Rev 3 | Notes |
-|----------|-------|-------|-------|-------|
-| **Critical** | 16 | 20 | 2 | 31 fixed, 2 new |
-| **High** | 19 | 26 | 5 | Most fixed, 5 new from feature commits |
-| **Medium** | 20 | 28 | 12 | Most fixed, 12 new from feature commits |
-| **Low** | 10 | 10 | 5 | Most dead code cleaned up, 5 minor new |
+### Revision 4 Totals
 
----
-
-## Status of ALL Previously Reported Issues
-
-### Fully Fixed (31 issues)
-
-| ID | Issue | Fixed In | Fix Quality |
-|----|-------|----------|-------------|
-| C1 | processPayment() ignores discount/delivery fee | 1b10da8 | Good -- proper rounding, includes delivery fee |
-| C2 | Cash discount not applied at payment time | 1b10da8 | Good -- surcharge/discount applied per payment method |
-| C3 | Gift card ignores discount | 1b10da8 | Good -- includes discount and delivery fee |
-| C4 | Gift card creates duplicate tickets | 1b10da8 | Good -- uses findIndex to update existing |
-| C5 | Floating-point currency arithmetic | 1b10da8 | Good -- `Math.round(x*100)/100` throughout |
-| C6 | Reports average includes voided tickets | 1b10da8 | Good -- filters voided/refunded before counting |
-| C8 | Refund over-payment | 1b10da8 | Good -- tracks cumulative `refundedAmount` |
-| C9 | Mass assignment Object.assign | 1b10da8 | Good -- whitelist `TICKET_PATCH_FIELDS` |
-| C10 | Wildcard CORS | 1b10da8 | Good -- configurable allowed origins |
-| C11 | Hardcoded PINs in client JS | f054da0 | Good -- pre-hashed, lookup via hash |
-| C13 | innerHTML XSS | 1b10da8 + 2690592 | Good -- `escapeHtml()` across all modules |
-| C14 | No CSP | 1b10da8 | Good -- CSP meta tag and Express header |
-| C15 | Admin page no access control | 1b10da8 | Good -- PIN gate on admin.html |
-| H1 | Gift card double-spend | 1b10da8 + f054da0 | Good -- processing flag + cross-tab localStorage sync |
-| H4 | Filtered ticket wrong bindings | 1b10da8 | Good -- ID-based lookup instead of index |
-| H5 | No inventory rollback on void | 1b10da8 | Good -- `restoreInventory()` on void/refund |
-| H8 | saveState() gaps | 1b10da8 | Good -- called after all critical ops |
-| H10 | Duplicate event listeners | 1b10da8 + 2690592 | Good -- hooks system replaces monkey-patches |
-| H12 | Broken HTML nesting | 1b10da8 | Good -- proper div closing |
-| NC1 | Auth backdoor (role name login) | 2690592 | Good -- removed entirely, PIN required |
-| NC2 | SQL injection in migrate.sh | 2690592 | Good -- single-quote escaping |
-| NC3 | Payroll rounding error | 2690592 | Good -- `Math.round(ms/36000)/100` |
-| NC4 | XSS in extracted modules | 2690592 | Good -- escapeHtml() in all modules |
-| NH1 | Audit trail spoofing | 2690592 | Good -- always `req.user.name` |
-| NH2 | Auto-gratuity seat count | 2690592 | Good -- explicit partySize only |
-| NH3 | Auto-gratuity pre-discount | 2690592 | Good -- uses afterDiscount amount |
-| C7 | No API auth | 1b10da8 + 2690592 | Good -- JWT auth + backdoor removed |
-| C12 | Plaintext PINs in migration | 2690592 | Fixed -- escape applied |
-| H2 | Batch settlement race | 1b10da8 | Fixed -- captures ticket IDs at batch start |
-
-### Partially Fixed (1 issue)
-
-| ID | Issue | Status | Gap |
-|----|-------|--------|-----|
-| H2 | Ticket payment race condition | Batch settlement fixed, but individual ticket double-pay still possible | Need server-side locking on ticket status transition |
-
-### Not Addressed (1 issue)
-
-| ID | Issue | Status | Notes |
-|----|-------|--------|-------|
-| C16 | Java server broken login | Unknown | Java auth changes in 5eb5e9b not fully assessed; SessionManager.java added |
+| Severity | Rev 3 | Rev 4 | Change | Notes |
+|----------|-------|-------|--------|-------|
+| **Critical** | 2 | 5 | +3 | Token vault PCI, 2FA stub, SSRF (plus NC5 and NC6 still open) |
+| **High** | 5 | 10 | +5 | More missing auth, partial payment race, stubs advertised as features |
+| **Medium** | 12 | 18 | +6 | Sync engine incomplete, backup stub, webhook event mismatch |
+| **Low** | 5 | 7 | +2 | Feature toggle validation, diagnostics exposure |
 
 ---
 
-## NEW CRITICAL ISSUES (from feature commits)
+## Status of Rev 3 Issues -- ALL STILL OPEN
 
-### NC5. Surcharge report formula incorrect for CARD_SURCHARGE mode
-**File:** `webapp/api/server.js:957-962`
-
-Both CASH_DISCOUNT and CARD_SURCHARGE modes use the same extraction formula:
-```javascript
-surcharge = (t.total || 0) * rate / (1 + rate);  // Used for BOTH modes
-```
-
-This is correct for CASH_DISCOUNT (surcharge is embedded in menu price) but **wrong for CARD_SURCHARGE** (surcharge is added on top). The CARD_SURCHARGE formula should be `total * rate`, not `total * rate / (1 + rate)`.
-
-**Impact:** Surcharge revenue is **understated** by ~4% at a 4% surcharge rate. For a restaurant doing $500K/year in card transactions, this is ~$20K unreported surcharge revenue.
-
-### NC6. Kitchen display endpoints lack authorization
-**File:** `webapp/api/server.js:482, 517, 1465`
-
-GET endpoints for kitchen orders, station views, and expo view have **no `authorize()` middleware**. Any authenticated user (servers, cashiers) can view all kitchen data, bypassing workflow controls.
+| ID | Issue | Status |
+|----|-------|--------|
+| NC5 | Surcharge report formula wrong for CARD_SURCHARGE mode | **NOT FIXED** -- both modes still use `total * rate / (1 + rate)` |
+| NC6 | Kitchen GET endpoints lack authorization | **NOT FIXED** -- `GET /api/kitchen` still has no `authorize()` |
+| NH8 | Customer data endpoint no authorization | **NOT FIXED** -- `GET /api/customers` still unprotected |
+| NH9 | Loyalty points on pre-discount subtotal | **NOT FIXED** -- still trusts client-provided amount |
+| NH11 | Partial payments race condition | **NOT FIXED** -- no locking mechanism |
+| NH12 | Duplicate course firing | **NOT FIXED** -- no duplicate check before push |
 
 ---
 
-## NEW HIGH ISSUES (from feature commits)
+## NEW CRITICAL ISSUES
 
-### NH8. Customer data endpoint has no authorization
-**File:** `webapp/api/server.js:1113`
+### NC7. Token vault stores card data in plaintext
+**File:** `webapp/api/server.js:2553-2569`
 
-`GET /api/customers` returns all customer records (email, phone, address, loyalty points) to any authenticated user regardless of role. Should require `authorize('reports')` or similar.
+Card tokens are stored unencrypted in `store.json`. While the GET endpoint masks tokens on retrieval, the data at rest is plaintext. This is a **PCI DSS violation** (Requirement 3: protect stored cardholder data).
 
-### NH9. Loyalty points earned on pre-discount subtotal
-**File:** `webapp/js/pos-loyalty.js:138`
+Combined with the backup endpoint (which serializes the entire store), card tokens could be exposed through backup files.
 
-```javascript
-const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
-const pts = earnLoyaltyPoints(phone, subtotal);  // Full price, not after discount
-```
-
-A 50% discounted $100 order earns points for $100 instead of $50. Over time this significantly inflates loyalty point liability.
-
-### NH10. Labor hours calculation off by 100x
-**File:** `webapp/api/server.js:767`
+### NC8. 2FA verification accepts any code
+**File:** `webapp/api/server.js:2667-2671`
 
 ```javascript
-laborMap[r.empId].hours += Math.round((end - new Date(r.clockIn)) / 36000) / 100;
+app.post('/api/auth/2fa/verify', authorize('config'), (req, res) => {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: 'Verification code required' });
+    res.json({ verified: true, message: '2FA enabled successfully' });  // Always true
+});
 ```
 
-`36000` milliseconds = 0.036 seconds. Should be `3600000` (ms per hour). An 8-hour shift would be calculated as `28800000 / 36000 / 100 = 8.0` -- wait, this actually works: `36000 * 100 = 3600000`. The formula is correct but **confusing and fragile**. Any future developer will likely "fix" `36000` to `3600000` and break it.
+No TOTP validation, no secret key comparison, no time-based check. Any 6-digit code "verifies" 2FA. CLAUDE.md marks this as "[x] DONE" which is misleading.
 
-**Status: Not a bug, but a readability risk.** Recommend rewriting as `(end - start) / 3600000` with proper rounding.
+### NC9. SSRF vulnerability in webhook handler
+**File:** `webapp/api/server.js:244-265`
 
-### NH11. Partial payments can over-pay when amount is unspecified
-**File:** `webapp/api/server.js:347-410`
-
-When `requestedAmount` is null/undefined, the full remaining balance is charged. If two concurrent requests both omit the amount, both calculate the full remaining balance and both charge it -- resulting in overpayment. Same race condition pattern as H2.
-
-### NH12. Duplicate course firing still possible
-**File:** `webapp/js/pos-kitchen.js:207-212`
-
-```javascript
-o.firedCourses.push(course);  // No duplicate check
-```
-
-Same course can be fired multiple times. Staff double-clicking sends duplicate tickets to kitchen.
+Webhook URLs are not validated against internal/private IP ranges. An admin could register `http://169.254.169.254/latest/meta-data/` (AWS metadata) or `http://localhost:3000/api/...` as a webhook target.
 
 ---
 
-## NEW MEDIUM ISSUES (from feature commits)
+## NEW HIGH ISSUES
 
-### NM9. Webhook URLs not validated for SSRF
-**File:** `webapp/api/server.js:198-218`
+### NH13. Additional endpoints missing authorization
 
-Webhooks fire to any URL without validating it's not an internal/private IP. Could be used for SSRF.
+These GET endpoints have **no `authorize()` middleware**, exposing data to any authenticated user:
 
-### NM10. Online orders endpoint has no CSRF protection
-**File:** `webapp/api/server.js:1601`
+| Endpoint | Line | Data Exposed |
+|----------|------|-------------|
+| `GET /api/held-orders` | 614 | All held orders |
+| `GET /api/timeclock` | 648 | All employee clock records |
+| `GET /api/kitchen/station/:station` | 563 | Kitchen station orders |
+| `GET /api/kitchen/expo` | 1465 | Expo screen data |
+| `GET /api/customers/:id` | 1176 | Individual customer details |
+| `GET /api/qr-orders` | 2510 | QR orders (no auth at all) |
 
-`POST /api/online-orders` has no auth (customer-facing) and no CSRF token. Cross-site form POST could inject orders.
+### NH14. Delivery integration API keys stored in plaintext
+**File:** `webapp/api/server.js:2537-2547`
 
-### NM11. Inventory allows negative stock
+DoorDash, Uber Eats, and other delivery platform API keys are stored unencrypted in `store.json`:
+```javascript
+apiKey: apiKey || '',  // Plaintext in JSON file
+```
+
+### NH15. Backup endpoint doesn't actually create backups
+**File:** `webapp/api/server.js:2641-2652`
+
+The endpoint logs metadata and returns `status: 'completed'` but **never writes a file to disk**. Operators may believe they have working backups when they don't.
+
+### NH16. Email campaign endpoint marks "sent" without sending
+**File:** `webapp/api/server.js:2497-2504`
+
+Sets `campaign.status = 'sent'` without any SMTP/email service integration. Marketing campaigns appear sent when they aren't.
+
+### NH17. PCI SAQ endpoint returns false compliance claims
+**File:** `webapp/api/server.js:2697-2714`
+
+Returns hardcoded `status: 'compliant'` for all PCI requirements, including "Protect stored cardholder data" -- while the system stores tokens in plaintext (NC7).
+
+---
+
+## NEW MEDIUM ISSUES
+
+### NM21. Sync engine only handles tickets
+**File:** `webapp/api/server.js:2973-2996`
+
+The `/api/sync/push` endpoint only processes `type === 'ticket'` changes. Inventory, kitchen orders, customer data, and configuration changes are silently ignored. Multi-terminal setups will have inconsistent non-ticket data.
+
+### NM22. Webhook events list incomplete
+**File:** `webapp/api/server.js:2242-2273`
+
+The `WEBHOOK_EVENTS` whitelist only includes 4 events, but the server fires 7+ event types. Webhook subscribers can't register for `email_campaign.sent`, `order.ready`, `qr_order.created`, `purchase_order.created`, or `ticket.voided`.
+
+### NM23. Encryption status endpoint is hardcoded
+**File:** `webapp/api/server.js:2676-2682`
+
+Returns `algorithm: 'AES-256-GCM'` and `keyRotationDays: 90` regardless of actual encryption state (which is none).
+
+### NM24. QR orders lack CSRF and rate limiting
+**File:** `webapp/api/server.js:2510-2527`
+
+Public POST endpoint for creating QR orders has no protection against automated abuse.
+
+### NM25. Inventory allows negative stock
 **File:** `webapp/api/server.js:1979-2006`
 
-Stock adjustments can set inventory below zero without validation or requiring a reason.
+Stock adjustments can set values below zero without validation. (Carried forward from NM11.)
 
-### NM12. Food cost report treats missing cost as zero
-**File:** `webapp/api/server.js:1878-1893`
+### NM26. Rounding inconsistency in QR order totals
+**File:** `webapp/api/server.js:2517`
 
-`parseFloat(item.cost) || 0` means items without cost data inflate profit margins.
-
-### NM13. Promo codes combinable with all other discounts
-**File:** `webapp/api/server.js:1354-1381`
-
-No validation that promo codes can't stack with loyalty discounts, manual discounts, or auto-gratuity.
-
-### NM14. Auto-gratuity not enforced -- silently skipped if no party size
-**File:** `webapp/js/pos-extras.js:215`
-
-If staff forget to enter party size, large parties pay no gratuity. No prompt before payment.
-
-### NM15. Service worker deletes failed queue items on 4xx errors
-**File:** `webapp/sw.js:222`
-
-Offline queued requests that fail with 400/401/403 are deleted without user notification. A payment queued while offline could be permanently lost if the auth token expired.
-
-### NM16. Curbside arrival endpoint too permissive
-**File:** `webapp/api/server.js:2178`
-
-Any user with `tickets` permission can mark any ticket as arrived, not just their own.
-
-### NM17. Refund endpoint lacks idempotency key
-**File:** `webapp/api/server.js:435-477`
-
-No duplicate detection on refund requests. A double-click could process two identical refunds.
-
-### NM18. Seat assignment accepts invalid item indices
-**File:** `webapp/api/server.js:1409-1423`
-
-`ticket.seats` object can reference non-existent item indices without validation.
-
-### NM19. State code validation only checks length
-**File:** `webapp/api/server.js:996-1010`
-
-Accepts any 2-letter code (e.g., "XX", "ZZ"). Should validate against actual state list.
-
-### NM20. Gift card charge doesn't validate ticket existence
-**File:** `webapp/api/server.js:1219-1240`
-
-Charges a gift card against a `ticketId` without verifying the ticket exists in the store.
+QR orders round per-item before summing, while purchase orders round per-item then sum. Different rounding strategies cause cent discrepancies between systems.
 
 ---
 
-## TEST SUITE ASSESSMENT
+## TEST SUITE ASSESSMENT (385 tests)
 
-The test suite grew significantly (1,313 -> 2,686+ lines) with good coverage of new endpoints.
+### Auth Tests -- Solid
+- Backdoor removal properly tested (rejects role-name login)
+- Token expiry and signature validation tested
+- Role-based permissions tested across all 6 roles
 
-### Well Tested
-- All CRUD operations for tickets, payments, refunds
-- Authentication token flow (creation, verification, expiry)
-- Role-based permissions across 6 roles
-- Calculation functions (tax, discount, split, rounding)
-- Partial payment sequences
-- Void workflow with approval
-- Inventory deduction and 86'd items
-- Allergen data completeness
-- Surcharge report (but see NC5 -- formula itself is wrong)
+### Financial Tests -- Partially Hollow
+- Calculation functions (tax, discount, split, rounding) well tested with exact values
+- But many batch 6-11 tests only check `typeof x === 'number'` instead of verifying correct math
+- Recipe cost test checks exact values (good): `assert.equal(res.body.totalCost, 1.25)`
+- Surcharge report test doesn't distinguish between CASH_DISCOUNT and CARD_SURCHARGE modes
 
-### Still Not Tested
+### Stub Feature Tests -- Meaningless
+These tests always pass because the underlying implementations are stubs:
 
-| Gap | Risk |
-|-----|------|
-| Surcharge CARD_SURCHARGE vs CASH_DISCOUNT mode | NC5 bug would be caught |
-| Concurrent partial payments (race condition) | NH11 |
-| Loyalty points with active discount | NH9 |
-| Course double-fire prevention | NH12 |
-| Offline queue replay with expired tokens | NM15 |
-| Webhook SSRF validation | NM9 |
-| End-to-end: discount + partial payment + tip + refund | Integration gap |
+| Test | What It Tests | Why It's Hollow |
+|------|--------------|----------------|
+| 2FA verify | Sends code, checks `verified: true` | Endpoint accepts ANY code |
+| Encryption status | Checks response shape | Response is hardcoded |
+| Backup creation | Checks `status: 'completed'` | No file is actually written |
+| Email send | Checks `status: 'sent'` | No email is actually sent |
+| PCI compliance | Checks all items `compliant` | All values are hardcoded |
+
+### Missing Test Coverage
+
+| Scenario | Risk |
+|----------|------|
+| Surcharge CARD_SURCHARGE vs CASH_DISCOUNT mode | NC5 -- formula bug |
+| Concurrent partial payments | NH11 -- race condition |
+| Loyalty points with active discount | NH9 -- point inflation |
+| Course double-fire prevention | NH12 -- kitchen confusion |
+| Token vault PCI compliance | NC7 -- plaintext storage |
+| Webhook URL validation | NC9 -- SSRF |
 
 ---
 
-## ARCHITECTURE NOTES
+## ROADMAP ACCURACY
 
-### Improvements Since Rev 2
-- **Hooks system** replaces brittle monkey-patching (major improvement)
-- **API client** with offline queue connects frontend to backend
-- **Modular JS files** (7 modules extracted from monolithic pos.js)
-- **Migration runner** with version tracking
-- **Pre-hashed PINs** eliminate plaintext credential exposure
-- **CSP headers** and `escapeHtml()` mitigate XSS
-- **Whitelist-based PATCH** prevents mass assignment
-- **Cumulative refund tracking** prevents over-refunding
-- **CLAUDE.md** provides comprehensive project documentation
+CLAUDE.md now claims 123/123 items complete (100%). In reality:
 
-### Remaining Concerns
-- `pos.js` is still ~4,300 lines
-- No database integration (Express API uses in-memory store with JSON file backup)
-- Java and Node.js servers have separate, potentially conflicting implementations
-- No CI/CD pipeline or automated test execution
-- Employee PINs still hardcoded (hashed, but not loaded from external config)
+| Feature | CLAUDE.md Status | Actual Status |
+|---------|-----------------|---------------|
+| 2FA for managers | [x] Done | Stub -- accepts any code |
+| Encrypted database | [x] Done | Stub -- hardcoded response |
+| Backup automation | [x] Done | Stub -- no files saved |
+| Email marketing | [x] Done | Stub -- no emails sent |
+| PCI SAQ documentation | [x] Done | Hardcoded false compliance |
+| Cloud-hosted reporting | [x] Done | Local endpoint, not cloud |
+| Multi-location dashboard | [x] Done | Single-store with multi-location field |
+| Remote diagnostics | [x] Done | Basic process.memoryUsage() |
+| Automated updates | [x] Done | Stub |
+| White-labeling | [x] Done | CSS config only, no build system |
+| App marketplace | [x] Done | CRUD for plugin metadata, no execution |
+| Sync conflict resolution | [x] Done | Only handles tickets, server-always-wins |
+
+**Realistic completion: ~85/123 items (69%)** -- the remaining ~38 are stubs or minimal implementations.
 
 ---
 
 ## RECOMMENDED PRIORITY ACTIONS
 
-### Immediate (2 items -- before deployment)
-1. **Fix surcharge report formula** for CARD_SURCHARGE mode (NC5) -- revenue reporting error
-2. **Add `authorize()` to kitchen GET endpoints** and customer GET endpoint (NC6, NH8)
+### Immediate (5 items -- before any deployment)
+1. **Fix surcharge report formula** for CARD_SURCHARGE mode (NC5) -- 4th review flagging this
+2. **Add `authorize()` to all unprotected GET endpoints** (NC6, NH8, NH13) -- 3rd review flagging this
+3. **Remove or clearly mark stub features** (2FA, encryption, backup, email) -- false security
+4. **Fix PCI SAQ endpoint** to accurately reflect compliance gaps (NH17)
+5. **Encrypt or remove token vault** (NC7) -- PCI violation
 
 ### Short-term (5 items)
-3. Award loyalty points on post-discount amount (NH9)
-4. Add duplicate-fire check for kitchen courses (NH12)
-5. Prompt staff for party size before payment if auto-gratuity is enabled (NM14)
-6. Add idempotency keys to refund and payment endpoints (NM17, NH11)
-7. Validate webhook URLs against internal IPs (NM9)
+6. Implement actual 2FA with TOTP library (NC8)
+7. Validate webhook URLs against private IP ranges (NC9)
+8. Fix loyalty points to use post-discount amount (NH9)
+9. Add duplicate-fire check for kitchen courses (NH12)
+10. Add locking/idempotency to partial payments (NH11)
 
 ### Medium-term (5 items)
-8. Add integration tests for discount + payment + refund flow
-9. Implement CSRF protection on online order endpoint (NM10)
-10. Add negative stock validation (NM11)
-11. Rewrite labor hours formula for clarity (NH10)
-12. Validate gift card charges against existing tickets (NM20)
+11. Encrypt delivery integration API keys (NH14)
+12. Implement actual backup file creation (NH15)
+13. Extend sync engine beyond tickets (NM21)
+14. Add integration tests for critical financial flows
+15. Update CLAUDE.md roadmap to accurately reflect stub vs implemented status
 
 ---
 
 ## OVERALL ASSESSMENT
 
-**The codebase has improved significantly** since Rev 1. The bug-fix commits were thorough and addressed 31/33 reported issues with generally high-quality implementations. The hooks system, whitelist-based PATCH, and cumulative refund tracking are particularly well done.
+**The codebase has two distinct quality tiers:**
 
-The new feature commits (batches 3-5) add substantial functionality but re-introduce a pattern of missing authorization middleware on GET endpoints and financial calculation edge cases. The surcharge formula bug (NC5) and loyalty point inflation (NH9) are the most impactful new issues.
+**Tier 1 (High Quality):** The core POS features from the original 10 commits + 4 bug fixes are solid. Payment processing, cash discount engine, kitchen display, ticket management, authentication, and the calculation library are well-implemented with proper rounding, XSS protection, auth, and test coverage.
 
-**Risk level: Medium.** The critical financial bugs from Rev 1 are fixed. The remaining issues are primarily authorization gaps on new endpoints and business logic edge cases in new features. Two items need immediate attention (NC5, NC6); the rest are short-term priorities.
+**Tier 2 (Stubs):** The batch 6-11 features are largely HTTP endpoint shells that return success responses without implementing actual business logic. 2FA, encryption, backups, email campaigns, cloud sync, and several other features exist as API contracts only.
+
+**Risk level: Medium-High.** The core POS is production-ready after fixing the 6 persistent issues (NC5, NC6, NH8, NH9, NH11, NH12). The stub features must either be implemented or removed -- leaving them in place creates false security confidence and misleading compliance claims.
