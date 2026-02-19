@@ -219,6 +219,59 @@ describe('dualPricing', () => {
         assert.equal(result.cashPrice, 100);
         assert.equal(result.cardPrice, 100);
     });
+
+    it('applies surcharge cap in CASH_DISCOUNT mode', () => {
+        const result = Calc.dualPricing(100, {
+            enabled: true,
+            mode: 'CASH_DISCOUNT',
+            rate: 4.0,
+            maxSurcharge: 3.00
+        });
+
+        assert.equal(result.savings, 3);
+        assert.equal(result.cashPrice, 97);
+        assert.equal(result.cardPrice, 100);
+        assert.equal(result.capped, true);
+    });
+
+    it('applies surcharge cap in CARD_SURCHARGE mode', () => {
+        const result = Calc.dualPricing(100, {
+            enabled: true,
+            mode: 'CARD_SURCHARGE',
+            rate: 4.0,
+            maxSurcharge: 2.50
+        });
+
+        assert.equal(result.savings, 2.50);
+        assert.equal(result.cashPrice, 100);
+        assert.equal(result.cardPrice, 102.50);
+        assert.equal(result.capped, true);
+    });
+
+    it('does not cap when surcharge is below max', () => {
+        const result = Calc.dualPricing(50, {
+            enabled: true,
+            mode: 'CARD_SURCHARGE',
+            rate: 4.0,
+            maxSurcharge: 10.00
+        });
+
+        assert.equal(result.savings, 2);
+        assert.equal(result.cardPrice, 52);
+        assert.equal(result.capped, false);
+    });
+
+    it('ignores cap when maxSurcharge is null', () => {
+        const result = Calc.dualPricing(100, {
+            enabled: true,
+            mode: 'CASH_DISCOUNT',
+            rate: 4.0,
+            maxSurcharge: null
+        });
+
+        assert.equal(result.savings, 4);
+        assert.equal(result.capped, false);
+    });
 });
 
 // ==========================================

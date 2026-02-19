@@ -51,6 +51,7 @@ const store = {
     heldOrders: [],
     refunds: [],
     timeClock: [],
+    auditLog: [],
     config: {
         cashDiscount: {
             enabled: true,
@@ -61,7 +62,8 @@ const store = {
             showDualPricing: true,
             exemptDebit: true,
             applyBeforeTax: true,
-            minCardAmount: 0
+            minCardAmount: 0,
+            maxSurcharge: null
         },
         tax: {
             rate: 8.875,
@@ -102,6 +104,7 @@ function loadStore() {
             if (data.heldOrders) store.heldOrders = data.heldOrders;
             if (data.refunds) store.refunds = data.refunds;
             if (data.timeClock) store.timeClock = data.timeClock;
+            if (data.auditLog) store.auditLog = data.auditLog;
             if (data.nextTicketId) store.nextTicketId = data.nextTicketId;
             if (data.config) {
                 Object.keys(data.config).forEach(k => {
@@ -124,6 +127,7 @@ function saveStore() {
             heldOrders: store.heldOrders,
             refunds: store.refunds,
             timeClock: store.timeClock,
+            auditLog: store.auditLog,
             nextTicketId: store.nextTicketId,
             config: store.config,
             savedAt: new Date().toISOString()
@@ -144,6 +148,21 @@ function scheduleSave() {
 }
 
 loadStore();
+
+// ==========================================
+// Audit Log Helper
+// ==========================================
+function logAudit(action, user, details) {
+    store.auditLog.push({
+        id: store.auditLog.length + 1,
+        action,
+        user: user ? user.name : 'system',
+        role: user ? user.role : 'system',
+        details,
+        time: new Date().toISOString()
+    });
+    scheduleSave();
+}
 
 // ==========================================
 // CORS Middleware (restrict to configured origins)
@@ -270,18 +289,65 @@ app.patch('/api/tickets/:id', authorize('tickets'), (req, res) => {
     res.json(ticket);
 });
 
-// Pay a ticket
+// Pay a ticket (full or partial)
 app.post('/api/tickets/:id/pay', authorize('tickets'), (req, res) => {
     const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
     if (ticket.status === 'paid') return res.status(400).json({ error: 'Already paid' });
 
-    ticket.status = 'paid';
-    ticket.paid = true;
-    ticket.paymentMethod = req.body.method || 'cash';
-    ticket.tip = Math.round((parseFloat(req.body.tip) || 0) * 100) / 100;
-    ticket.paidAt = new Date().toISOString();
+    const tip = Math.round((parseFloat(req.body.tip) || 0) * 100) / 100;
+    const method = req.body.method || 'cash';
+    const requestedAmount = req.body.amount !== undefined
+        ? Math.round((parseFloat(req.body.amount) || 0) * 100) / 100
+        : null;
+
+    // Initialize payments array for tracking partial payments
+    if (!ticket.payments) ticket.payments = [];
+    const previouslyPaid = ticket.payments.reduce((s, p) => s + p.amount, 0);
+    const remaining = Math.round((ticket.total - previouslyPaid) * 100) / 100;
+
+    // Determine if this is a partial payment
+    const isPartial = requestedAmount !== null && requestedAmount < remaining;
+    const payAmount = isPartial ? requestedAmount : remaining;
+
+    if (requestedAmount !== null && requestedAmount <= 0) {
+        return res.status(400).json({ error: 'Payment amount must be positive' });
+    }
+    if (requestedAmount !== null && requestedAmount > remaining) {
+        return res.status(400).json({
+            error: 'Payment amount exceeds remaining balance',
+            remaining,
+            previouslyPaid
+        });
+    }
+
+    // Record this payment
+    const payment = {
+        amount: payAmount,
+        method,
+        tip,
+        paidBy: req.user ? req.user.name : 'unknown',
+        paidAt: new Date().toISOString()
+    };
+    ticket.payments.push(payment);
+
+    const totalPaid = Math.round((previouslyPaid + payAmount) * 100) / 100;
+
+    if (totalPaid >= ticket.total) {
+        // Fully paid
+        ticket.status = 'paid';
+        ticket.paid = true;
+        ticket.paidAt = new Date().toISOString();
+    } else {
+        ticket.status = 'partial';
+    }
+
+    // Keep legacy fields for backward compatibility
+    ticket.paymentMethod = method;
+    ticket.tip = ticket.payments.reduce((s, p) => s + (p.tip || 0), 0);
     ticket.paidBy = req.user ? req.user.name : 'unknown';
+    ticket.totalPaid = totalPaid;
+    ticket.remaining = Math.round((ticket.total - totalPaid) * 100) / 100;
 
     scheduleSave();
     res.json(ticket);
@@ -297,6 +363,7 @@ app.post('/api/tickets/:id/void', authorize('void'), (req, res) => {
     ticket.voidedAt = new Date().toISOString();
     ticket.voidReason = req.body.reason || '';
 
+    logAudit('void', req.user, { ticketId: ticket.id, reason: ticket.voidReason, total: ticket.total });
     scheduleSave();
     res.json(ticket);
 });
@@ -347,6 +414,7 @@ app.post('/api/refunds', authorize('refund'), (req, res) => {
         ticket.status = 'refunded';
     }
 
+    logAudit('refund', req.user, { ticketId: ticket.id, amount: refundAmount, reason: refund.reason });
     scheduleSave();
     res.status(201).json(refund);
 });
@@ -482,7 +550,7 @@ app.post('/api/timeclock/clock-out', authorize('timeclock'), (req, res) => {
 // Configuration Endpoints (requires config permission)
 // ==========================================
 const CONFIG_ALLOWED_FIELDS = {
-    cashDiscount: ['enabled', 'mode', 'rate', 'cashLabel', 'surchargeLabel', 'showDualPricing', 'exemptDebit', 'applyBeforeTax', 'minCardAmount'],
+    cashDiscount: ['enabled', 'mode', 'rate', 'cashLabel', 'surchargeLabel', 'showDualPricing', 'exemptDebit', 'applyBeforeTax', 'minCardAmount', 'maxSurcharge'],
     tax: ['rate', 'inclusive', 'alcoholSeparate', 'alcoholRate'],
     restaurant: ['name', 'address1', 'address2', 'city', 'state', 'zip', 'phone', 'email'],
     receipt: ['customerCopy', 'merchantCopy', 'showDualPrices', 'showTipLine', 'footer', 'cdNotice']
@@ -505,11 +573,14 @@ app.put('/api/config/:section', authorize('config'), (req, res) => {
     }
     // Whitelist allowed fields per section
     const allowedFields = CONFIG_ALLOWED_FIELDS[sectionName] || [];
+    const changed = {};
     allowedFields.forEach(field => {
         if (req.body[field] !== undefined) {
+            changed[field] = { from: store.config[sectionName][field], to: req.body[field] };
             store.config[sectionName][field] = req.body[field];
         }
     });
+    logAudit('config_change', req.user, { section: sectionName, changed });
     scheduleSave();
     res.json(store.config[sectionName]);
 });
@@ -610,6 +681,136 @@ app.get('/api/reports/labor', authorize('reports'), (req, res) => {
     }));
 
     res.json({ employees: entries });
+});
+
+// ==========================================
+// Audit Log Endpoints (requires reports permission)
+// ==========================================
+app.get('/api/audit-log', authorize('reports'), (req, res) => {
+    let logs = store.auditLog;
+    const { action, user, from, to, limit: limitParam } = req.query;
+
+    if (action) {
+        logs = logs.filter(l => l.action === action);
+    }
+    if (user) {
+        logs = logs.filter(l => l.user === user);
+    }
+    if (from) {
+        logs = logs.filter(l => l.time >= from);
+    }
+    if (to) {
+        logs = logs.filter(l => l.time <= to);
+    }
+
+    // Return most recent first
+    logs = [...logs].reverse();
+
+    const limit = parseInt(limitParam, 10);
+    if (limit > 0) {
+        logs = logs.slice(0, limit);
+    }
+
+    res.json({ entries: logs, total: logs.length });
+});
+
+// ==========================================
+// Payment Type Breakdown Report (requires reports permission)
+// ==========================================
+app.get('/api/reports/payment-type', authorize('reports'), (req, res) => {
+    const breakdown = {};
+
+    store.tickets.forEach(t => {
+        if (t.status === 'voided') return;
+        if (!t.paymentMethod) return;
+
+        // If ticket has partial payments, break down by each payment
+        if (t.payments && t.payments.length > 0) {
+            t.payments.forEach(p => {
+                const method = p.method || 'unknown';
+                if (!breakdown[method]) breakdown[method] = { count: 0, sales: 0, tips: 0, tickets: 0 };
+                breakdown[method].count++;
+                breakdown[method].sales += p.amount || 0;
+                breakdown[method].tips += p.tip || 0;
+            });
+            // Count the ticket once for its primary method
+            const primary = t.paymentMethod;
+            if (breakdown[primary]) breakdown[primary].tickets++;
+        } else {
+            const method = t.paymentMethod;
+            if (!breakdown[method]) breakdown[method] = { count: 0, sales: 0, tips: 0, tickets: 0 };
+            breakdown[method].count++;
+            breakdown[method].tickets++;
+            breakdown[method].sales += t.total || 0;
+            breakdown[method].tips += t.tip || 0;
+        }
+    });
+
+    // Round all monetary values
+    Object.values(breakdown).forEach(b => {
+        b.sales = Math.round(b.sales * 100) / 100;
+        b.tips = Math.round(b.tips * 100) / 100;
+    });
+
+    res.json({ breakdown });
+});
+
+// ==========================================
+// Surcharge Revenue Report (requires reports permission)
+// ==========================================
+app.get('/api/reports/surcharge', authorize('reports'), (req, res) => {
+    let totalSurchargeRevenue = 0;
+    let cashTickets = 0, cardTickets = 0;
+    let cashSales = 0, cardSales = 0;
+    let surchargeTicketCount = 0;
+
+    const config = store.config.cashDiscount;
+    const rate = (parseFloat(config.rate) || 0) / 100;
+
+    store.tickets.forEach(t => {
+        if (t.status === 'voided' || t.status === 'refunded') return;
+        if (!t.paymentMethod) return;
+
+        if (t.paymentMethod === 'cash') {
+            cashTickets++;
+            cashSales += t.total || 0;
+        } else {
+            cardTickets++;
+            cardSales += t.total || 0;
+
+            // Calculate surcharge revenue based on mode
+            if (config.enabled && rate > 0) {
+                let surcharge = 0;
+                if (config.mode === 'CASH_DISCOUNT') {
+                    // Card price is the menu price; surcharge is embedded
+                    surcharge = (t.total || 0) * rate / (1 + rate);
+                } else {
+                    // CARD_SURCHARGE: surcharge is added on top
+                    surcharge = (t.total || 0) * rate / (1 + rate);
+                }
+                totalSurchargeRevenue += surcharge;
+                surchargeTicketCount++;
+            }
+        }
+    });
+
+    res.json({
+        mode: config.mode,
+        rate: config.rate,
+        enabled: config.enabled,
+        totalSurchargeRevenue: Math.round(totalSurchargeRevenue * 100) / 100,
+        surchargeTicketCount,
+        cashTickets,
+        cardTickets,
+        cashSales: Math.round(cashSales * 100) / 100,
+        cardSales: Math.round(cardSales * 100) / 100,
+        cashPct: (cashTickets + cardTickets) > 0
+            ? Math.round(cashTickets / (cashTickets + cardTickets) * 1000) / 10
+            : 0,
+        cardPct: (cashTickets + cardTickets) > 0
+            ? Math.round(cardTickets / (cashTickets + cardTickets) * 1000) / 10
+            : 0
+    });
 });
 
 // ==========================================
