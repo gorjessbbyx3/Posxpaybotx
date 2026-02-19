@@ -3476,9 +3476,9 @@ function openNotesModal() {
     } else {
         listEl.innerHTML = state.ticket.items.map((item, idx) => `
             <div class="notes-item-row">
-                <span class="notes-item-name">${item.qty}x ${item.name}</span>
+                <span class="notes-item-name">${item.qty}x ${escapeHtml(item.name)}</span>
                 <input type="text" class="notes-item-input" data-index="${idx}"
-                    value="${item.note || ''}" placeholder="Add note...">
+                    value="${escapeHtml(item.note || '')}" placeholder="Add note...">
             </div>
         `).join('');
     }
@@ -3667,6 +3667,35 @@ window.closeTab = closeTab;
 const giftCardModal = document.getElementById('giftcard-modal');
 const giftCards = {};
 
+// Cross-tab gift card sync via localStorage
+function syncGiftCardsToStorage() {
+    try {
+        localStorage.setItem('pos-gift-cards', JSON.stringify(giftCards));
+    } catch (e) {}
+}
+
+function loadGiftCardsFromStorage() {
+    try {
+        const stored = localStorage.getItem('pos-gift-cards');
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            Object.keys(parsed).forEach(k => { giftCards[k] = parsed[k]; });
+        }
+    } catch (e) {}
+}
+
+// Listen for gift card changes from other tabs
+window.addEventListener('storage', (e) => {
+    if (e.key === 'pos-gift-cards' && e.newValue) {
+        try {
+            const updated = JSON.parse(e.newValue);
+            Object.keys(updated).forEach(k => { giftCards[k] = updated[k]; });
+        } catch (err) {}
+    }
+});
+
+loadGiftCardsFromStorage();
+
 document.getElementById('close-giftcard').addEventListener('click', () => {
     giftCardModal.classList.remove('active');
 });
@@ -3744,6 +3773,7 @@ function activateGiftCard(amount) {
     document.getElementById('gc-card-number').value = cardNum;
     showGiftCardResult(giftCards[cardNum]);
     showToast(`Gift card activated: ${cardNum} for ${formatCurrency(amount)}`);
+    syncGiftCardsToStorage();
     saveState();
 }
 
@@ -3760,11 +3790,15 @@ document.getElementById('gc-reload-btn').addEventListener('click', () => {
     card.history.push({ type: 'reload', amount: reloadAmount, time: new Date().toISOString() });
     showGiftCardResult(card);
     showToast(`Reloaded ${formatCurrency(reloadAmount)} to ${cardNum}`);
+    syncGiftCardsToStorage();
     saveState();
 });
 
 // Pay with gift card
 document.getElementById('gc-pay-btn').addEventListener('click', () => {
+    // Reload latest balances from other tabs before checking
+    loadGiftCardsFromStorage();
+
     const cardNum = document.getElementById('gc-card-number').value.trim();
     const card = giftCards[cardNum];
     if (!card) return;

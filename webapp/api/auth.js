@@ -4,6 +4,7 @@
  * JWT-based auth for the POS API.
  * - Login with PIN returns a JWT token
  * - Token required on all mutating endpoints
+ * - Sensitive GET endpoints (reports, config) also require auth
  * - Role-based access control per endpoint
  */
 
@@ -13,15 +14,25 @@ const crypto = require('crypto');
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 const TOKEN_EXPIRY_HOURS = 12;
 
-// Employee database (mirrors the frontend staff list)
+// PIN hash utility (must match frontend hashPin)
+function hashPin(pin) {
+    let hash = 5381;
+    for (let i = 0; i < pin.length; i++) {
+        hash = ((hash << 5) + hash) + pin.charCodeAt(i);
+        hash = hash & hash;
+    }
+    return 'ph_' + (hash >>> 0).toString(16);
+}
+
+// Employee database keyed by pre-computed PIN hashes - no plaintext PINs
 const EMPLOYEES = {
-    '1234': { id: 'M001', name: 'Maria', role: 'manager', pin: '1234' },
-    '1111': { id: 'S001', name: 'John', role: 'server', pin: '1111' },
-    '2222': { id: 'S002', name: 'Sarah', role: 'server', pin: '2222' },
-    '3333': { id: 'C001', name: 'Mike', role: 'cashier', pin: '3333' },
-    '4444': { id: 'B001', name: 'Lisa', role: 'bartender', pin: '4444' },
-    '5555': { id: 'K001', name: 'Carlos', role: 'kitchen', pin: '5555' },
-    '9999': { id: 'A001', name: 'Admin', role: 'admin', pin: '9999' }
+    'ph_7c78c98f': { id: 'M001', name: 'Maria', role: 'manager' },
+    'ph_7c78c509': { id: 'S001', name: 'John', role: 'server' },
+    'ph_7c7955cd': { id: 'S002', name: 'Sarah', role: 'server' },
+    'ph_7c79e691': { id: 'C001', name: 'Mike', role: 'cashier' },
+    'ph_7c7a7755': { id: 'B001', name: 'Lisa', role: 'bartender' },
+    'ph_7c7b0819': { id: 'K001', name: 'Carlos', role: 'kitchen' },
+    'ph_7c7d4b29': { id: 'A001', name: 'Admin', role: 'admin' }
 };
 
 // Role-based permissions
@@ -33,6 +44,16 @@ const ROLE_PERMISSIONS = {
     bartender: { tickets: true, void: false, refund: false, kitchen: false, config: false, reports: false, timeclock: true },
     kitchen:   { tickets: false, void: false, refund: false, kitchen: true, config: false, reports: false, timeclock: true }
 };
+
+// GET endpoints that do NOT require authentication (public read-only)
+const PUBLIC_GET_PATHS = new Set([
+    '/health',
+    '/api/health',
+    '/kitchen',
+    '/api/kitchen',
+    '/tickets',
+    '/api/tickets'
+]);
 
 /**
  * Create a simple JWT-like token.
@@ -86,14 +107,15 @@ function verifyToken(token) {
 }
 
 /**
- * Login handler - validates PIN and returns token.
+ * Login handler - validates PIN (hashed) and returns token.
  */
 function loginHandler(req, res) {
     const { pin, user } = req.body;
 
-    // Try PIN-based auth
+    // Try PIN-based auth (hash the PIN and look up)
     if (pin) {
-        const employee = EMPLOYEES[pin];
+        const hashed = hashPin(pin);
+        const employee = EMPLOYEES[hashed];
         if (!employee) {
             return res.status(401).json({ error: 'Invalid PIN' });
         }
@@ -136,40 +158,38 @@ function loginHandler(req, res) {
  * Authentication middleware.
  * Extracts and verifies the Bearer token.
  * Attaches user info to req.user.
+ *
+ * Auth policy:
+ * - Login/health: no auth needed
+ * - Public GET (tickets, kitchen): no auth required, but user attached if present
+ * - Sensitive GET (reports, config, refunds, timeclock): auth required via authorize()
+ * - All mutating methods (POST/PATCH/PUT/DELETE): auth required
  */
 function authenticate(req, res, next) {
     // Allow login and health endpoints without auth
-    // req.path is relative to the mount point (e.g. '/auth/login' when mounted at '/api')
     if (req.path === '/api/auth/login' || req.path === '/auth/login' ||
         req.path === '/api/health' || req.path === '/health') {
         return next();
     }
 
-    // Allow GET requests for read-only access (config, menu display)
-    // Only require auth on mutating operations
+    // Extract token if present (for all requests)
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const payload = verifyToken(authHeader.slice(7));
+        if (payload) req.user = payload;
+    }
+
+    // GET requests: allow public endpoints without auth
+    // Sensitive GETs are protected by authorize() middleware on the route
     if (req.method === 'GET') {
-        // Still attach user if token present (for filtering by user)
-        const authHeader = req.headers.authorization;
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-            const payload = verifyToken(authHeader.slice(7));
-            if (payload) req.user = payload;
-        }
         return next();
     }
 
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // Mutating requests require authentication
+    if (!req.user) {
         return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const token = authHeader.slice(7);
-    const payload = verifyToken(token);
-
-    if (!payload) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
-    }
-
-    req.user = payload;
     next();
 }
 
@@ -203,6 +223,7 @@ module.exports = {
     authorize,
     createToken,
     verifyToken,
+    hashPin,
     EMPLOYEES,
     ROLE_PERMISSIONS
 };

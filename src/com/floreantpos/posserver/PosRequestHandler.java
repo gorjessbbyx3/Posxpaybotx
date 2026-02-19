@@ -11,9 +11,12 @@ import java.util.List;
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.Marshaller;
 import javax.xml.bind.Unmarshaller;
+import javax.xml.parsers.SAXParserFactory;
+import javax.xml.transform.sax.SAXSource;
 
 import org.jfree.util.Log;
 import org.xml.sax.InputSource;
+import org.xml.sax.XMLReader;
 
 import com.floreantpos.PosLog;
 import com.floreantpos.main.Application;
@@ -36,22 +39,34 @@ public class PosRequestHandler extends Thread {
 		this.socket = socket;
 	}
 
+	private static final int MAX_REQUEST_SIZE = 3000;
+	private static final int SOCKET_TIMEOUT_MS = 30000;
+
 	@Override
 	public void run() {
 
 		try {
+			socket.setSoTimeout(SOCKET_TIMEOUT_MS);
 			while (true) {
-				byte[] b1 = new byte[3000];
-				socket.getInputStream().read(b1);
+				byte[] b1 = new byte[MAX_REQUEST_SIZE];
+				int bytesRead = socket.getInputStream().read(b1);
 
-				String request = new String(b1).trim();
+				if (bytesRead <= 0) {
+					break;
+				}
+
+				String request = new String(b1, 0, bytesRead).trim();
 				if (request.length() <= 0) {
 					break;
 				}
 
-				PosLog.info(getClass(), "Request From Terminal==>[" + request + "]");
+				PosLog.info(getClass(), "Request From Terminal==>[" + request.substring(0, Math.min(200, request.length())) + "...]");
 
 				int index = request.indexOf("<");
+				if (index < 0) {
+					PosLog.info(getClass(), "Invalid request: no XML found");
+					break;
+				}
 				request = request.substring(index);
 
 				POSRequest posRequest = createRequest(request);
@@ -82,12 +97,20 @@ public class PosRequestHandler extends Thread {
 	}
 
 	private POSRequest createRequest(String requestString) throws Exception {
+		// Protect against XXE attacks by disabling external entities
+		SAXParserFactory spf = SAXParserFactory.newInstance();
+		spf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+		spf.setFeature("http://xml.org/sax/features/external-general-entities", false);
+		spf.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+		XMLReader xmlReader = spf.newSAXParser().getXMLReader();
+
 		InputSource is = new InputSource();
 		is.setCharacterStream(new StringReader(requestString));
+		SAXSource source = new SAXSource(xmlReader, is);
 
 		JAXBContext jaxbContext = JAXBContext.newInstance(POSRequest.class);
 		Unmarshaller unmarshaller = jaxbContext.createUnmarshaller();
-		return (POSRequest) unmarshaller.unmarshal(is);
+		return (POSRequest) unmarshaller.unmarshal(source);
 	}
 
 	private POSResponse createResponse(POSRequest posRequest) {
@@ -203,7 +226,13 @@ public class PosRequestHandler extends Thread {
 		for (Ticket ticket : ticketsForUser) {
 			List<Integer> tableNumbers = ticket.getTableNumbers();
 			if (tableNumbers != null && tableNumbers.size() > 0) {
-				if (tableNumbers.contains(Integer.parseInt(posRequest.posDefaultInfo.table))) {
+				int requestedTable;
+				try {
+					requestedTable = Integer.parseInt(posRequest.posDefaultInfo.table);
+				} catch (NumberFormatException e) {
+					break; // Invalid table number
+				}
+				if (tableNumbers.contains(requestedTable)) {
 					Check chk = new Check();
 					String tableNumber = tableNumbers.get(0).toString();
 					if (tableNumbers.get(0) < 10) {
@@ -264,10 +293,14 @@ public class PosRequestHandler extends Thread {
 			}*/
 
 			transaction.setCaptured(false);
-			transaction.setCardNumber(posRequest.payment.acct);
+			// Store only masked card number (last 4 digits) for PCI compliance
+			String acct = posRequest.payment.acct;
+			if (acct != null && acct.length() >= 4) {
+				transaction.setCardNumber("****" + acct.substring(acct.length() - 4));
+			}
 
 			String exp = posRequest.payment.exp;
-			if (exp != null) {
+			if (exp != null && exp.length() >= 4) {
 				transaction.setCardExpMonth(exp.substring(0, 2));
 				transaction.setCardExpYear(exp.substring(2, 4));
 			}

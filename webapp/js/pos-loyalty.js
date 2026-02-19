@@ -170,8 +170,8 @@ function showLoyaltyMember(member) {
     document.getElementById('loyalty-member-card').innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
             <div>
-                <div style="font-weight:700; font-size:1.1rem;">${member.name}</div>
-                <div style="font-size:0.8rem; color:var(--text-muted);">${member.phone}</div>
+                <div style="font-weight:700; font-size:1.1rem;">${escapeHtml(member.name)}</div>
+                <div style="font-size:0.8rem; color:var(--text-muted);">${escapeHtml(member.phone)}</div>
             </div>
             <span style="padding:4px 12px; border-radius:12px; background:${tierColors[member.tier]}; color:#333; font-weight:700; font-size:0.75rem; text-transform:uppercase;">${member.tier}</span>
         </div>

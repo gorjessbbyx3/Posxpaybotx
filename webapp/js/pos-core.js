@@ -191,22 +191,16 @@ function hashPin(pin) {
     return 'ph_' + (hash >>> 0).toString(16);
 }
 
-const STAFF = {};
-// Pre-hashed entries - PINs are never stored in plaintext
-(function() {
-    const entries = [
-        { pin: '1234', name: 'Maria G.', role: 'manager', id: 'EMP001', hourlyRate: 28.00 },
-        { pin: '1111', name: 'John D.', role: 'server', id: 'EMP002', hourlyRate: 12.00 },
-        { pin: '2222', name: 'Sarah K.', role: 'server', id: 'EMP003', hourlyRate: 12.00 },
-        { pin: '3333', name: 'Mike R.', role: 'cashier', id: 'EMP004', hourlyRate: 15.00 },
-        { pin: '4444', name: 'Lisa T.', role: 'bartender', id: 'EMP005', hourlyRate: 14.00 },
-        { pin: '5555', name: 'Carlos M.', role: 'kitchen', id: 'EMP006', hourlyRate: 16.00 },
-        { pin: '9999', name: 'Admin', role: 'admin', id: 'EMP000', hourlyRate: 0 }
-    ];
-    entries.forEach(e => {
-        STAFF[hashPin(e.pin)] = { name: e.name, role: e.role, id: e.id, hourlyRate: e.hourlyRate };
-    });
-})();
+// Staff keyed by pre-computed PIN hashes - no plaintext PINs in source
+const STAFF = {
+    'ph_7c78c98f': { name: 'Maria G.', role: 'manager', id: 'EMP001', hourlyRate: 28.00 },
+    'ph_7c78c509': { name: 'John D.', role: 'server', id: 'EMP002', hourlyRate: 12.00 },
+    'ph_7c7955cd': { name: 'Sarah K.', role: 'server', id: 'EMP003', hourlyRate: 12.00 },
+    'ph_7c79e691': { name: 'Mike R.', role: 'cashier', id: 'EMP004', hourlyRate: 15.00 },
+    'ph_7c7a7755': { name: 'Lisa T.', role: 'bartender', id: 'EMP005', hourlyRate: 14.00 },
+    'ph_7c7b0819': { name: 'Carlos M.', role: 'kitchen', id: 'EMP006', hourlyRate: 16.00 },
+    'ph_7c7d4b29': { name: 'Admin', role: 'admin', id: 'EMP000', hourlyRate: 0 }
+};
 
 // Lookup staff by raw PIN (hashes then looks up)
 function lookupStaffByPin(pin) {
