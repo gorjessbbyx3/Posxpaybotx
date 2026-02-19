@@ -3778,3 +3778,92 @@ describe('KDS Display Management', () => {
     });
 });
 
+// ==========================================
+// Customer Stats on Payment
+// ==========================================
+describe('Customer Stats on Payment', () => {
+    it('updates customer totalSpent and visitCount on ticket payment', async () => {
+        const cust = await req('POST', '/api/customers', { name: 'StatsTest', email: 'stats@test.com' }, managerToken);
+        const ticket = await req('POST', '/api/tickets', {
+            items: [{ name: 'Steak', price: 30, qty: 1 }],
+            type: 'dine-in'
+        }, managerToken);
+        // Link customer to ticket
+        store.tickets.find(t => t.id === ticket.body.id).customerId = cust.body.id;
+
+        await req('POST', `/api/tickets/${ticket.body.id}/pay`, { method: 'card' }, managerToken);
+        const updated = store.customers.find(c => c.id === cust.body.id);
+        assert.ok(updated.totalSpent > 0);
+        assert.equal(updated.visitCount, 1);
+        assert.ok(updated.lastVisit);
+    });
+});
+
+// ==========================================
+// Online Order Promo Code
+// ==========================================
+describe('Online Order Promo Code', () => {
+    it('applies valid promo code to online order', async () => {
+        // Create a promo code
+        await req('POST', '/api/promo-codes', {
+            code: 'ONLINE10', type: 'percent', value: 10, minOrder: 0, maxUses: 100, active: true
+        }, managerToken);
+
+        const res = await req('POST', '/api/online-orders', {
+            customerName: 'PromoUser',
+            items: [{ name: 'Burger', price: 20, qty: 2 }],
+            promoCode: 'ONLINE10'
+        });
+        assert.equal(res.status, 201);
+        assert.equal(res.body.promoDiscount, 4); // 10% of $40
+        assert.ok(res.body.appliedPromo);
+        assert.equal(res.body.appliedPromo.code, 'ONLINE10');
+        assert.ok(res.body.total < 40 + res.body.tax + 4); // Discount applied
+    });
+
+    it('ignores invalid promo code', async () => {
+        const res = await req('POST', '/api/online-orders', {
+            customerName: 'NoPromo',
+            items: [{ name: 'Salad', price: 10, qty: 1 }],
+            promoCode: 'INVALIDXXX'
+        });
+        assert.equal(res.status, 201);
+        assert.equal(res.body.promoDiscount, 0);
+        assert.equal(res.body.appliedPromo, null);
+    });
+});
+
+// ==========================================
+// Saved Payment in Ticket Pay
+// ==========================================
+describe('Saved Payment in Ticket Pay', () => {
+    it('references saved payment method when paying', async () => {
+        const sp = await req('POST', '/api/saved-payment-methods', {
+            customerId: 1, lastFour: '4242', cardBrand: 'Visa', nickname: 'My Visa'
+        }, managerToken);
+
+        const ticket = await req('POST', '/api/tickets', {
+            items: [{ name: 'Wine', price: 15, qty: 1 }]
+        }, managerToken);
+
+        const res = await req('POST', `/api/tickets/${ticket.body.id}/pay`, {
+            method: 'card', savedPaymentId: sp.body.id
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'paid');
+        const lastPayment = res.body.payments[res.body.payments.length - 1];
+        assert.equal(lastPayment.savedPaymentId, sp.body.id);
+        assert.equal(lastPayment.cardLastFour, '4242');
+    });
+
+    it('rejects invalid saved payment ID', async () => {
+        const ticket = await req('POST', '/api/tickets', {
+            items: [{ name: 'Beer', price: 8, qty: 1 }]
+        }, managerToken);
+        const res = await req('POST', `/api/tickets/${ticket.body.id}/pay`, {
+            method: 'card', savedPaymentId: 99999
+        }, managerToken);
+        assert.equal(res.status, 404);
+    });
+});
+
