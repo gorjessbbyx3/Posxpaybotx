@@ -425,6 +425,19 @@ app.post('/api/tickets/:id/pay', authorize('tickets'), (req, res) => {
         ? Math.round((parseFloat(req.body.amount) || 0) * 100) / 100
         : null;
 
+    // Resolve saved payment method if provided
+    let savedPayment = null;
+    if (req.body.savedPaymentId) {
+        savedPayment = store.savedPaymentMethods.find(s => s.id === req.body.savedPaymentId);
+        if (!savedPayment) return res.status(404).json({ error: 'Saved payment method not found' });
+    }
+    // Resolve token vault entry if provided
+    let tokenEntry = null;
+    if (req.body.tokenId) {
+        tokenEntry = store.tokenVault.find(t => t.id === req.body.tokenId);
+        if (!tokenEntry) return res.status(404).json({ error: 'Token not found' });
+    }
+
     // Initialize payments array for tracking partial payments
     if (!ticket.payments) ticket.payments = [];
     const previouslyPaid = ticket.payments.reduce((s, p) => s + p.amount, 0);
@@ -450,6 +463,9 @@ app.post('/api/tickets/:id/pay', authorize('tickets'), (req, res) => {
         amount: payAmount,
         method,
         tip,
+        savedPaymentId: savedPayment ? savedPayment.id : null,
+        tokenId: tokenEntry ? tokenEntry.id : null,
+        cardLastFour: savedPayment ? savedPayment.lastFour : (tokenEntry ? tokenEntry.lastFour : null),
         paidBy: req.user ? req.user.name : 'unknown',
         paidAt: new Date().toISOString()
     };
@@ -475,6 +491,16 @@ app.post('/api/tickets/:id/pay', authorize('tickets'), (req, res) => {
 
     if (ticket.status === 'paid') {
         fireWebhooks('ticket.paid', { ticketId: ticket.id, total: ticket.total, method });
+
+        // Update customer stats if ticket has a linked customer
+        if (ticket.customerId) {
+            const customer = store.customers.find(c => c.id === ticket.customerId);
+            if (customer) {
+                customer.totalSpent = Math.round(((customer.totalSpent || 0) + ticket.total) * 100) / 100;
+                customer.visitCount = (customer.visitCount || 0) + 1;
+                customer.lastVisit = new Date().toISOString();
+            }
+        }
     }
     scheduleSave();
     res.json(ticket);
@@ -1698,7 +1724,30 @@ app.post('/api/online-orders', (req, res) => {
     const subtotal = items.reduce((s, i) => {
         return s + Math.round((parseFloat(i.price) || 0) * (parseInt(i.qty, 10) || 0) * 100) / 100;
     }, 0);
-    const tax = Math.round(subtotal * (store.config.tax.rate / 100) * 100) / 100;
+
+    // Validate and apply promo code if provided
+    let promoDiscount = 0;
+    let appliedPromo = null;
+    if (promoCode) {
+        const promo = store.promoCodes.find(p => p.code === promoCode.toUpperCase() && p.active);
+        if (promo) {
+            const isExpired = promo.expiresAt && new Date(promo.expiresAt) < new Date();
+            const isMaxed = promo.maxUses && promo.usedCount >= promo.maxUses;
+            const meetsMin = subtotal >= (promo.minOrder || 0);
+            if (!isExpired && !isMaxed && meetsMin) {
+                if (promo.type === 'percent') {
+                    promoDiscount = Math.round(subtotal * (promo.value / 100) * 100) / 100;
+                } else {
+                    promoDiscount = Math.min(promo.value, subtotal);
+                }
+                promo.usedCount = (promo.usedCount || 0) + 1;
+                appliedPromo = { code: promo.code, type: promo.type, value: promo.value, discount: promoDiscount };
+            }
+        }
+    }
+
+    const afterDiscount = Math.round(Math.max(0, subtotal - promoDiscount) * 100) / 100;
+    const tax = Math.round(afterDiscount * (store.config.tax.rate / 100) * 100) / 100;
 
     const order = {
         id: store.onlineOrders.length > 0 ? Math.max(...store.onlineOrders.map(o => o.id)) + 1 : 5001,
@@ -1708,8 +1757,10 @@ app.post('/api/online-orders', (req, res) => {
         items,
         type: type || 'pickup',
         subtotal: Math.round(subtotal * 100) / 100,
+        promoDiscount,
+        appliedPromo,
         tax,
-        total: Math.round((subtotal + tax) * 100) / 100,
+        total: Math.round((afterDiscount + tax) * 100) / 100,
         promoCode: promoCode || null,
         note: note || '',
         scheduledFor: scheduledFor || null,
