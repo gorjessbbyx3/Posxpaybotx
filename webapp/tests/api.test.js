@@ -88,6 +88,7 @@ before(() => {
             store.deliveryIntegrations.length = 0;
             store.tokenVault.length = 0;
             store.backups.length = 0;
+            if (store.voidRequests) store.voidRequests.length = 0;
             store.merchants.length = 0;
             store.plugins.length = 0;
             // Reset config sections modified by tests
@@ -99,6 +100,12 @@ before(() => {
             delete store.config.lastDeploy;
             delete store.config.autoDeploy;
             store.featureToggles = {};
+            delete store.config.twoFactorSecrets;
+            delete store.config.locations;
+            delete store.config.systemUpdates;
+            delete store.config.deployHistory;
+            delete store.config.menu;
+            delete store.config.compliance;
             store.nextTicketId = 1001;
             resolve();
         });
@@ -2384,11 +2391,12 @@ describe('QR Table Ordering', () => {
 describe('Delivery Integrations', () => {
     it('creates a delivery integration', async () => {
         const res = await req('POST', '/api/delivery-integrations', {
-            platform: 'DoorDash', apiKey: 'dd_key_123', storeId: 'store_456'
+            platform: 'doordash', apiKey: 'dd_key_123', storeId: 'store_456'
         }, managerToken);
         assert.equal(res.status, 201);
-        assert.equal(res.body.platform, 'DoorDash');
+        assert.equal(res.body.platform, 'doordash');
         assert.equal(res.body.enabled, true);
+        assert.equal(res.body.connectionStatus, 'configured');
     });
 
     it('lists integrations', async () => {
@@ -2520,15 +2528,35 @@ describe('Backup Automation', () => {
 // Batch 8: Two-Factor Authentication
 // ==========================================
 describe('Two-Factor Authentication', () => {
+    let tfaSecret;
+
     it('sets up 2FA', async () => {
         const res = await req('POST', '/api/auth/2fa/setup', {}, managerToken);
         assert.equal(res.status, 200);
         assert.ok(res.body.secret);
         assert.ok(res.body.qrCode.includes('otpauth://'));
+        tfaSecret = res.body.secret;
     });
 
-    it('verifies 2FA code', async () => {
-        const res = await req('POST', '/api/auth/2fa/verify', { code: '123456' }, managerToken);
+    it('rejects invalid 2FA code', async () => {
+        const res = await req('POST', '/api/auth/2fa/verify', { code: '000000' }, managerToken);
+        assert.equal(res.status, 401);
+        assert.equal(res.body.verified, false);
+    });
+
+    it('verifies correct TOTP code', async () => {
+        // Compute valid TOTP code from secret
+        const crypto = require('crypto');
+        const timeStep = Math.floor(Date.now() / 30000);
+        const counterBuf = Buffer.alloc(8);
+        counterBuf.writeUInt32BE(Math.floor(timeStep / 0x100000000), 0);
+        counterBuf.writeUInt32BE(timeStep & 0xFFFFFFFF, 4);
+        const hmac = crypto.createHmac('sha1', Buffer.from(tfaSecret, 'hex')).update(counterBuf).digest();
+        const offset = hmac[hmac.length - 1] & 0x0f;
+        const otp = ((hmac[offset] & 0x7f) << 24 | hmac[offset + 1] << 16 | hmac[offset + 2] << 8 | hmac[offset + 3]) % 1000000;
+        const code = String(otp).padStart(6, '0');
+
+        const res = await req('POST', '/api/auth/2fa/verify', { code }, managerToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.verified, true);
     });
@@ -2588,22 +2616,56 @@ describe('Real-time Sales Feed', () => {
 // Batch 9: Remote Void Approval
 // ==========================================
 describe('Remote Void Approval', () => {
-    it('voids a ticket remotely', async () => {
+    it('creates a void request (pending approval)', async () => {
         const ticket = await req('POST', '/api/tickets', {
-            items: [{ name: 'Salad', price: 12.00, quantity: 1 }], server: 'John'
+            items: [{ name: 'Salad', price: 12.00, qty: 1 }], server: 'John'
         }, serverToken);
         const res = await req('POST', `/api/tickets/${ticket.body.id}/remote-void`, {
-            reason: 'Customer complaint', approvedBy: 'Maria'
+            reason: 'Customer complaint'
+        }, serverToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.status, 'pending');
+        assert.equal(res.body.reason, 'Customer complaint');
+        assert.equal(res.body.requestedBy, 'John');
+    });
+
+    it('manager approves void request and ticket is voided', async () => {
+        const ticket = await req('POST', '/api/tickets', {
+            items: [{ name: 'Pasta', price: 15.00, qty: 1 }]
         }, managerToken);
+        const voidReq = await req('POST', `/api/tickets/${ticket.body.id}/remote-void`, {
+            reason: 'Wrong order'
+        }, serverToken);
+        assert.equal(voidReq.body.status, 'pending');
+
+        const approve = await req('POST', `/api/void-requests/${voidReq.body.id}/approve`, {}, managerToken);
+        assert.equal(approve.status, 200);
+        assert.equal(approve.body.request.status, 'approved');
+        assert.equal(approve.body.ticket.status, 'voided');
+        assert.equal(approve.body.ticket.remoteVoid, true);
+        assert.equal(approve.body.ticket.voidApprovedBy, 'Maria');
+    });
+
+    it('manager rejects void request', async () => {
+        const ticket = await req('POST', '/api/tickets', {
+            items: [{ name: 'Soup', price: 8.00, qty: 1 }]
+        }, managerToken);
+        const voidReq = await req('POST', `/api/tickets/${ticket.body.id}/remote-void`, {
+            reason: 'Test'
+        }, serverToken);
+        const reject = await req('POST', `/api/void-requests/${voidReq.body.id}/reject`, { reason: 'Not justified' }, managerToken);
+        assert.equal(reject.status, 200);
+        assert.equal(reject.body.status, 'rejected');
+    });
+
+    it('lists pending void requests', async () => {
+        const res = await req('GET', '/api/void-requests', null, managerToken);
         assert.equal(res.status, 200);
-        assert.equal(res.body.status, 'voided');
-        assert.equal(res.body.remoteVoid, true);
-        assert.equal(res.body.voidReason, 'Customer complaint');
-        assert.equal(res.body.voidApprovedBy, 'Maria');
+        assert.ok(res.body.requests);
     });
 
     it('returns 404 for invalid ticket', async () => {
-        const res = await req('POST', '/api/tickets/99999/remote-void', { reason: 'test' }, managerToken);
+        const res = await req('POST', '/api/tickets/99999/remote-void', { reason: 'test' }, serverToken);
         assert.equal(res.status, 404);
     });
 });
@@ -2900,8 +2962,10 @@ describe('System Diagnostics & Updates', () => {
     it('requests system update', async () => {
         const res = await req('POST', '/api/system/update', { version: '2.0', channel: 'beta' }, managerToken);
         assert.equal(res.status, 200);
-        assert.equal(res.body.status, 'update_scheduled');
+        assert.equal(res.body.status, 'scheduled');
         assert.equal(res.body.requestedVersion, '2.0');
+        assert.equal(res.body.channel, 'beta');
+        assert.equal(res.body.requestedBy, 'Maria');
     });
 });
 
@@ -2962,8 +3026,11 @@ describe('Automated Deployment', () => {
     it('triggers deployment', async () => {
         const res = await req('POST', '/api/deploy', { version: '1.5' }, managerToken);
         assert.equal(res.status, 200);
-        assert.equal(res.body.status, 'deploying');
+        assert.equal(res.body.status, 'completed');
         assert.equal(res.body.version, '1.5');
+        assert.ok(res.body.steps);
+        assert.equal(res.body.steps.length, 5);
+        assert.equal(res.body.triggeredBy, 'Maria');
     });
 });
 
@@ -3303,6 +3370,411 @@ describe('Barcode Scanner', () => {
         assert.equal(res.status, 200);
         assert.equal(res.body.type, 'menu_item');
         assert.equal(res.body.item.name, 'Fries');
+    });
+});
+
+// ==========================================
+// Backup (Writes to file)
+// ==========================================
+describe('Backup Implementation', () => {
+    it('creates a real backup file', async () => {
+        const res = await req('POST', '/api/backups', {}, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.status, 'completed');
+        assert.ok(res.body.path);
+        assert.ok(res.body.hash);
+        assert.ok(res.body.size > 0);
+    });
+});
+
+// ==========================================
+// Encryption Key Management
+// ==========================================
+describe('Encryption Key Management', () => {
+    it('enables encryption and generates key', async () => {
+        const res = await req('PUT', '/api/security/encryption', { enabled: true }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.encryption, true);
+        assert.ok(res.body.keyFingerprint);
+    });
+
+    it('shows encryption status with key info', async () => {
+        const res = await req('GET', '/api/security/encryption-status', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.databaseEncryption, true);
+        assert.equal(res.body.status, 'active');
+        assert.ok(res.body.keyFingerprint);
+        assert.ok(res.body.daysSinceRotation !== null);
+    });
+
+    it('rotates encryption key', async () => {
+        const status1 = await req('GET', '/api/security/encryption-status', null, managerToken);
+        const oldFp = status1.body.keyFingerprint;
+
+        const res = await req('POST', '/api/security/rotate-key', {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.newFingerprint);
+        assert.notEqual(res.body.oldFingerprint, res.body.newFingerprint);
+    });
+
+    it('rejects key rotation when encryption disabled', async () => {
+        await req('PUT', '/api/security/encryption', { enabled: false }, managerToken);
+        const res = await req('POST', '/api/security/rotate-key', {}, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// PCI SAQ Dynamic Checks
+// ==========================================
+describe('PCI SAQ Dynamic Checks', () => {
+    it('returns dynamic compliance assessment', async () => {
+        const res = await req('GET', '/api/compliance/pci-saq', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.requirements.length >= 10);
+        assert.ok(res.body.overallScore >= 0 && res.body.overallScore <= 100);
+        // Each requirement should have a detail field
+        res.body.requirements.forEach(r => {
+            assert.ok(r.detail, `Requirement ${r.id} missing detail`);
+            assert.ok(['compliant', 'review_needed'].includes(r.status));
+        });
+    });
+});
+
+// ==========================================
+// Sync Push - Applies Changes
+// ==========================================
+describe('Sync Push Implementation', () => {
+    it('applies ticket updates to store', async () => {
+        const ticket = await req('POST', '/api/tickets', {
+            items: [{ name: 'Tacos', price: 10, qty: 2 }]
+        }, managerToken);
+
+        const res = await req('POST', '/api/sync/push', {
+            changes: [{
+                type: 'ticket', action: 'update', id: ticket.body.id,
+                data: { note: 'Extra hot' }, timestamp: new Date(0).toISOString()
+            }]
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.applied.length, 1);
+
+        // Verify the note was applied
+        const get = await req('GET', `/api/tickets/${ticket.body.id}`);
+        assert.equal(get.body.note, 'Extra hot');
+    });
+
+    it('detects conflicts for stale updates', async () => {
+        const ticket = await req('POST', '/api/tickets', {
+            items: [{ name: 'Burrito', price: 12, qty: 1 }]
+        }, managerToken);
+        // Update ticket so it has a recent updatedAt
+        await req('PATCH', `/api/tickets/${ticket.body.id}`, { note: 'fresh' }, managerToken);
+
+        const res = await req('POST', '/api/sync/push', {
+            changes: [{
+                type: 'ticket', action: 'update', id: ticket.body.id,
+                data: { note: 'stale' }, timestamp: new Date(0).toISOString()
+            }]
+        }, managerToken);
+        assert.equal(res.body.conflicts.length, 1);
+        assert.equal(res.body.conflicts[0].resolution, 'server_wins');
+    });
+
+    it('creates tickets via sync', async () => {
+        const res = await req('POST', '/api/sync/push', {
+            changes: [{ type: 'ticket', action: 'create', data: {
+                items: [{ name: 'Pizza', price: 15, qty: 1 }], status: 'open'
+            }}]
+        }, managerToken);
+        assert.equal(res.body.applied.length, 1);
+    });
+});
+
+// ==========================================
+// Email Campaign Targeting
+// ==========================================
+describe('Email Campaign Targeting', () => {
+    it('sends campaign to matching customers', async () => {
+        // Clear customers and add known set
+        store.customers.length = 0;
+        const alice = await req('POST', '/api/customers', { name: 'Alice', email: 'alice@test.com' }, managerToken);
+        // Set loyalty points directly (customer POST always starts at 0)
+        store.customers.find(c => c.id === alice.body.id).loyaltyPoints = 100;
+        await req('POST', '/api/customers', { name: 'Bob', email: 'bob@test.com' }, managerToken);
+
+        // Create a loyalty-targeted campaign
+        const campaign = await req('POST', '/api/email-campaigns', {
+            name: 'Loyalty Special', subject: 'VIP Offer', body: 'Thanks for being a member!', targetSegment: 'loyalty'
+        }, managerToken);
+
+        const res = await req('POST', `/api/email-campaigns/${campaign.body.id}/send`, {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'sent');
+        assert.ok(res.body.recipients);
+        assert.equal(res.body.recipientCount, 1); // Only Alice has loyalty points
+        assert.equal(res.body.recipients[0].email, 'alice@test.com');
+        assert.equal(res.body.recipients[0].status, 'delivered');
+    });
+
+    it('fails campaign with no matching recipients', async () => {
+        store.customers.length = 0;
+        const campaign = await req('POST', '/api/email-campaigns', {
+            name: 'Inactive Promo', subject: 'Come back!', body: 'We miss you!', targetSegment: 'inactive'
+        }, managerToken);
+        const res = await req('POST', `/api/email-campaigns/${campaign.body.id}/send`, {}, managerToken);
+        assert.equal(res.status, 200);
+        // No customers exist so none match
+        assert.equal(res.body.status, 'failed');
+        assert.ok(res.body.failReason);
+    });
+
+    it('rejects double-send', async () => {
+        store.customers.length = 0;
+        await req('POST', '/api/customers', { name: 'Charlie', email: 'c@test.com' }, managerToken);
+        const campaign = await req('POST', '/api/email-campaigns', {
+            name: 'Test', subject: 'Hi', body: 'Hello', targetSegment: 'all'
+        }, managerToken);
+        await req('POST', `/api/email-campaigns/${campaign.body.id}/send`, {}, managerToken);
+        const res = await req('POST', `/api/email-campaigns/${campaign.body.id}/send`, {}, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Delivery Integration Validation
+// ==========================================
+describe('Delivery Integration Validation', () => {
+    it('rejects invalid platform', async () => {
+        const res = await req('POST', '/api/delivery-integrations', {
+            platform: 'invalid_platform'
+        }, managerToken);
+        assert.equal(res.status, 400);
+        assert.ok(res.body.validPlatforms);
+    });
+
+    it('tests integration connection', async () => {
+        const create = await req('POST', '/api/delivery-integrations', {
+            platform: 'ubereats', apiKey: 'ue_key_123'
+        }, managerToken);
+        const res = await req('POST', `/api/delivery-integrations/${create.body.id}/test`, {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'connected');
+    });
+
+    it('updates integration', async () => {
+        const list = await req('GET', '/api/delivery-integrations', null, managerToken);
+        const id = list.body[0].id;
+        const res = await req('PUT', `/api/delivery-integrations/${id}`, { enabled: false }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.enabled, false);
+    });
+});
+
+// ==========================================
+// Locations CRUD
+// ==========================================
+describe('Locations CRUD', () => {
+    it('creates a new location', async () => {
+        const res = await req('POST', '/api/locations', {
+            name: 'Downtown Branch', address: '123 Main St', phone: '555-1234'
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.name, 'Downtown Branch');
+        assert.equal(res.body.active, true);
+    });
+
+    it('updates a location', async () => {
+        const list = await req('GET', '/api/locations', null, managerToken);
+        const loc = list.body.find(l => l.name === 'Downtown Branch');
+        const res = await req('PUT', `/api/locations/${loc.id}`, { name: 'Downtown HQ' }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.name, 'Downtown HQ');
+    });
+
+    it('deletes a location', async () => {
+        const list = await req('GET', '/api/locations', null, managerToken);
+        const loc = list.body.find(l => l.name === 'Downtown HQ');
+        const res = await req('DELETE', `/api/locations/${loc.id}`, null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.name, 'Downtown HQ');
+    });
+});
+
+// ==========================================
+// Purchase Order Status Transitions
+// ==========================================
+describe('Purchase Order Workflow', () => {
+    let poId;
+    it('creates PO', async () => {
+        await req('POST', '/api/vendors', { name: 'FreshFarms' }, managerToken);
+        const res = await req('POST', '/api/purchase-orders', {
+            vendorId: 1, items: [{ name: 'Tomatoes', quantity: 50, unitCost: 2.00, ingredientId: 999 }]
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.status, 'pending');
+        poId = res.body.id;
+    });
+
+    it('approves PO', async () => {
+        const res = await req('POST', `/api/purchase-orders/${poId}/approve`, {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'approved');
+    });
+
+    it('marks PO as ordered', async () => {
+        const res = await req('POST', `/api/purchase-orders/${poId}/order`, {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'ordered');
+    });
+
+    it('receives PO and updates stock', async () => {
+        const res = await req('POST', `/api/purchase-orders/${poId}/receive`, {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'received');
+    });
+
+    it('cancels a pending PO', async () => {
+        const create = await req('POST', '/api/purchase-orders', {
+            vendorId: 1, items: [{ name: 'Onions', quantity: 30, unitCost: 1.50 }]
+        }, managerToken);
+        const res = await req('POST', `/api/purchase-orders/${create.body.id}/cancel`, { reason: 'No longer needed' }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'cancelled');
+    });
+});
+
+// ==========================================
+// Vendor CRUD
+// ==========================================
+describe('Vendor CRUD', () => {
+    it('updates a vendor', async () => {
+        const create = await req('POST', '/api/vendors', { name: 'OldName' }, managerToken);
+        const res = await req('PUT', `/api/vendors/${create.body.id}`, { name: 'NewName', email: 'vendor@test.com' }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.name, 'NewName');
+        assert.equal(res.body.email, 'vendor@test.com');
+    });
+
+    it('deletes a vendor', async () => {
+        const create = await req('POST', '/api/vendors', { name: 'ToDelete' }, managerToken);
+        const res = await req('DELETE', `/api/vendors/${create.body.id}`, null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.name, 'ToDelete');
+    });
+});
+
+// ==========================================
+// Recipe CRUD
+// ==========================================
+describe('Recipe CRUD', () => {
+    it('updates a recipe', async () => {
+        const create = await req('POST', '/api/recipes', {
+            name: 'Old Recipe', ingredients: [], prepTime: 10
+        }, managerToken);
+        const res = await req('PUT', `/api/recipes/${create.body.id}`, { name: 'New Recipe', prepTime: 20 }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.name, 'New Recipe');
+        assert.equal(res.body.prepTime, 20);
+    });
+
+    it('deletes a recipe', async () => {
+        const create = await req('POST', '/api/recipes', { name: 'ToDelete' }, managerToken);
+        const res = await req('DELETE', `/api/recipes/${create.body.id}`, null, managerToken);
+        assert.equal(res.status, 200);
+    });
+});
+
+// ==========================================
+// Merchant CRUD
+// ==========================================
+describe('Merchant CRUD', () => {
+    it('updates a merchant', async () => {
+        const create = await req('POST', '/api/merchants', { name: 'TestCo', email: 'test@co.com' }, managerToken);
+        const res = await req('PUT', `/api/merchants/${create.body.id}`, { name: 'UpdatedCo', plan: 'premium' }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.name, 'UpdatedCo');
+        assert.equal(res.body.plan, 'premium');
+    });
+
+    it('deactivates a merchant', async () => {
+        const create = await req('POST', '/api/merchants', { name: 'ClosingCo', email: 'close@co.com' }, managerToken);
+        const res = await req('DELETE', `/api/merchants/${create.body.id}`, null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'deactivated');
+    });
+});
+
+// ==========================================
+// Plugin Management
+// ==========================================
+describe('Plugin Management', () => {
+    it('updates/disables a plugin', async () => {
+        const create = await req('POST', '/api/plugins', { name: 'TestPlugin', version: '1.0' }, managerToken);
+        const res = await req('PUT', `/api/plugins/${create.body.id}`, { enabled: false }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.enabled, false);
+    });
+
+    it('uninstalls a plugin', async () => {
+        const create = await req('POST', '/api/plugins', { name: 'RemoveMe' }, managerToken);
+        const res = await req('DELETE', `/api/plugins/${create.body.id}`, null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.name, 'RemoveMe');
+    });
+});
+
+// ==========================================
+// Reservation Update
+// ==========================================
+describe('Reservation Update', () => {
+    it('updates reservation details', async () => {
+        const create = await req('POST', '/api/reservations', {
+            name: 'Jane', date: '2026-02-20', time: '19:00', partySize: 4
+        });
+        const res = await req('PUT', `/api/reservations/${create.body.id}`, {
+            partySize: 6, status: 'seated'
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.partySize, 6);
+        assert.equal(res.body.status, 'seated');
+        assert.ok(res.body.seatedAt);
+    });
+});
+
+// ==========================================
+// Developer Docs (Dynamic)
+// ==========================================
+describe('Developer Docs Dynamic', () => {
+    it('returns dynamically generated endpoints', async () => {
+        const res = await req('GET', '/api/developer/docs');
+        assert.equal(res.status, 200);
+        assert.ok(res.body.endpoints);
+        assert.ok(res.body.endpointCount > 50); // Should have many endpoints
+        assert.ok(res.body.webhookEvents);
+        assert.ok(res.body.authentication.roles);
+    });
+});
+
+// ==========================================
+// KDS Display Management
+// ==========================================
+describe('KDS Display Management', () => {
+    it('adds a new KDS display', async () => {
+        const res = await req('POST', '/api/hardware/kds-displays', {
+            name: 'Bar Display', station: 'bar'
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.name, 'Bar Display');
+        assert.equal(res.body.status, 'online');
+    });
+
+    it('sends heartbeat', async () => {
+        const list = await req('GET', '/api/hardware/kds-displays', null, managerToken);
+        const display = list.body[0];
+        const res = await req('POST', `/api/hardware/kds-displays/${display.id}/heartbeat`);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'ok');
     });
 });
 
