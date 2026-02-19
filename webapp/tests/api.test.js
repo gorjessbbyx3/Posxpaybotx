@@ -68,6 +68,9 @@ before(() => {
             store.timeClock.length = 0;
             store.auditLog.length = 0;
             store.webhooks.length = 0;
+            store.customers.length = 0;
+            store.giftCards.length = 0;
+            store.promoCodes.length = 0;
             store.nextTicketId = 1001;
             resolve();
         });
@@ -903,5 +906,471 @@ describe('Webhook Management API', () => {
     it('returns 404 for missing webhook', async () => {
         const res = await req('DELETE', '/api/webhooks/99999', null, managerToken);
         assert.equal(res.status, 404);
+    });
+});
+
+// ==========================================
+// State-Specific Surcharge Configuration
+// ==========================================
+describe('State-Specific Configuration', () => {
+    it('gets empty state rules initially', async () => {
+        const res = await req('GET', '/api/config/cashDiscount/state-rules', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.stateRules);
+    });
+
+    it('sets state rule', async () => {
+        const res = await req('PUT', '/api/config/cashDiscount/state-rules/NY', {
+            maxRate: 4.0,
+            allowed: true,
+            mode: 'CASH_DISCOUNT',
+            label: 'NY Cash Discount'
+        }, managerToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.state, 'NY');
+        assert.equal(res.body.rule.maxRate, 4);
+        assert.equal(res.body.rule.allowed, true);
+    });
+
+    it('normalizes state code to uppercase', async () => {
+        const res = await req('PUT', '/api/config/cashDiscount/state-rules/ca', {
+            maxRate: 0,
+            allowed: false
+        }, managerToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.state, 'CA');
+        assert.equal(res.body.rule.allowed, false);
+    });
+
+    it('rejects invalid state code length', async () => {
+        const res = await req('PUT', '/api/config/cashDiscount/state-rules/TEXAS', {
+            maxRate: 3.0
+        }, managerToken);
+
+        assert.equal(res.status, 400);
+    });
+
+    it('deletes a state rule', async () => {
+        const res = await req('DELETE', '/api/config/cashDiscount/state-rules/CA', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.state, 'CA');
+    });
+
+    it('returns 404 for missing state rule', async () => {
+        const res = await req('DELETE', '/api/config/cashDiscount/state-rules/ZZ', null, managerToken);
+        assert.equal(res.status, 404);
+    });
+
+    it('server cannot modify state rules', async () => {
+        const res = await req('PUT', '/api/config/cashDiscount/state-rules/TX', {
+            maxRate: 3.0
+        }, serverToken);
+
+        assert.equal(res.status, 403);
+    });
+});
+
+// ==========================================
+// Hourly Sales Heat Map
+// ==========================================
+describe('Hourly Sales Heat Map', () => {
+    it('server cannot access heat map', async () => {
+        const res = await req('GET', '/api/reports/hourly-heatmap', null, serverToken);
+        assert.equal(res.status, 403);
+    });
+
+    it('returns heat map grid', async () => {
+        const res = await req('GET', '/api/reports/hourly-heatmap', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.heatmap);
+        assert.ok(res.body.peak !== undefined);
+        // Should have all 7 days
+        const days = Object.keys(res.body.heatmap);
+        assert.equal(days.length, 7);
+    });
+
+    it('each day has 24 hour slots', async () => {
+        const res = await req('GET', '/api/reports/hourly-heatmap', null, managerToken);
+        const firstDay = Object.values(res.body.heatmap)[0];
+        assert.equal(Object.keys(firstDay).length, 24);
+    });
+
+    it('includes peak sales info', async () => {
+        const res = await req('GET', '/api/reports/hourly-heatmap', null, managerToken);
+        assert.ok('day' in res.body.peak);
+        assert.ok('hour' in res.body.peak);
+        assert.ok('sales' in res.body.peak);
+    });
+});
+
+// ==========================================
+// Category Margin Analysis
+// ==========================================
+describe('Category Margin Analysis', () => {
+    it('server cannot access category-margin report', async () => {
+        const res = await req('GET', '/api/reports/category-margin', null, serverToken);
+        assert.equal(res.status, 403);
+    });
+
+    it('creates ticket with categorized items', async () => {
+        const res = await req('POST', '/api/tickets', {
+            items: [
+                { name: 'Steak', price: 35, qty: 1, category: 'Entrees', cost: 12 },
+                { name: 'Beer', price: 7, qty: 2, category: 'Beverages', cost: 2 },
+                { name: 'Cake', price: 9, qty: 1, category: 'Desserts', cost: 3 }
+            ],
+            type: 'dine-in'
+        }, serverToken);
+        assert.equal(res.status, 201);
+    });
+
+    it('returns category breakdown with margins', async () => {
+        const res = await req('GET', '/api/reports/category-margin', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body.categories));
+        assert.ok(res.body.totalRevenue > 0);
+
+        // Check structure of each category entry
+        const cat = res.body.categories[0];
+        assert.ok('category' in cat);
+        assert.ok('revenue' in cat);
+        assert.ok('cost' in cat);
+        assert.ok('profit' in cat);
+        assert.ok('marginPct' in cat);
+        assert.ok('pctOfSales' in cat);
+    });
+
+    it('items without category go to Uncategorized', async () => {
+        const res = await req('GET', '/api/reports/category-margin', null, managerToken);
+        // Earlier tickets without category should be in Uncategorized
+        const uncategorized = res.body.categories.find(c => c.category === 'Uncategorized');
+        // Tickets from earlier tests had no category field
+        assert.ok(uncategorized);
+    });
+});
+
+// ==========================================
+// Customer Profiles
+// ==========================================
+describe('Customer Profiles API', () => {
+    it('GET /api/customers returns empty list initially', async () => {
+        const res = await req('GET', '/api/customers');
+        assert.equal(res.status, 200);
+        assert.equal(res.body.customers.length, 0);
+    });
+
+    it('creates a customer', async () => {
+        const res = await req('POST', '/api/customers', {
+            name: 'Jane Doe',
+            email: 'jane@example.com',
+            phone: '555-1234',
+            tags: ['vip', 'regular']
+        }, serverToken);
+
+        assert.equal(res.status, 201);
+        assert.equal(res.body.name, 'Jane Doe');
+        assert.equal(res.body.email, 'jane@example.com');
+        assert.equal(res.body.loyaltyPoints, 0);
+        assert.deepEqual(res.body.tags, ['vip', 'regular']);
+        assert.ok(res.body.id);
+    });
+
+    it('rejects customer without name', async () => {
+        const res = await req('POST', '/api/customers', {
+            email: 'noname@example.com'
+        }, serverToken);
+
+        assert.equal(res.status, 400);
+    });
+
+    it('gets customer by ID', async () => {
+        const res = await req('GET', '/api/customers/1');
+        assert.equal(res.status, 200);
+        assert.equal(res.body.name, 'Jane Doe');
+    });
+
+    it('returns 404 for missing customer', async () => {
+        const res = await req('GET', '/api/customers/999');
+        assert.equal(res.status, 404);
+    });
+
+    it('updates a customer', async () => {
+        const res = await req('PATCH', '/api/customers/1', {
+            phone: '555-9999',
+            notes: 'Prefers window seat'
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.phone, '555-9999');
+        assert.equal(res.body.notes, 'Prefers window seat');
+    });
+
+    it('searches customers by name', async () => {
+        const res = await req('GET', '/api/customers?search=jane');
+        assert.equal(res.status, 200);
+        assert.equal(res.body.customers.length, 1);
+    });
+
+    it('filters by tag', async () => {
+        const res = await req('GET', '/api/customers?tag=vip');
+        assert.equal(res.status, 200);
+        assert.equal(res.body.customers.length, 1);
+    });
+
+    it('deletes a customer (requires config permission)', async () => {
+        // Server can't delete
+        const fail = await req('DELETE', '/api/customers/1', null, serverToken);
+        assert.equal(fail.status, 403);
+
+        // Manager can delete
+        const res = await req('DELETE', '/api/customers/1', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.name, 'Jane Doe');
+    });
+});
+
+// ==========================================
+// Gift Card Management
+// ==========================================
+describe('Gift Card Management API', () => {
+    it('creates a gift card', async () => {
+        const res = await req('POST', '/api/gift-cards', {
+            code: 'GIFT100',
+            initialBalance: 100,
+            recipientName: 'Bob'
+        }, managerToken);
+
+        assert.equal(res.status, 201);
+        assert.equal(res.body.code, 'GIFT100');
+        assert.equal(res.body.balance, 100);
+        assert.equal(res.body.initialBalance, 100);
+        assert.equal(res.body.active, true);
+    });
+
+    it('rejects duplicate gift card code', async () => {
+        const res = await req('POST', '/api/gift-cards', {
+            code: 'GIFT100',
+            initialBalance: 50
+        }, managerToken);
+
+        assert.equal(res.status, 409);
+    });
+
+    it('rejects gift card with zero balance', async () => {
+        const res = await req('POST', '/api/gift-cards', {
+            code: 'EMPTY',
+            initialBalance: 0
+        }, managerToken);
+
+        assert.equal(res.status, 400);
+    });
+
+    it('looks up gift card by code', async () => {
+        const res = await req('GET', '/api/gift-cards/GIFT100');
+        assert.equal(res.status, 200);
+        assert.equal(res.body.balance, 100);
+    });
+
+    it('returns 404 for missing gift card', async () => {
+        const res = await req('GET', '/api/gift-cards/INVALID');
+        assert.equal(res.status, 404);
+    });
+
+    it('charges a gift card', async () => {
+        const res = await req('POST', '/api/gift-cards/GIFT100/charge', {
+            amount: 25,
+            ticketId: 1001
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.charged, 25);
+        assert.equal(res.body.card.balance, 75);
+        assert.equal(res.body.card.transactions.length, 1);
+    });
+
+    it('rejects charge exceeding balance', async () => {
+        const res = await req('POST', '/api/gift-cards/GIFT100/charge', {
+            amount: 200
+        }, serverToken);
+
+        assert.equal(res.status, 400);
+        assert.ok(res.body.error.includes('Insufficient'));
+    });
+
+    it('reloads a gift card', async () => {
+        const res = await req('POST', '/api/gift-cards/GIFT100/reload', {
+            amount: 50
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.reloaded, 50);
+        assert.equal(res.body.card.balance, 125);
+    });
+
+    it('lists all gift cards', async () => {
+        const res = await req('GET', '/api/gift-cards', null, serverToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.giftCards.length > 0);
+    });
+});
+
+// ==========================================
+// Digital Receipts
+// ==========================================
+describe('Digital Receipt API', () => {
+    it('generates a receipt for a ticket', async () => {
+        const res = await req('GET', '/api/tickets/1001/receipt');
+        assert.equal(res.status, 200);
+        assert.equal(res.body.ticketId, 1001);
+        assert.ok(res.body.restaurantName);
+        assert.ok(Array.isArray(res.body.items));
+        assert.ok('subtotal' in res.body);
+        assert.ok('tax' in res.body);
+        assert.ok('total' in res.body);
+        assert.ok('grandTotal' in res.body);
+        assert.ok(res.body.generatedAt);
+        assert.ok(res.body.footer);
+    });
+
+    it('includes dual pricing when enabled', async () => {
+        const res = await req('GET', '/api/tickets/1001/receipt');
+        // Cash discount is enabled in default config
+        assert.ok('cashPrice' in res.body);
+        assert.ok('cardPrice' in res.body);
+    });
+
+    it('returns 404 for missing ticket', async () => {
+        const res = await req('GET', '/api/tickets/99999/receipt');
+        assert.equal(res.status, 404);
+    });
+});
+
+// ==========================================
+// Promo Code Engine
+// ==========================================
+describe('Promo Code Engine', () => {
+    it('creates a percent promo code', async () => {
+        const res = await req('POST', '/api/promo-codes', {
+            code: 'SAVE10',
+            type: 'percent',
+            value: 10,
+            minOrder: 20,
+            maxUses: 100,
+            description: '10% off orders over $20'
+        }, managerToken);
+
+        assert.equal(res.status, 201);
+        assert.equal(res.body.code, 'SAVE10');
+        assert.equal(res.body.type, 'percent');
+        assert.equal(res.body.value, 10);
+        assert.equal(res.body.usedCount, 0);
+    });
+
+    it('creates a fixed promo code', async () => {
+        const res = await req('POST', '/api/promo-codes', {
+            code: 'FLAT5',
+            type: 'fixed',
+            value: 5,
+            description: '$5 off any order'
+        }, managerToken);
+
+        assert.equal(res.status, 201);
+        assert.equal(res.body.type, 'fixed');
+    });
+
+    it('rejects duplicate promo code', async () => {
+        const res = await req('POST', '/api/promo-codes', {
+            code: 'save10',
+            type: 'percent',
+            value: 5
+        }, managerToken);
+
+        assert.equal(res.status, 409);
+    });
+
+    it('rejects invalid type', async () => {
+        const res = await req('POST', '/api/promo-codes', {
+            code: 'BAD',
+            type: 'bogus',
+            value: 5
+        }, managerToken);
+
+        assert.equal(res.status, 400);
+    });
+
+    it('validates a percent promo code', async () => {
+        const res = await req('POST', '/api/promo-codes/validate', {
+            code: 'SAVE10',
+            orderTotal: 50
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.valid, true);
+        assert.equal(res.body.discount, 5); // 10% of 50
+    });
+
+    it('validates a fixed promo code', async () => {
+        const res = await req('POST', '/api/promo-codes/validate', {
+            code: 'FLAT5',
+            orderTotal: 30
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.discount, 5);
+    });
+
+    it('rejects promo for order below minimum', async () => {
+        const res = await req('POST', '/api/promo-codes/validate', {
+            code: 'SAVE10',
+            orderTotal: 10
+        }, serverToken);
+
+        assert.equal(res.status, 400);
+        assert.ok(res.body.error.includes('minimum'));
+    });
+
+    it('rejects invalid promo code', async () => {
+        const res = await req('POST', '/api/promo-codes/validate', {
+            code: 'NONEXISTENT',
+            orderTotal: 50
+        }, serverToken);
+
+        assert.equal(res.status, 404);
+    });
+
+    it('redeems a promo code (increments count)', async () => {
+        const list = await req('GET', '/api/promo-codes', null, managerToken);
+        const promoId = list.body.promoCodes.find(p => p.code === 'SAVE10').id;
+
+        const res = await req('POST', `/api/promo-codes/${promoId}/redeem`, {}, serverToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.usedCount, 1);
+    });
+
+    it('lists all promo codes', async () => {
+        const res = await req('GET', '/api/promo-codes', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.promoCodes.length >= 2);
+    });
+
+    it('deletes a promo code', async () => {
+        const list = await req('GET', '/api/promo-codes', null, managerToken);
+        const flatId = list.body.promoCodes.find(p => p.code === 'FLAT5').id;
+
+        const res = await req('DELETE', `/api/promo-codes/${flatId}`, null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.code, 'FLAT5');
+    });
+
+    it('server cannot create promo codes', async () => {
+        const res = await req('POST', '/api/promo-codes', {
+            code: 'HACK',
+            type: 'percent',
+            value: 99
+        }, serverToken);
+
+        assert.equal(res.status, 403);
     });
 });

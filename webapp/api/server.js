@@ -53,6 +53,9 @@ const store = {
     timeClock: [],
     auditLog: [],
     webhooks: [],
+    customers: [],
+    giftCards: [],
+    promoCodes: [],
     config: {
         cashDiscount: {
             enabled: true,
@@ -64,7 +67,8 @@ const store = {
             exemptDebit: true,
             applyBeforeTax: true,
             minCardAmount: 0,
-            maxSurcharge: null
+            maxSurcharge: null,
+            stateRules: {}
         },
         tax: {
             rate: 8.875,
@@ -107,6 +111,9 @@ function loadStore() {
             if (data.timeClock) store.timeClock = data.timeClock;
             if (data.auditLog) store.auditLog = data.auditLog;
             if (data.webhooks) store.webhooks = data.webhooks;
+            if (data.customers) store.customers = data.customers;
+            if (data.giftCards) store.giftCards = data.giftCards;
+            if (data.promoCodes) store.promoCodes = data.promoCodes;
             if (data.nextTicketId) store.nextTicketId = data.nextTicketId;
             if (data.config) {
                 Object.keys(data.config).forEach(k => {
@@ -131,6 +138,9 @@ function saveStore() {
             timeClock: store.timeClock,
             auditLog: store.auditLog,
             webhooks: store.webhooks,
+            customers: store.customers,
+            giftCards: store.giftCards,
+            promoCodes: store.promoCodes,
             nextTicketId: store.nextTicketId,
             config: store.config,
             savedAt: new Date().toISOString()
@@ -628,7 +638,7 @@ app.post('/api/timeclock/clock-out', authorize('timeclock'), (req, res) => {
 // Configuration Endpoints (requires config permission)
 // ==========================================
 const CONFIG_ALLOWED_FIELDS = {
-    cashDiscount: ['enabled', 'mode', 'rate', 'cashLabel', 'surchargeLabel', 'showDualPricing', 'exemptDebit', 'applyBeforeTax', 'minCardAmount', 'maxSurcharge'],
+    cashDiscount: ['enabled', 'mode', 'rate', 'cashLabel', 'surchargeLabel', 'showDualPricing', 'exemptDebit', 'applyBeforeTax', 'minCardAmount', 'maxSurcharge', 'stateRules'],
     tax: ['rate', 'inclusive', 'alcoholSeparate', 'alcoholRate'],
     restaurant: ['name', 'address1', 'address2', 'city', 'state', 'zip', 'phone', 'email'],
     receipt: ['customerCopy', 'merchantCopy', 'showDualPrices', 'showTipLine', 'footer', 'cdNotice']
@@ -959,6 +969,421 @@ app.get('/api/reports/surcharge', authorize('reports'), (req, res) => {
             ? Math.round(cardTickets / (cashTickets + cardTickets) * 1000) / 10
             : 0
     });
+});
+
+// ==========================================
+// State-Specific Surcharge Configuration
+// ==========================================
+app.get('/api/config/cashDiscount/state-rules', authorize('config'), (req, res) => {
+    res.json({ stateRules: store.config.cashDiscount.stateRules || {} });
+});
+
+app.put('/api/config/cashDiscount/state-rules/:state', authorize('config'), (req, res) => {
+    const state = req.params.state.toUpperCase();
+    if (state.length !== 2) {
+        return res.status(400).json({ error: 'State must be a 2-letter code' });
+    }
+    const { maxRate, allowed, mode, label } = req.body;
+    if (!store.config.cashDiscount.stateRules) {
+        store.config.cashDiscount.stateRules = {};
+    }
+    store.config.cashDiscount.stateRules[state] = {
+        maxRate: maxRate !== undefined ? parseFloat(maxRate) : null,
+        allowed: allowed !== undefined ? !!allowed : true,
+        mode: mode || null,
+        label: label || null
+    };
+    logAudit('state_rule_change', req.user, { state, rule: store.config.cashDiscount.stateRules[state] });
+    scheduleSave();
+    res.json({ state, rule: store.config.cashDiscount.stateRules[state] });
+});
+
+app.delete('/api/config/cashDiscount/state-rules/:state', authorize('config'), (req, res) => {
+    const state = req.params.state.toUpperCase();
+    if (!store.config.cashDiscount.stateRules || !store.config.cashDiscount.stateRules[state]) {
+        return res.status(404).json({ error: 'State rule not found' });
+    }
+    const removed = store.config.cashDiscount.stateRules[state];
+    delete store.config.cashDiscount.stateRules[state];
+    logAudit('state_rule_deleted', req.user, { state });
+    scheduleSave();
+    res.json({ state, removed });
+});
+
+// ==========================================
+// Hourly Sales Heat Map (enhanced hourly report)
+// ==========================================
+app.get('/api/reports/hourly-heatmap', authorize('reports'), (req, res) => {
+    // Build 7-day x 24-hour grid
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const heatmap = {};
+    days.forEach(d => {
+        heatmap[d] = {};
+        for (let h = 0; h < 24; h++) heatmap[d][h] = { sales: 0, tickets: 0 };
+    });
+
+    let peakSales = 0;
+    let peakDay = null;
+    let peakHour = null;
+
+    store.tickets.forEach(t => {
+        if (!t.time || t.status === 'voided') return;
+        const d = new Date(t.time);
+        const day = days[d.getDay()];
+        const hour = d.getHours();
+        heatmap[day][hour].sales += t.total || 0;
+        heatmap[day][hour].tickets++;
+
+        if (heatmap[day][hour].sales > peakSales) {
+            peakSales = heatmap[day][hour].sales;
+            peakDay = day;
+            peakHour = hour;
+        }
+    });
+
+    // Round all sales
+    days.forEach(d => {
+        for (let h = 0; h < 24; h++) {
+            heatmap[d][h].sales = Math.round(heatmap[d][h].sales * 100) / 100;
+        }
+    });
+
+    res.json({ heatmap, peak: { day: peakDay, hour: peakHour, sales: Math.round(peakSales * 100) / 100 } });
+});
+
+// ==========================================
+// Category Margin Analysis Report
+// ==========================================
+app.get('/api/reports/category-margin', authorize('reports'), (req, res) => {
+    const categories = {};
+
+    store.tickets.forEach(t => {
+        if (t.status === 'voided') return;
+        (t.items || []).forEach(item => {
+            const cat = item.category || 'Uncategorized';
+            if (!categories[cat]) {
+                categories[cat] = { category: cat, qty: 0, revenue: 0, cost: 0, items: 0 };
+            }
+            const qty = parseInt(item.qty, 10) || 0;
+            const price = parseFloat(item.price) || 0;
+            const cost = parseFloat(item.cost) || 0;
+            categories[cat].qty += qty;
+            categories[cat].revenue += Math.round(price * qty * 100) / 100;
+            categories[cat].cost += Math.round(cost * qty * 100) / 100;
+            categories[cat].items++;
+        });
+    });
+
+    const totalRevenue = Object.values(categories).reduce((s, c) => s + c.revenue, 0);
+    const result = Object.values(categories).map(c => {
+        const margin = c.revenue > 0 ? Math.round((c.revenue - c.cost) / c.revenue * 1000) / 10 : 0;
+        return {
+            ...c,
+            revenue: Math.round(c.revenue * 100) / 100,
+            cost: Math.round(c.cost * 100) / 100,
+            profit: Math.round((c.revenue - c.cost) * 100) / 100,
+            marginPct: margin,
+            pctOfSales: totalRevenue > 0 ? Math.round(c.revenue / totalRevenue * 1000) / 10 : 0
+        };
+    }).sort((a, b) => b.revenue - a.revenue);
+
+    res.json({ categories: result, totalRevenue: Math.round(totalRevenue * 100) / 100 });
+});
+
+// ==========================================
+// Customer Profiles (CRUD)
+// ==========================================
+const CUSTOMER_FIELDS = ['name', 'email', 'phone', 'address', 'notes', 'loyaltyPoints', 'tags'];
+
+app.get('/api/customers', (req, res) => {
+    let customers = store.customers;
+    const { search, tag } = req.query;
+    if (search) {
+        const q = search.toLowerCase();
+        customers = customers.filter(c =>
+            (c.name || '').toLowerCase().includes(q) ||
+            (c.email || '').toLowerCase().includes(q) ||
+            (c.phone || '').includes(q)
+        );
+    }
+    if (tag) {
+        customers = customers.filter(c => (c.tags || []).includes(tag));
+    }
+    res.json({ customers, total: customers.length });
+});
+
+app.get('/api/customers/:id', (req, res) => {
+    const customer = store.customers.find(c => c.id === parseInt(req.params.id));
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+    res.json(customer);
+});
+
+app.post('/api/customers', authorize('tickets'), (req, res) => {
+    const { name, email, phone, address, notes, tags } = req.body;
+    if (!name) return res.status(400).json({ error: 'Customer name required' });
+
+    const customer = {
+        id: store.customers.length > 0 ? Math.max(...store.customers.map(c => c.id)) + 1 : 1,
+        name,
+        email: email || '',
+        phone: phone || '',
+        address: address || '',
+        notes: notes || '',
+        loyaltyPoints: 0,
+        tags: Array.isArray(tags) ? tags : [],
+        totalSpent: 0,
+        visitCount: 0,
+        createdAt: new Date().toISOString(),
+        createdBy: req.user ? req.user.name : 'unknown'
+    };
+    store.customers.push(customer);
+    scheduleSave();
+    res.status(201).json(customer);
+});
+
+app.patch('/api/customers/:id', authorize('tickets'), (req, res) => {
+    const customer = store.customers.find(c => c.id === parseInt(req.params.id));
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+    CUSTOMER_FIELDS.forEach(field => {
+        if (req.body[field] !== undefined) customer[field] = req.body[field];
+    });
+    customer.updatedAt = new Date().toISOString();
+    scheduleSave();
+    res.json(customer);
+});
+
+app.delete('/api/customers/:id', authorize('config'), (req, res) => {
+    const idx = store.customers.findIndex(c => c.id === parseInt(req.params.id));
+    if (idx === -1) return res.status(404).json({ error: 'Customer not found' });
+    const removed = store.customers.splice(idx, 1)[0];
+    scheduleSave();
+    res.json(removed);
+});
+
+// ==========================================
+// Gift Card Management
+// ==========================================
+app.get('/api/gift-cards', authorize('tickets'), (req, res) => {
+    res.json({ giftCards: store.giftCards, total: store.giftCards.length });
+});
+
+app.get('/api/gift-cards/:code', (req, res) => {
+    const card = store.giftCards.find(g => g.code === req.params.code);
+    if (!card) return res.status(404).json({ error: 'Gift card not found' });
+    res.json(card);
+});
+
+app.post('/api/gift-cards', authorize('config'), (req, res) => {
+    const { code, initialBalance, recipientName, recipientEmail } = req.body;
+    if (!code) return res.status(400).json({ error: 'Gift card code required' });
+    const balance = Math.round((parseFloat(initialBalance) || 0) * 100) / 100;
+    if (balance <= 0) return res.status(400).json({ error: 'Initial balance must be positive' });
+
+    if (store.giftCards.find(g => g.code === code)) {
+        return res.status(409).json({ error: 'Gift card code already exists' });
+    }
+
+    const card = {
+        id: store.giftCards.length > 0 ? Math.max(...store.giftCards.map(g => g.id)) + 1 : 1,
+        code,
+        initialBalance: balance,
+        balance,
+        recipientName: recipientName || '',
+        recipientEmail: recipientEmail || '',
+        active: true,
+        transactions: [],
+        createdAt: new Date().toISOString(),
+        createdBy: req.user ? req.user.name : 'unknown'
+    };
+    store.giftCards.push(card);
+    scheduleSave();
+    res.status(201).json(card);
+});
+
+app.post('/api/gift-cards/:code/charge', authorize('tickets'), (req, res) => {
+    const card = store.giftCards.find(g => g.code === req.params.code);
+    if (!card) return res.status(404).json({ error: 'Gift card not found' });
+    if (!card.active) return res.status(400).json({ error: 'Gift card is inactive' });
+
+    const amount = Math.round((parseFloat(req.body.amount) || 0) * 100) / 100;
+    if (amount <= 0) return res.status(400).json({ error: 'Charge amount must be positive' });
+    if (amount > card.balance) {
+        return res.status(400).json({ error: 'Insufficient balance', balance: card.balance });
+    }
+
+    card.balance = Math.round((card.balance - amount) * 100) / 100;
+    card.transactions.push({
+        type: 'charge',
+        amount,
+        balance: card.balance,
+        ticketId: req.body.ticketId || null,
+        processedBy: req.user ? req.user.name : 'unknown',
+        time: new Date().toISOString()
+    });
+    scheduleSave();
+    res.json({ card, charged: amount });
+});
+
+app.post('/api/gift-cards/:code/reload', authorize('tickets'), (req, res) => {
+    const card = store.giftCards.find(g => g.code === req.params.code);
+    if (!card) return res.status(404).json({ error: 'Gift card not found' });
+
+    const amount = Math.round((parseFloat(req.body.amount) || 0) * 100) / 100;
+    if (amount <= 0) return res.status(400).json({ error: 'Reload amount must be positive' });
+
+    card.balance = Math.round((card.balance + amount) * 100) / 100;
+    card.transactions.push({
+        type: 'reload',
+        amount,
+        balance: card.balance,
+        processedBy: req.user ? req.user.name : 'unknown',
+        time: new Date().toISOString()
+    });
+    scheduleSave();
+    res.json({ card, reloaded: amount });
+});
+
+// ==========================================
+// Digital Receipts
+// ==========================================
+app.get('/api/tickets/:id/receipt', (req, res) => {
+    const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+    const config = store.config;
+    const receipt = {
+        restaurantName: config.restaurant.name,
+        restaurantAddress: [config.restaurant.address1, config.restaurant.address2, config.restaurant.city, config.restaurant.state, config.restaurant.zip].filter(Boolean).join(', '),
+        restaurantPhone: config.restaurant.phone,
+        ticketId: ticket.id,
+        type: ticket.type,
+        server: ticket.server,
+        table: ticket.table,
+        time: ticket.time,
+        items: (ticket.items || []).map(i => ({
+            name: i.name,
+            qty: i.qty,
+            price: i.price,
+            total: Math.round((parseFloat(i.price) || 0) * (parseInt(i.qty, 10) || 0) * 100) / 100
+        })),
+        subtotal: ticket.subtotal || 0,
+        discount: ticket.discount ? (ticket.discount.amount || 0) : 0,
+        tax: ticket.tax || 0,
+        deliveryFee: ticket.deliveryFee || 0,
+        total: ticket.total || 0,
+        tip: ticket.tip || 0,
+        grandTotal: Math.round(((ticket.total || 0) + (ticket.tip || 0)) * 100) / 100,
+        paymentMethod: ticket.paymentMethod || null,
+        payments: ticket.payments || [],
+        status: ticket.status,
+        footer: config.receipt.footer,
+        cdNotice: config.cashDiscount.enabled ? config.receipt.cdNotice : null,
+        generatedAt: new Date().toISOString()
+    };
+
+    // Add dual pricing info if enabled
+    if (config.cashDiscount.enabled && config.cashDiscount.showDualPricing) {
+        const rate = (parseFloat(config.cashDiscount.rate) || 0) / 100;
+        if (config.cashDiscount.mode === 'CASH_DISCOUNT') {
+            receipt.cashPrice = Math.round((ticket.total || 0) * (1 - rate) * 100) / 100;
+            receipt.cardPrice = ticket.total || 0;
+        } else {
+            receipt.cashPrice = ticket.total || 0;
+            receipt.cardPrice = Math.round((ticket.total || 0) * (1 + rate) * 100) / 100;
+        }
+    }
+
+    res.json(receipt);
+});
+
+// ==========================================
+// Promo Code Engine
+// ==========================================
+app.get('/api/promo-codes', authorize('config'), (req, res) => {
+    res.json({ promoCodes: store.promoCodes, total: store.promoCodes.length });
+});
+
+app.post('/api/promo-codes', authorize('config'), (req, res) => {
+    const { code, type, value, minOrder, maxUses, expiresAt, description } = req.body;
+    if (!code) return res.status(400).json({ error: 'Promo code required' });
+    if (!type || !['percent', 'fixed'].includes(type)) {
+        return res.status(400).json({ error: 'Type must be "percent" or "fixed"' });
+    }
+    const val = parseFloat(value) || 0;
+    if (val <= 0) return res.status(400).json({ error: 'Value must be positive' });
+
+    if (store.promoCodes.find(p => p.code.toUpperCase() === code.toUpperCase())) {
+        return res.status(409).json({ error: 'Promo code already exists' });
+    }
+
+    const promo = {
+        id: store.promoCodes.length > 0 ? Math.max(...store.promoCodes.map(p => p.id)) + 1 : 1,
+        code: code.toUpperCase(),
+        type,
+        value: val,
+        minOrder: parseFloat(minOrder) || 0,
+        maxUses: parseInt(maxUses, 10) || null,
+        usedCount: 0,
+        expiresAt: expiresAt || null,
+        description: description || '',
+        active: true,
+        createdAt: new Date().toISOString(),
+        createdBy: req.user ? req.user.name : 'unknown'
+    };
+    store.promoCodes.push(promo);
+    scheduleSave();
+    res.status(201).json(promo);
+});
+
+app.post('/api/promo-codes/validate', authorize('tickets'), (req, res) => {
+    const { code, orderTotal } = req.body;
+    if (!code) return res.status(400).json({ error: 'Promo code required' });
+
+    const promo = store.promoCodes.find(p => p.code === code.toUpperCase() && p.active);
+    if (!promo) return res.status(404).json({ error: 'Invalid or inactive promo code' });
+
+    if (promo.expiresAt && new Date(promo.expiresAt) < new Date()) {
+        return res.status(400).json({ error: 'Promo code has expired' });
+    }
+    if (promo.maxUses && promo.usedCount >= promo.maxUses) {
+        return res.status(400).json({ error: 'Promo code usage limit reached' });
+    }
+
+    const total = parseFloat(orderTotal) || 0;
+    if (total < promo.minOrder) {
+        return res.status(400).json({ error: 'Order does not meet minimum amount', minOrder: promo.minOrder });
+    }
+
+    let discount = 0;
+    if (promo.type === 'percent') {
+        discount = Math.round(total * (promo.value / 100) * 100) / 100;
+    } else {
+        discount = Math.min(promo.value, total);
+    }
+
+    res.json({ valid: true, code: promo.code, discount, type: promo.type, value: promo.value, description: promo.description });
+});
+
+app.post('/api/promo-codes/:id/redeem', authorize('tickets'), (req, res) => {
+    const promo = store.promoCodes.find(p => p.id === parseInt(req.params.id));
+    if (!promo) return res.status(404).json({ error: 'Promo code not found' });
+    if (!promo.active) return res.status(400).json({ error: 'Promo code is inactive' });
+    if (promo.maxUses && promo.usedCount >= promo.maxUses) {
+        return res.status(400).json({ error: 'Promo code usage limit reached' });
+    }
+
+    promo.usedCount++;
+    scheduleSave();
+    res.json(promo);
+});
+
+app.delete('/api/promo-codes/:id', authorize('config'), (req, res) => {
+    const idx = store.promoCodes.findIndex(p => p.id === parseInt(req.params.id));
+    if (idx === -1) return res.status(404).json({ error: 'Promo code not found' });
+    const removed = store.promoCodes.splice(idx, 1)[0];
+    scheduleSave();
+    res.json(removed);
 });
 
 // ==========================================
