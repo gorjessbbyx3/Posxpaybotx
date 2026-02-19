@@ -1010,8 +1010,15 @@
     <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>
 
+    <!-- Core: data definitions, state, utilities (must load first) -->
+    <script src="js/pos-core.js"></script>
     <script src="js/calculations.js"></script>
     <script src="js/api-client.js"></script>
+    <!-- Main POS operations -->
     <script src="js/pos.js"></script>
+    <!-- Feature modules (load after pos.js) -->
+    <script src="js/pos-kitchen.js"></script>
+    <script src="js/pos-tables.js"></script>
+    <script src="js/pos-loyalty.js"></script>
 </body>
 </html>
