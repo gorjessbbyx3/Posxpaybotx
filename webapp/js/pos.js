@@ -1021,6 +1021,11 @@ function processPayment(via) {
 }
 
 function completePayment(total, method) {
+    // Run beforeComplete hooks (may adjust total or cancel payment)
+    const adjustedTotal = runBeforeHooks('beforeComplete', total, method);
+    if (adjustedTotal === false) return; // hook cancelled the payment
+    total = (typeof adjustedTotal === 'number') ? adjustedTotal : total;
+
     // Find and update ticket in allTickets
     const ticketIndex = state.allTickets.findIndex(t => t.id === state.ticket.id);
     if (ticketIndex >= 0) {
@@ -1056,6 +1061,9 @@ function completePayment(total, method) {
     showToast('Payment received - Ticket #' + state.ticket.id + ' (' + method + ')');
     newTicket();
     saveState();
+
+    // Run afterComplete hooks (for logging, etc.)
+    runAfterHooks('afterComplete', total, method);
 }
 
 
@@ -2531,10 +2539,10 @@ function populateLaborReport() {
             };
         }
         if (record.clockOut) {
-            laborData[record.empId].hours += (record.clockOut - record.clockIn) / 3600000;
+            laborData[record.empId].hours += Math.round((record.clockOut - record.clockIn) / 36000) / 100;
         } else {
             // Still clocked in
-            laborData[record.empId].hours += (new Date() - record.clockIn) / 3600000;
+            laborData[record.empId].hours += Math.round((new Date() - record.clockIn) / 36000) / 100;
         }
     });
 

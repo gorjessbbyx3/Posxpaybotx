@@ -314,3 +314,34 @@ function broadcastToCustomerDisplay(type, data) {
         customerChannel.postMessage({ type, ...data });
     } catch (e) {}
 }
+
+// ==========================================
+// Function Hooks System
+// ==========================================
+// Provides ordered, composable middleware for key POS functions.
+// Modules register hooks instead of monkey-patching global functions.
+const _hooks = {
+    beforePayment: [],    // (total, method) => { total, method } or void (to cancel)
+    afterPayment: [],     // (total, method, ticket) => void
+    beforeComplete: [],   // (total, method) => adjusted total or void
+    afterComplete: []     // (total, method) => void
+};
+
+function registerHook(hookName, fn) {
+    if (_hooks[hookName]) _hooks[hookName].push(fn);
+}
+
+function runBeforeHooks(hookName, ...args) {
+    for (const fn of (_hooks[hookName] || [])) {
+        const result = fn(...args);
+        if (result === false) return false;  // hook cancelled the operation
+        if (result !== undefined) args[0] = result;  // hook adjusted the first arg
+    }
+    return args[0];
+}
+
+function runAfterHooks(hookName, ...args) {
+    for (const fn of (_hooks[hookName] || [])) {
+        fn(...args);
+    }
+}

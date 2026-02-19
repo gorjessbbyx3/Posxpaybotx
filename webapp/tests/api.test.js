@@ -101,10 +101,9 @@ describe('POST /api/auth/login', () => {
         assert.equal(res.body.user.role, 'manager');
     });
 
-    it('logs in with role name (quick login)', async () => {
+    it('rejects role-name login (backdoor removed)', async () => {
         const res = await req('POST', '/api/auth/login', { user: 'server' });
-        assert.equal(res.status, 200);
-        assert.ok(res.body.token);
+        assert.equal(res.status, 400);
     });
 
     it('rejects invalid PIN', async () => {
@@ -260,6 +259,67 @@ describe('Refund API', () => {
         }, managerToken);
 
         assert.equal(res.status, 400);
+    });
+
+    it('rejects refund exceeding remaining balance (cumulative)', async () => {
+        // The ticket has total ~31.97 and already has a $5 refund from the previous test
+        // Attempting to refund more than remaining should fail
+        const res = await req('POST', '/api/refunds', {
+            ticketId: 1001,
+            amount: 30,
+            reason: 'over-refund attempt',
+            type: 'partial'
+        }, managerToken);
+
+        assert.equal(res.status, 400);
+        assert.ok(res.body.error.includes('exceeds'));
+    });
+
+    it('tracks cumulative refunded amount correctly', async () => {
+        // Second partial refund of $3 on same ticket should succeed
+        const res = await req('POST', '/api/refunds', {
+            ticketId: 1001,
+            amount: 3,
+            reason: 'Additional adjustment',
+            type: 'partial'
+        }, managerToken);
+
+        assert.equal(res.status, 201);
+        assert.equal(res.body.amount, 3);
+    });
+
+    it('audit trail uses server-side identity not req.body', async () => {
+        const res = await req('POST', '/api/refunds', {
+            ticketId: 1001,
+            amount: 1,
+            reason: 'Audit test',
+            processedBy: 'HACKER'  // This should be ignored
+        }, managerToken);
+
+        assert.equal(res.status, 201);
+        assert.equal(res.body.processedBy, 'Maria');  // From managerToken, not req.body
+    });
+});
+
+// ==========================================
+// Void - audit trail integrity
+// ==========================================
+describe('Void API - audit trail', () => {
+    it('uses server-side user name, ignoring req.body.user', async () => {
+        // Create a second ticket to void
+        const createRes = await req('POST', '/api/tickets', {
+            items: [{ name: 'Test Item', price: 5, qty: 1 }],
+            type: 'dine-in'
+        }, managerToken);
+        const ticketId = createRes.body.id;
+
+        const res = await req('POST', `/api/tickets/${ticketId}/void`, {
+            user: 'SPOOFED_USER',
+            reason: 'Testing'
+        }, managerToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.voidedBy, 'Maria');  // From token, not spoofed
     });
 });
 

@@ -3,7 +3,7 @@
 // Provides offline capabilities and caching
 // ==========================================
 
-const CACHE_NAME = 'pos-cache-v4';
+const CACHE_NAME = 'pos-cache-v5';
 const ASSETS_TO_CACHE = [
     '/',
     '/index.html',
@@ -21,10 +21,62 @@ const ASSETS_TO_CACHE = [
     'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
 ];
 
-// Offline write queue - stores mutating API calls when offline
-const OFFLINE_QUEUE_KEY = 'pos-offline-queue';
+// ==========================================
+// IndexedDB for offline write queue (persistent, transactional)
+// Cache API is designed for HTTP responses - not appropriate for
+// financial transaction data that must survive browser restarts.
+// ==========================================
+const IDB_NAME = 'pos-offline-db';
+const IDB_VERSION = 1;
+const IDB_STORE = 'write-queue';
 
+function openIDB() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(IDB_STORE)) {
+                db.createObjectStore(IDB_STORE, { keyPath: 'id', autoIncrement: true });
+            }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function enqueueWrite(item) {
+    const db = await openIDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        tx.objectStore(IDB_STORE).add(item);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+async function getAllQueued() {
+    const db = await openIDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, 'readonly');
+        const req = tx.objectStore(IDB_STORE).getAll();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function deleteQueued(id) {
+    const db = await openIDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        tx.objectStore(IDB_STORE).delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+// ==========================================
 // Install - cache core assets
+// ==========================================
 self.addEventListener('install', event => {
     event.waitUntil(
         caches.open(CACHE_NAME).then(cache => {
@@ -37,7 +89,7 @@ self.addEventListener('install', event => {
     self.skipWaiting();
 });
 
-// Activate - clean old caches
+// Activate - clean old caches (including the old Cache-API-based write queue)
 self.addEventListener('activate', event => {
     event.waitUntil(
         caches.keys().then(keys => {
@@ -49,51 +101,27 @@ self.addEventListener('activate', event => {
     self.clients.claim();
 });
 
+// ==========================================
 // Fetch - strategy varies by request type
+// ==========================================
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
     // API write operations (POST/PUT/PATCH/DELETE): queue when offline
     if (url.pathname.startsWith('/api/') && event.request.method !== 'GET') {
         event.respondWith(
-            fetch(event.request.clone()).catch(async () => {
-                // Network failed - queue the request for later replay
-                const body = await event.request.clone().text();
-                const queueItem = {
-                    url: event.request.url,
-                    method: event.request.method,
-                    headers: Object.fromEntries(event.request.headers.entries()),
-                    body,
-                    timestamp: Date.now()
-                };
-
-                // Store in IndexedDB-backed cache for persistence
-                const cache = await caches.open('pos-offline-writes');
-                const queueResponse = new Response(JSON.stringify(queueItem));
-                await cache.put(
-                    new Request('/_queue/' + Date.now() + '-' + Math.random()),
-                    queueResponse
-                );
-
-                // Notify the client that the request was queued
-                const clients = await self.clients.matchAll();
-                clients.forEach(client => {
-                    client.postMessage({
-                        type: 'OFFLINE_QUEUED',
-                        method: event.request.method,
-                        url: event.request.url
-                    });
-                });
-
-                // Return a synthetic 202 Accepted response
-                return new Response(JSON.stringify({
-                    queued: true,
-                    message: 'Request queued for sync when online'
-                }), {
-                    status: 202,
-                    headers: { 'Content-Type': 'application/json' }
-                });
-            })
+            fetch(event.request.clone())
+                .then(response => {
+                    // On 5xx server error, queue for retry
+                    if (response.status >= 500) {
+                        return queueAndRespond(event.request);
+                    }
+                    return response;
+                })
+                .catch(() => {
+                    // Network failed - queue the request for later replay
+                    return queueAndRespond(event.request);
+                })
         );
         return;
     }
@@ -105,12 +133,16 @@ self.addEventListener('fetch', event => {
     event.respondWith(
         fetch(event.request)
             .then(response => {
-                // Clone and cache successful responses
+                // Only cache successful responses, not 5xx errors
                 if (response.ok) {
                     const clone = response.clone();
                     caches.open(CACHE_NAME).then(cache => {
                         cache.put(event.request, clone);
                     });
+                }
+                // On 5xx for static assets, fall back to cache
+                if (response.status >= 500) {
+                    return caches.match(event.request).then(cached => cached || response);
                 }
                 return response;
             })
@@ -126,40 +158,70 @@ self.addEventListener('fetch', event => {
     );
 });
 
-// Listen for online status to replay queued requests
+// Helper: queue a failed write request and return synthetic 202
+async function queueAndRespond(request) {
+    const body = await request.clone().text();
+    const queueItem = {
+        url: request.url,
+        method: request.method,
+        headers: Object.fromEntries(request.headers.entries()),
+        body,
+        timestamp: Date.now()
+    };
+
+    try {
+        await enqueueWrite(queueItem);
+    } catch (e) {
+        console.error('Failed to queue offline write:', e);
+    }
+
+    // Notify the client that the request was queued
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => {
+        client.postMessage({
+            type: 'OFFLINE_QUEUED',
+            method: request.method,
+            url: request.url
+        });
+    });
+
+    return new Response(JSON.stringify({
+        queued: true,
+        message: 'Request queued for sync when online'
+    }), {
+        status: 202,
+        headers: { 'Content-Type': 'application/json' }
+    });
+}
+
+// ==========================================
+// Queue Replay
+// ==========================================
 self.addEventListener('message', event => {
     if (event.data && event.data.type === 'REPLAY_QUEUE') {
         replayOfflineQueue();
     }
 });
 
-// Replay queued offline write operations
 async function replayOfflineQueue() {
     try {
-        const cache = await caches.open('pos-offline-writes');
-        const requests = await cache.keys();
-
-        if (requests.length === 0) return;
+        const items = await getAllQueued();
+        if (items.length === 0) return;
 
         let replayed = 0;
         let failed = 0;
 
-        for (const request of requests) {
-            const response = await cache.match(request);
-            if (!response) continue;
-
-            const queueItem = JSON.parse(await response.text());
-
+        for (const queueItem of items) {
             try {
-                const replayResponse = await fetch(queueItem.url, {
+                const response = await fetch(queueItem.url, {
                     method: queueItem.method,
                     headers: queueItem.headers,
                     body: queueItem.body || undefined
                 });
 
-                if (replayResponse.ok || replayResponse.status < 500) {
+                if (response.ok || response.status < 500) {
                     // Success or client error (don't retry client errors)
-                    await cache.delete(request);
+                    await deleteQueued(queueItem.id);
                     replayed++;
                 } else {
                     failed++;
@@ -178,7 +240,7 @@ async function replayOfflineQueue() {
                 type: 'QUEUE_REPLAYED',
                 replayed,
                 failed,
-                remaining: requests.length - replayed
+                remaining: items.length - replayed
             });
         });
     } catch (e) {

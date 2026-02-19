@@ -293,7 +293,7 @@ app.post('/api/tickets/:id/void', authorize('void'), (req, res) => {
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
     ticket.status = 'voided';
-    ticket.voidedBy = req.user ? req.user.name : (req.body.user || 'unknown');
+    ticket.voidedBy = req.user.name;
     ticket.voidedAt = new Date().toISOString();
     ticket.voidReason = req.body.reason || '';
 
@@ -336,7 +336,7 @@ app.post('/api/refunds', authorize('refund'), (req, res) => {
         reason: reason || 'No reason provided',
         type: type || 'full',
         method: ticket.paymentMethod,
-        processedBy: req.user ? req.user.name : (req.body.processedBy || 'unknown'),
+        processedBy: req.user.name,
         time: new Date().toISOString()
     };
 
@@ -590,7 +590,7 @@ app.get('/api/reports/labor', authorize('reports'), (req, res) => {
             laborMap[r.empId] = { name: r.empName, role: r.role, hours: 0, sales: 0, tips: 0 };
         }
         const end = r.clockOut ? new Date(r.clockOut) : new Date();
-        laborMap[r.empId].hours += (end - new Date(r.clockIn)) / 3600000;
+        laborMap[r.empId].hours += Math.round((end - new Date(r.clockIn)) / 36000) / 100;
     });
 
     store.tickets.forEach(t => {

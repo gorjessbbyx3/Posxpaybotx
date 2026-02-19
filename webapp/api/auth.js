@@ -110,7 +110,7 @@ function verifyToken(token) {
  * Login handler - validates PIN (hashed) and returns token.
  */
 function loginHandler(req, res) {
-    const { pin, user } = req.body;
+    const { pin } = req.body;
 
     // Try PIN-based auth (hash the PIN and look up)
     if (pin) {
@@ -132,26 +132,7 @@ function loginHandler(req, res) {
         });
     }
 
-    // Quick login by role name (for dev/demo)
-    if (user) {
-        const employee = Object.values(EMPLOYEES).find(e => e.role === user || e.name.toLowerCase() === user.toLowerCase());
-        if (!employee) {
-            return res.status(401).json({ error: 'Unknown user' });
-        }
-
-        const token = createToken({
-            id: employee.id,
-            name: employee.name,
-            role: employee.role
-        });
-
-        return res.json({
-            token,
-            user: { id: employee.id, name: employee.name, role: employee.role }
-        });
-    }
-
-    res.status(400).json({ error: 'PIN or user required' });
+    res.status(400).json({ error: 'PIN required' });
 }
 
 /**
