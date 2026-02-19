@@ -56,6 +56,8 @@ const store = {
     customers: [],
     giftCards: [],
     promoCodes: [],
+    onlineOrders: [],
+    fraudAlerts: [],
     config: {
         cashDiscount: {
             enabled: true,
@@ -114,6 +116,8 @@ function loadStore() {
             if (data.customers) store.customers = data.customers;
             if (data.giftCards) store.giftCards = data.giftCards;
             if (data.promoCodes) store.promoCodes = data.promoCodes;
+            if (data.onlineOrders) store.onlineOrders = data.onlineOrders;
+            if (data.fraudAlerts) store.fraudAlerts = data.fraudAlerts;
             if (data.nextTicketId) store.nextTicketId = data.nextTicketId;
             if (data.config) {
                 Object.keys(data.config).forEach(k => {
@@ -141,6 +145,8 @@ function saveStore() {
             customers: store.customers,
             giftCards: store.giftCards,
             promoCodes: store.promoCodes,
+            onlineOrders: store.onlineOrders,
+            fraudAlerts: store.fraudAlerts,
             nextTicketId: store.nextTicketId,
             config: store.config,
             savedAt: new Date().toISOString()
@@ -243,7 +249,7 @@ app.post('/api/auth/login', loginHandler);
 // ==========================================
 
 // Whitelist of fields allowed on ticket PATCH
-const TICKET_PATCH_FIELDS = ['table', 'server', 'type', 'items', 'discount', 'deliveryFee', 'deliveryAddress', 'note'];
+const TICKET_PATCH_FIELDS = ['table', 'server', 'type', 'items', 'discount', 'deliveryFee', 'deliveryAddress', 'note', 'seats'];
 
 app.get('/api/tickets', (req, res) => {
     let tickets = store.tickets;
@@ -1384,6 +1390,432 @@ app.delete('/api/promo-codes/:id', authorize('config'), (req, res) => {
     const removed = store.promoCodes.splice(idx, 1)[0];
     scheduleSave();
     res.json(removed);
+});
+
+// ==========================================
+// Seat-Level Ordering & Split Checks by Seat
+// ==========================================
+
+// Assign items to seats on a ticket
+app.post('/api/tickets/:id/seats', authorize('tickets'), (req, res) => {
+    const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+    const { seats } = req.body;
+    if (!seats || typeof seats !== 'object') {
+        return res.status(400).json({ error: 'Seats object required (seat number → item indices)' });
+    }
+
+    // Store seat assignments: { "1": [0,1], "2": [2,3] }
+    ticket.seats = seats;
+    ticket.updatedAt = new Date().toISOString();
+    scheduleSave();
+    res.json(ticket);
+});
+
+// Split check by seat — returns sub-totals per seat
+app.get('/api/tickets/:id/split-by-seat', authorize('tickets'), (req, res) => {
+    const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+    const seats = ticket.seats || {};
+    const items = ticket.items || [];
+    const taxRate = store.config.tax.rate / 100;
+    const splitChecks = {};
+
+    // Build per-seat totals
+    Object.entries(seats).forEach(([seatNum, itemIndices]) => {
+        const seatItems = (Array.isArray(itemIndices) ? itemIndices : [])
+            .filter(i => i >= 0 && i < items.length)
+            .map(i => items[i]);
+
+        const subtotal = seatItems.reduce((s, item) => {
+            return s + Math.round((parseFloat(item.price) || 0) * (parseInt(item.qty, 10) || 0) * 100) / 100;
+        }, 0);
+        const tax = Math.round(subtotal * taxRate * 100) / 100;
+
+        splitChecks[seatNum] = {
+            seat: parseInt(seatNum),
+            items: seatItems,
+            subtotal: Math.round(subtotal * 100) / 100,
+            tax,
+            total: Math.round((subtotal + tax) * 100) / 100
+        };
+    });
+
+    // Find unassigned items
+    const assignedIndices = new Set(Object.values(seats).flat());
+    const unassigned = items.filter((_, i) => !assignedIndices.has(i));
+
+    res.json({ ticketId: ticket.id, checks: splitChecks, unassignedItems: unassigned });
+});
+
+// ==========================================
+// Expo Screen (view of ready / bumped orders)
+// ==========================================
+app.get('/api/kitchen/expo', (req, res) => {
+    // Expo sees bumped orders that haven't been marked as picked up
+    const ready = store.kitchenOrders
+        .filter(o => o.status === 'bumped' && !o.pickedUp)
+        .map(o => ({
+            id: o.id,
+            table: o.table,
+            type: o.type,
+            server: o.server,
+            items: o.items,
+            bumpedAt: o.bumpedAt,
+            bumpedBy: o.bumpedBy,
+            waitTime: o.bumpedAt ? Math.round((Date.now() - new Date(o.bumpedAt).getTime()) / 60000) : 0
+        }));
+
+    // Also include in-progress orders (not yet bumped)
+    const inProgress = store.kitchenOrders
+        .filter(o => o.status === 'new' || o.status === 'cooking')
+        .map(o => ({
+            id: o.id,
+            table: o.table,
+            type: o.type,
+            server: o.server,
+            items: o.items,
+            status: o.status,
+            time: o.time,
+            currentCourse: o.currentCourse
+        }));
+
+    res.json({ ready, inProgress, readyCount: ready.length, inProgressCount: inProgress.length });
+});
+
+// Mark expo order as picked up
+app.post('/api/kitchen/:id/pickup', authorize('tickets'), (req, res) => {
+    const order = store.kitchenOrders.find(o => o.id === parseInt(req.params.id));
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    order.pickedUp = true;
+    order.pickedUpAt = new Date().toISOString();
+    order.pickedUpBy = req.user ? req.user.name : 'unknown';
+    scheduleSave();
+    res.json(order);
+});
+
+// ==========================================
+// Loyalty Points System
+// ==========================================
+const LOYALTY_CONFIG = {
+    pointsPerDollar: 1,
+    redeemThreshold: 100,
+    redeemValue: 5.00
+};
+
+app.get('/api/customers/:id/loyalty', (req, res) => {
+    const customer = store.customers.find(c => c.id === parseInt(req.params.id));
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+    const points = customer.loyaltyPoints || 0;
+    const redeemSets = Math.floor(points / LOYALTY_CONFIG.redeemThreshold);
+
+    res.json({
+        customerId: customer.id,
+        name: customer.name,
+        points,
+        redeemableRewards: redeemSets,
+        redeemValue: Math.round(redeemSets * LOYALTY_CONFIG.redeemValue * 100) / 100,
+        pointsToNextReward: points >= LOYALTY_CONFIG.redeemThreshold ? 0 : LOYALTY_CONFIG.redeemThreshold - points,
+        config: LOYALTY_CONFIG
+    });
+});
+
+app.post('/api/customers/:id/loyalty/earn', authorize('tickets'), (req, res) => {
+    const customer = store.customers.find(c => c.id === parseInt(req.params.id));
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+    const amount = parseFloat(req.body.amount) || 0;
+    if (amount <= 0) return res.status(400).json({ error: 'Amount must be positive' });
+
+    const multiplier = parseFloat(req.body.multiplier) || 1;
+    const earned = Math.floor(amount * LOYALTY_CONFIG.pointsPerDollar * multiplier);
+
+    customer.loyaltyPoints = (customer.loyaltyPoints || 0) + earned;
+    customer.totalSpent = Math.round(((customer.totalSpent || 0) + amount) * 100) / 100;
+    customer.visitCount = (customer.visitCount || 0) + 1;
+    scheduleSave();
+
+    res.json({
+        earned,
+        totalPoints: customer.loyaltyPoints,
+        totalSpent: customer.totalSpent,
+        visitCount: customer.visitCount
+    });
+});
+
+app.post('/api/customers/:id/loyalty/redeem', authorize('tickets'), (req, res) => {
+    const customer = store.customers.find(c => c.id === parseInt(req.params.id));
+    if (!customer) return res.status(404).json({ error: 'Customer not found' });
+
+    const points = customer.loyaltyPoints || 0;
+    const setsToRedeem = parseInt(req.body.rewards, 10) || 1;
+
+    if (setsToRedeem <= 0) return res.status(400).json({ error: 'Rewards count must be positive' });
+
+    const pointsNeeded = setsToRedeem * LOYALTY_CONFIG.redeemThreshold;
+    if (points < pointsNeeded) {
+        return res.status(400).json({
+            error: 'Insufficient points',
+            have: points,
+            need: pointsNeeded
+        });
+    }
+
+    customer.loyaltyPoints -= pointsNeeded;
+    const dollarValue = Math.round(setsToRedeem * LOYALTY_CONFIG.redeemValue * 100) / 100;
+    scheduleSave();
+
+    res.json({
+        redeemed: setsToRedeem,
+        pointsUsed: pointsNeeded,
+        dollarValue,
+        remainingPoints: customer.loyaltyPoints
+    });
+});
+
+// ==========================================
+// Online Order Queue
+// ==========================================
+app.get('/api/online-orders', authorize('tickets'), (req, res) => {
+    let orders = store.onlineOrders;
+    const { status } = req.query;
+    if (status && status !== 'all') {
+        orders = orders.filter(o => o.status === status);
+    }
+    res.json({ orders, total: orders.length });
+});
+
+app.post('/api/online-orders', (req, res) => {
+    // Online orders don't require auth (customer-facing)
+    const { customerName, customerPhone, customerEmail, items, type, scheduledFor, promoCode, note } = req.body;
+    if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'Items required' });
+    }
+    if (!customerName) {
+        return res.status(400).json({ error: 'Customer name required' });
+    }
+
+    const subtotal = items.reduce((s, i) => {
+        return s + Math.round((parseFloat(i.price) || 0) * (parseInt(i.qty, 10) || 0) * 100) / 100;
+    }, 0);
+    const tax = Math.round(subtotal * (store.config.tax.rate / 100) * 100) / 100;
+
+    const order = {
+        id: store.onlineOrders.length > 0 ? Math.max(...store.onlineOrders.map(o => o.id)) + 1 : 5001,
+        customerName,
+        customerPhone: customerPhone || '',
+        customerEmail: customerEmail || '',
+        items,
+        type: type || 'pickup',
+        subtotal: Math.round(subtotal * 100) / 100,
+        tax,
+        total: Math.round((subtotal + tax) * 100) / 100,
+        promoCode: promoCode || null,
+        note: note || '',
+        scheduledFor: scheduledFor || null,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+    };
+
+    store.onlineOrders.push(order);
+    fireWebhooks('kitchen.new', { orderId: order.id, type: 'online', items: order.items.length });
+    scheduleSave();
+    res.status(201).json(order);
+});
+
+app.post('/api/online-orders/:id/accept', authorize('tickets'), (req, res) => {
+    const order = store.onlineOrders.find(o => o.id === parseInt(req.params.id));
+    if (!order) return res.status(404).json({ error: 'Online order not found' });
+    if (order.status !== 'pending') return res.status(400).json({ error: 'Order is not pending' });
+
+    order.status = 'accepted';
+    order.acceptedAt = new Date().toISOString();
+    order.acceptedBy = req.user ? req.user.name : 'unknown';
+
+    // Create a real ticket from the online order
+    const ticket = {
+        id: store.nextTicketId++,
+        items: order.items,
+        type: order.type,
+        server: req.user ? req.user.name : 'unknown',
+        table: null,
+        discount: null,
+        deliveryFee: 0,
+        note: order.note,
+        status: 'open',
+        paid: false,
+        onlineOrderId: order.id,
+        customerName: order.customerName,
+        time: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        createdBy: req.user ? req.user.name : 'system',
+        subtotal: order.subtotal,
+        tax: order.tax,
+        total: order.total
+    };
+    store.tickets.push(ticket);
+    order.ticketId = ticket.id;
+
+    scheduleSave();
+    res.json({ order, ticket });
+});
+
+app.post('/api/online-orders/:id/reject', authorize('tickets'), (req, res) => {
+    const order = store.onlineOrders.find(o => o.id === parseInt(req.params.id));
+    if (!order) return res.status(404).json({ error: 'Online order not found' });
+    if (order.status !== 'pending') return res.status(400).json({ error: 'Order is not pending' });
+
+    order.status = 'rejected';
+    order.rejectedAt = new Date().toISOString();
+    order.rejectedBy = req.user ? req.user.name : 'unknown';
+    order.rejectReason = req.body.reason || '';
+    scheduleSave();
+    res.json(order);
+});
+
+// ==========================================
+// Fraud Detection Alerts
+// ==========================================
+function checkFraudPatterns(ticket, user) {
+    const alerts = [];
+    const now = new Date();
+
+    // Pattern 1: Multiple voids by same user in short time
+    const recentVoids = store.auditLog.filter(l =>
+        l.action === 'void' && l.user === (user ? user.name : '') &&
+        (now - new Date(l.time)) < 3600000 // Within 1 hour
+    );
+    if (recentVoids.length >= 3) {
+        alerts.push({
+            type: 'excessive_voids',
+            severity: 'high',
+            message: `${user.name} has voided ${recentVoids.length} tickets in the last hour`,
+            user: user.name
+        });
+    }
+
+    // Pattern 2: Large refund relative to ticket
+    if (ticket && ticket.total > 100) {
+        const refundsForTicket = store.refunds.filter(r => r.ticketId === ticket.id);
+        const totalRefunded = refundsForTicket.reduce((s, r) => s + r.amount, 0);
+        if (totalRefunded > ticket.total * 0.5) {
+            alerts.push({
+                type: 'large_refund',
+                severity: 'medium',
+                message: `Ticket ${ticket.id} has been refunded ${Math.round(totalRefunded / ticket.total * 100)}%`,
+                ticketId: ticket.id
+            });
+        }
+    }
+
+    // Pattern 3: Rapid ticket creation (possible testing/abuse)
+    const recentTickets = store.tickets.filter(t =>
+        t.createdBy === (user ? user.name : '') &&
+        (now - new Date(t.createdAt)) < 300000 // 5 minutes
+    );
+    if (recentTickets.length >= 10) {
+        alerts.push({
+            type: 'rapid_tickets',
+            severity: 'low',
+            message: `${user.name} created ${recentTickets.length} tickets in 5 minutes`,
+            user: user.name
+        });
+    }
+
+    // Store new alerts
+    alerts.forEach(a => {
+        a.id = store.fraudAlerts.length + 1;
+        a.time = now.toISOString();
+        a.resolved = false;
+        store.fraudAlerts.push(a);
+    });
+
+    return alerts;
+}
+
+app.get('/api/fraud-alerts', authorize('reports'), (req, res) => {
+    let alerts = store.fraudAlerts;
+    const { severity, resolved } = req.query;
+
+    if (severity) alerts = alerts.filter(a => a.severity === severity);
+    if (resolved === 'true') alerts = alerts.filter(a => a.resolved);
+    if (resolved === 'false') alerts = alerts.filter(a => !a.resolved);
+
+    res.json({ alerts: [...alerts].reverse(), total: alerts.length });
+});
+
+app.post('/api/fraud-alerts/scan', authorize('reports'), (req, res) => {
+    // Manual scan: check all recent activity for fraud patterns
+    const now = new Date();
+    const initialCount = store.fraudAlerts.length;
+
+    // Check recent voids
+    const voidUsers = {};
+    store.auditLog.filter(l =>
+        l.action === 'void' && (now - new Date(l.time)) < 3600000
+    ).forEach(l => {
+        voidUsers[l.user] = (voidUsers[l.user] || 0) + 1;
+    });
+
+    Object.entries(voidUsers).forEach(([user, count]) => {
+        if (count >= 3) {
+            const existing = store.fraudAlerts.find(a =>
+                a.type === 'excessive_voids' && a.user === user &&
+                (now - new Date(a.time)) < 3600000
+            );
+            if (!existing) {
+                store.fraudAlerts.push({
+                    id: store.fraudAlerts.length + 1,
+                    type: 'excessive_voids',
+                    severity: 'high',
+                    message: `${user} has voided ${count} tickets in the last hour`,
+                    user,
+                    time: now.toISOString(),
+                    resolved: false
+                });
+            }
+        }
+    });
+
+    // Check large refunds
+    store.tickets.forEach(t => {
+        if (t.total > 100 && t.refundedAmount && t.refundedAmount > t.total * 0.5) {
+            const existing = store.fraudAlerts.find(a =>
+                a.type === 'large_refund' && a.ticketId === t.id
+            );
+            if (!existing) {
+                store.fraudAlerts.push({
+                    id: store.fraudAlerts.length + 1,
+                    type: 'large_refund',
+                    severity: 'medium',
+                    message: `Ticket ${t.id} has been refunded ${Math.round(t.refundedAmount / t.total * 100)}%`,
+                    ticketId: t.id,
+                    time: now.toISOString(),
+                    resolved: false
+                });
+            }
+        }
+    });
+
+    const newAlerts = store.fraudAlerts.length - initialCount;
+    scheduleSave();
+    res.json({ scanned: true, newAlerts, totalAlerts: store.fraudAlerts.length });
+});
+
+app.post('/api/fraud-alerts/:id/resolve', authorize('reports'), (req, res) => {
+    const alert = store.fraudAlerts.find(a => a.id === parseInt(req.params.id));
+    if (!alert) return res.status(404).json({ error: 'Alert not found' });
+
+    alert.resolved = true;
+    alert.resolvedAt = new Date().toISOString();
+    alert.resolvedBy = req.user ? req.user.name : 'unknown';
+    alert.resolution = req.body.resolution || '';
+    scheduleSave();
+    res.json(alert);
 });
 
 // ==========================================

@@ -147,9 +147,10 @@ function loginHandler(req, res) {
  * - All mutating methods (POST/PATCH/PUT/DELETE): auth required
  */
 function authenticate(req, res, next) {
-    // Allow login and health endpoints without auth
+    // Allow login, health, and public-facing endpoints without auth
     if (req.path === '/api/auth/login' || req.path === '/auth/login' ||
-        req.path === '/api/health' || req.path === '/health') {
+        req.path === '/api/health' || req.path === '/health' ||
+        (req.path === '/online-orders' && req.method === 'POST')) {
         return next();
     }
 

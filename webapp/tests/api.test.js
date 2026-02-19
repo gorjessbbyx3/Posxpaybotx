@@ -71,6 +71,8 @@ before(() => {
             store.customers.length = 0;
             store.giftCards.length = 0;
             store.promoCodes.length = 0;
+            store.onlineOrders.length = 0;
+            store.fraudAlerts.length = 0;
             store.nextTicketId = 1001;
             resolve();
         });
@@ -1372,5 +1374,337 @@ describe('Promo Code Engine', () => {
         }, serverToken);
 
         assert.equal(res.status, 403);
+    });
+});
+
+// ==========================================
+// Seat-Level Ordering & Split Checks by Seat
+// ==========================================
+describe('Seat-Level Ordering & Split by Seat', () => {
+    let seatTicketId;
+
+    it('creates ticket with multiple items for seat splitting', async () => {
+        const res = await req('POST', '/api/tickets', {
+            items: [
+                { name: 'Steak', price: 30, qty: 1 },
+                { name: 'Salmon', price: 25, qty: 1 },
+                { name: 'Salad', price: 12, qty: 1 },
+                { name: 'Wine', price: 10, qty: 2 }
+            ],
+            type: 'dine-in',
+            table: 7
+        }, serverToken);
+
+        assert.equal(res.status, 201);
+        seatTicketId = res.body.id;
+    });
+
+    it('assigns items to seats', async () => {
+        const res = await req('POST', `/api/tickets/${seatTicketId}/seats`, {
+            seats: { "1": [0, 3], "2": [1, 2] }
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.ok(res.body.seats);
+        assert.deepEqual(res.body.seats["1"], [0, 3]);
+    });
+
+    it('splits check by seat with correct totals', async () => {
+        const res = await req('GET', `/api/tickets/${seatTicketId}/split-by-seat`, null, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.ok(res.body.checks);
+        assert.ok(res.body.checks["1"]);
+        assert.ok(res.body.checks["2"]);
+
+        // Seat 1: Steak(30) + Wine(10*2=20) = 50
+        assert.equal(res.body.checks["1"].subtotal, 50);
+        // Seat 2: Salmon(25) + Salad(12) = 37
+        assert.equal(res.body.checks["2"].subtotal, 37);
+
+        // Each should have tax
+        assert.ok(res.body.checks["1"].tax > 0);
+        assert.ok(res.body.checks["2"].tax > 0);
+    });
+
+    it('rejects seats without proper object', async () => {
+        const res = await req('POST', `/api/tickets/${seatTicketId}/seats`, {}, serverToken);
+        assert.equal(res.status, 400);
+    });
+
+    it('returns 404 for missing ticket seat split', async () => {
+        const res = await req('GET', '/api/tickets/99999/split-by-seat', null, serverToken);
+        assert.equal(res.status, 404);
+    });
+});
+
+// ==========================================
+// Expo Screen
+// ==========================================
+describe('Expo Screen API', () => {
+    it('returns expo view with ready and in-progress', async () => {
+        const res = await req('GET', '/api/kitchen/expo');
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body.ready));
+        assert.ok(Array.isArray(res.body.inProgress));
+        assert.ok('readyCount' in res.body);
+        assert.ok('inProgressCount' in res.body);
+    });
+
+    it('creates and bumps order, shows as ready in expo', async () => {
+        // Create kitchen order
+        const create = await req('POST', '/api/kitchen', {
+            ticketId: 8001,
+            items: [{ name: 'Pasta', station: 'grill', qty: 1 }],
+            type: 'dine-in',
+            table: 10
+        }, kitchenToken);
+        assert.equal(create.status, 201);
+
+        // Bump it
+        await req('POST', '/api/kitchen/8001/bump', {}, kitchenToken);
+
+        // Check expo
+        const expo = await req('GET', '/api/kitchen/expo');
+        assert.equal(expo.status, 200);
+        const readyOrder = expo.body.ready.find(o => o.id === 8001);
+        assert.ok(readyOrder);
+        assert.equal(readyOrder.table, 10);
+        assert.ok('waitTime' in readyOrder);
+    });
+
+    it('marks order as picked up from expo', async () => {
+        const res = await req('POST', '/api/kitchen/8001/pickup', {}, serverToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.pickedUp, true);
+
+        // Should no longer appear in expo ready
+        const expo = await req('GET', '/api/kitchen/expo');
+        const gone = expo.body.ready.find(o => o.id === 8001);
+        assert.equal(gone, undefined);
+    });
+
+    it('returns 404 for pickup of missing order', async () => {
+        const res = await req('POST', '/api/kitchen/99999/pickup', {}, serverToken);
+        assert.equal(res.status, 404);
+    });
+});
+
+// ==========================================
+// Loyalty Points System
+// ==========================================
+describe('Loyalty Points API', () => {
+    let loyaltyCustomerId;
+
+    it('creates customer for loyalty testing', async () => {
+        const res = await req('POST', '/api/customers', {
+            name: 'Loyalty Larry',
+            email: 'larry@example.com'
+        }, serverToken);
+
+        assert.equal(res.status, 201);
+        loyaltyCustomerId = res.body.id;
+    });
+
+    it('gets loyalty status (starts at 0)', async () => {
+        const res = await req('GET', `/api/customers/${loyaltyCustomerId}/loyalty`);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.points, 0);
+        assert.equal(res.body.redeemableRewards, 0);
+        assert.ok(res.body.pointsToNextReward > 0);
+        assert.ok(res.body.config);
+    });
+
+    it('earns loyalty points', async () => {
+        const res = await req('POST', `/api/customers/${loyaltyCustomerId}/loyalty/earn`, {
+            amount: 50
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.earned, 50);
+        assert.equal(res.body.totalPoints, 50);
+        assert.equal(res.body.totalSpent, 50);
+        assert.equal(res.body.visitCount, 1);
+    });
+
+    it('earns more points with multiplier', async () => {
+        const res = await req('POST', `/api/customers/${loyaltyCustomerId}/loyalty/earn`, {
+            amount: 30,
+            multiplier: 2
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.earned, 60); // 30 * 1pt/$ * 2x
+        assert.equal(res.body.totalPoints, 110);
+    });
+
+    it('redeems a reward', async () => {
+        const res = await req('POST', `/api/customers/${loyaltyCustomerId}/loyalty/redeem`, {
+            rewards: 1
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.redeemed, 1);
+        assert.equal(res.body.pointsUsed, 100);
+        assert.equal(res.body.dollarValue, 5);
+        assert.equal(res.body.remainingPoints, 10);
+    });
+
+    it('rejects redemption with insufficient points', async () => {
+        const res = await req('POST', `/api/customers/${loyaltyCustomerId}/loyalty/redeem`, {
+            rewards: 1
+        }, serverToken);
+
+        assert.equal(res.status, 400);
+        assert.ok(res.body.error.includes('Insufficient'));
+    });
+
+    it('returns 404 for missing customer loyalty', async () => {
+        const res = await req('GET', '/api/customers/99999/loyalty');
+        assert.equal(res.status, 404);
+    });
+});
+
+// ==========================================
+// Online Order Queue
+// ==========================================
+describe('Online Order Queue', () => {
+    let onlineOrderId;
+
+    it('creates an online order (no auth required)', async () => {
+        const res = await req('POST', '/api/online-orders', {
+            customerName: 'Online Alice',
+            customerPhone: '555-8888',
+            items: [
+                { name: 'Pizza', price: 18, qty: 1 },
+                { name: 'Garlic Bread', price: 6, qty: 1 }
+            ],
+            type: 'pickup'
+        });
+
+        assert.equal(res.status, 201);
+        onlineOrderId = res.body.id;
+        assert.equal(res.body.status, 'pending');
+        assert.equal(res.body.customerName, 'Online Alice');
+        assert.ok(res.body.total > 0);
+    });
+
+    it('rejects online order without items', async () => {
+        const res = await req('POST', '/api/online-orders', {
+            customerName: 'Bob',
+            items: []
+        });
+        assert.equal(res.status, 400);
+    });
+
+    it('rejects online order without customer name', async () => {
+        const res = await req('POST', '/api/online-orders', {
+            items: [{ name: 'Test', price: 5, qty: 1 }]
+        });
+        assert.equal(res.status, 400);
+    });
+
+    it('lists online orders', async () => {
+        const res = await req('GET', '/api/online-orders', null, serverToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.orders.length > 0);
+    });
+
+    it('filters online orders by status', async () => {
+        const res = await req('GET', '/api/online-orders?status=pending', null, serverToken);
+        assert.equal(res.status, 200);
+        res.body.orders.forEach(o => assert.equal(o.status, 'pending'));
+    });
+
+    it('accepts online order (creates ticket)', async () => {
+        const res = await req('POST', `/api/online-orders/${onlineOrderId}/accept`, {}, serverToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.order.status, 'accepted');
+        assert.ok(res.body.ticket);
+        assert.ok(res.body.ticket.id);
+        assert.equal(res.body.ticket.onlineOrderId, onlineOrderId);
+    });
+
+    it('rejects accepting non-pending order', async () => {
+        const res = await req('POST', `/api/online-orders/${onlineOrderId}/accept`, {}, serverToken);
+        assert.equal(res.status, 400);
+    });
+
+    it('rejects an online order', async () => {
+        // Create another online order to reject
+        const create = await req('POST', '/api/online-orders', {
+            customerName: 'Reject Bob',
+            items: [{ name: 'Wings', price: 12, qty: 1 }],
+            type: 'delivery'
+        });
+        const res = await req('POST', `/api/online-orders/${create.body.id}/reject`, {
+            reason: 'Kitchen is closing'
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'rejected');
+        assert.equal(res.body.rejectReason, 'Kitchen is closing');
+    });
+});
+
+// ==========================================
+// Fraud Detection Alerts
+// ==========================================
+describe('Fraud Detection Alerts', () => {
+    it('server cannot access fraud alerts', async () => {
+        const res = await req('GET', '/api/fraud-alerts', null, serverToken);
+        assert.equal(res.status, 403);
+    });
+
+    it('runs fraud scan', async () => {
+        const res = await req('POST', '/api/fraud-alerts/scan', {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok('scanned' in res.body);
+        assert.ok('newAlerts' in res.body);
+        assert.ok('totalAlerts' in res.body);
+    });
+
+    it('lists fraud alerts', async () => {
+        const res = await req('GET', '/api/fraud-alerts', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body.alerts));
+    });
+
+    it('filters by severity', async () => {
+        const res = await req('GET', '/api/fraud-alerts?severity=high', null, managerToken);
+        assert.equal(res.status, 200);
+        res.body.alerts.forEach(a => assert.equal(a.severity, 'high'));
+    });
+
+    it('resolves an alert', async () => {
+        // Add a manual alert to resolve
+        store.fraudAlerts.push({
+            id: store.fraudAlerts.length + 1,
+            type: 'test',
+            severity: 'low',
+            message: 'Test alert',
+            time: new Date().toISOString(),
+            resolved: false
+        });
+
+        const alertId = store.fraudAlerts[store.fraudAlerts.length - 1].id;
+        const res = await req('POST', `/api/fraud-alerts/${alertId}/resolve`, {
+            resolution: 'Investigated - false positive'
+        }, managerToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.resolved, true);
+        assert.equal(res.body.resolution, 'Investigated - false positive');
+    });
+
+    it('filters resolved/unresolved alerts', async () => {
+        const res = await req('GET', '/api/fraud-alerts?resolved=true', null, managerToken);
+        assert.equal(res.status, 200);
+        res.body.alerts.forEach(a => assert.equal(a.resolved, true));
+    });
+
+    it('returns 404 for missing alert', async () => {
+        const res = await req('POST', '/api/fraud-alerts/99999/resolve', {}, managerToken);
+        assert.equal(res.status, 404);
     });
 });
