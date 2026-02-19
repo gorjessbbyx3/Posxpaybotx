@@ -172,7 +172,7 @@ Tests live in `webapp/tests/` and use the **Node.js native test runner** (no ext
 
 **Run tests:**
 ```bash
-cd webapp && npm test              # Runs calculations, auth, and api tests (174 tests)
+cd webapp && npm test              # Runs calculations, auth, and api tests (385 tests)
 node --test tests/extras.test.js   # Run extras tests separately
 ```
 
@@ -298,6 +298,42 @@ Express REST API with these endpoint groups:
 | Fraud | `GET /api/fraud-alerts`, scan/resolve | Yes (reports permission) |
 | Audit | `GET /api/audit-log` | Yes (reports permission) |
 | Webhooks | `GET/POST/DELETE /api/webhooks` | Yes (config permission) |
+| Recipes | `GET/POST /api/recipes` | Yes (config permission) |
+| Vendors | `GET/POST /api/vendors` | Yes (config permission) |
+| Purchase Orders | `GET/POST /api/purchase-orders` | Yes (config permission) |
+| Waste Log | `GET/POST /api/waste-log` | Yes (reports/config) |
+| Waitlist | `GET/POST /api/waitlist`, `PATCH /api/waitlist/:id` | No (POST), Yes (PATCH) |
+| Reservations | `GET/POST/DELETE /api/reservations` | No (POST), Yes (DELETE) |
+| Saved Payments | `GET/POST /api/saved-payment-methods` | Yes |
+| Email Campaigns | `GET/POST /api/email-campaigns`, send | Yes (config permission) |
+| QR Orders | `GET/POST /api/qr-orders` | No (customer-facing) |
+| Delivery | `GET/POST /api/delivery-integrations` | Yes (config permission) |
+| Token Vault | `GET/POST /api/token-vault` | Yes |
+| Partial Pay | `POST /api/tickets/:id/partial-pay` | Yes |
+| Remote Void | `POST /api/tickets/:id/remote-void` | Yes (void permission) |
+| QB Export | `GET /api/export/quickbooks` | Yes (reports permission) |
+| Email Reports | `GET/POST /api/email-reports` | Yes (reports/config) |
+| Backups | `GET/POST /api/backups` | Yes (config permission) |
+| 2FA | `POST /api/auth/2fa/setup\|verify` | Yes (config permission) |
+| Security | `GET /api/security/encryption-status`, `PUT /api/security/encryption` | Yes (config) |
+| Compliance | `GET /api/compliance/pci-saq` | Yes (config permission) |
+| Live Feed | `GET /api/live-feed` | Yes (reports permission) |
+| Admin | `GET /api/admin/summary`, `/api/mobile/dashboard` | Yes (reports permission) |
+| Analytics | `GET /api/analytics/owner` | Yes (reports permission) |
+| Locations | `GET /api/locations` | Yes (reports permission) |
+| Cloud Reports | `GET /api/cloud-reports`, `/api/reports/payment-breakdown` | Yes (reports) |
+| Surcharge Cap | `GET/PUT /api/surcharge-cap` | Yes (config permission) |
+| Hardware | `GET/POST /api/hardware/printers`, cash-drawer, barcode, kds | Yes |
+| Tables | `GET/PUT /api/tables` | No (GET), Yes (PUT config) |
+| Sync | `GET /api/sync/snapshot`, `POST /api/sync/push\|resync` | Yes (config) |
+| Merchants | `GET/POST /api/merchants` | Yes (config permission) |
+| System | `GET /api/system/diagnostics`, `POST /api/system/update` | Yes (config) |
+| Branding | `GET/PUT /api/branding` | No (GET), Yes (PUT config) |
+| Feature Toggles | `GET/PUT /api/feature-toggles` | Yes (config permission) |
+| Deploy | `GET /api/deploy/status`, `POST /api/deploy` | Yes (config permission) |
+| Dev Docs | `GET /api/developer/docs` | No |
+| Plugins | `GET/POST /api/plugins` | Yes (config permission) |
+| Menu | `GET /api/menu` | No |
 | Health | `GET /api/health` | No |
 
 ---
@@ -485,7 +521,7 @@ Volumes: `pos-data` (app data), `db-data` (MySQL persistence)
 
 ```bash
 cd webapp && npm install           # Install deps first (express required)
-npm test                           # Run core tests (286 tests) — must pass
+npm test                           # Run core tests (385 tests) — must pass
 npm run test:calculations          # Pricing/tax/discount math
 npm run test:auth                  # Auth and role-based access
 npm run test:api                   # API endpoints
@@ -522,7 +558,7 @@ Features already implemented are marked with checkmarks. This is the full compet
 
 **Advanced Features:**
 - [x] Automatic batch settlement
-- [ ] Tokenized cards for returns
+- [x] Tokenized cards for returns
 - [x] PCI-compliant semi-integration
 - [x] Automatic debit detection (no surcharge on debit)
 
@@ -539,7 +575,7 @@ Features already implemented are marked with checkmarks. This is the full compet
 - [x] Reporting separated by payment type
 
 ### 4. Restaurant Workflow Upgrades
-- [ ] Advanced table management (visual floor plan drag-and-drop)
+- [x] Advanced table management (visual floor plan drag-and-drop)
 - [x] Split checks by seat
 - [x] Seat-level ordering
 - [x] Course firing
@@ -547,19 +583,19 @@ Features already implemented are marked with checkmarks. This is the full compet
 - [x] Order routing by prep station
 - [x] Expo screen
 - [x] Online order queue
-- [ ] Email "order ready" alerts
-- [ ] Waitlist management
-- [ ] Reservation integration
+- [x] Email "order ready" alerts
+- [x] Waitlist management
+- [x] Reservation integration
 
 ### 5. Cloud Sync + Remote Dashboard
-- [ ] Cloud-hosted reporting server
-- [ ] Multi-location dashboard
-- [ ] Real-time sales feed
-- [ ] Remote void approval
-- [ ] Phone-based management portal
-- [ ] Owner analytics app
+- [x] Cloud-hosted reporting server
+- [x] Multi-location dashboard
+- [x] Real-time sales feed
+- [x] Remote void approval
+- [x] Phone-based management portal
+- [x] Owner analytics app
 - [x] REST API layer (foundation)
-- [ ] Web admin portal (partial — `admin.html` exists)
+- [x] Web admin portal
 
 ### 6. Advanced Reporting & Analytics
 - [x] Hourly sales heat maps
@@ -571,36 +607,36 @@ Features already implemented are marked with checkmarks. This is the full compet
 - [x] Category margin analysis
 - [x] Payment type breakdown
 - [x] Surcharge revenue reporting
-- [ ] Export to QuickBooks
-- [ ] Automated email reports
+- [x] Export to QuickBooks
+- [x] Automated email reports
 - [x] Basic reporting endpoints (summary, hourly, item-mix, labor)
 
 ### 7. Inventory & Vendor Management
 - [x] Ingredient-level tracking
-- [ ] Recipe costing
+- [x] Recipe costing
 - [x] Low-stock alerts
-- [ ] Purchase order generation
-- [ ] Vendor tracking
-- [ ] Waste logging
+- [x] Purchase order generation
+- [x] Vendor tracking
+- [x] Waste logging
 - [x] Food cost % dashboard
 - [x] Database schema for inventory (migration-003)
 
 ### 8. Customer & Loyalty System
 - [x] Customer profiles
-- [ ] Saved payment methods
+- [x] Saved payment methods
 - [x] Loyalty points
 - [x] Rewards engine
-- [ ] Email marketing
+- [x] Email marketing
 - [x] Digital receipts
 - [x] Gift card management
 - [x] Loyalty module stub (`pos-loyalty.js`)
 - [x] Gift card DB schema (migration-003)
 
 ### 9. Online Ordering + QR Ordering
-- [ ] Online ordering website
-- [ ] QR table ordering
-- [ ] Integrated payments
-- [ ] Delivery integration (DoorDash/Uber Eats APIs)
+- [x] Online ordering website
+- [x] QR table ordering
+- [x] Integrated payments
+- [x] Delivery integration (DoorDash/Uber Eats APIs)
 - [x] Curbside pickup mode
 - [x] Scheduled orders
 - [x] Promo code engine
@@ -608,11 +644,11 @@ Features already implemented are marked with checkmarks. This is the full compet
 ### 10. Security & Compliance
 - [x] User permission granularity (role-based authorization)
 - [x] Audit logs
-- [ ] Encrypted database
-- [ ] Tokenized payment storage
-- [ ] PCI SAQ documentation
-- [ ] Backup automation
-- [ ] 2FA for managers
+- [x] Encrypted database
+- [x] Tokenized payment storage
+- [x] PCI SAQ documentation
+- [x] Backup automation
+- [x] 2FA for managers
 - [x] Fraud detection alerts
 - [x] JWT authentication
 - [x] CSP headers
@@ -621,36 +657,36 @@ Features already implemented are marked with checkmarks. This is the full compet
 
 ### 11. Hardware Ecosystem
 - [x] Terminal provisioning (paybotx-terminals.xml)
-- [ ] Printer auto-discovery
-- [ ] Cash drawer auto-open logic
-- [ ] Barcode scanner integration
-- [ ] Kitchen display hardware support
+- [x] Printer auto-discovery
+- [x] Cash drawer auto-open logic
+- [x] Barcode scanner integration
+- [x] Kitchen display hardware support
 - [x] Offline LAN mode with sync
 
 ### 12. Offline Mode + Sync Engine
 - [x] Offline payment queue (store & forward)
-- [ ] Full local data caching
-- [ ] Sync conflict resolution
+- [x] Full local data caching
+- [x] Sync conflict resolution
 - [x] Offline transaction storage
-- [ ] Auto-resync on reconnect
+- [x] Auto-resync on reconnect
 - [x] PWA service worker (sw.js)
 
 ### 13. Subscription / Merchant Management Layer
-- [ ] Merchant onboarding portal
-- [ ] Multi-tenant architecture
-- [ ] Automated updates
-- [ ] Remote diagnostics
-- [ ] White-labeling capability
-- [ ] Remote feature toggles
-- [ ] Automated deployment scripts
+- [x] Merchant onboarding portal
+- [x] Multi-tenant architecture
+- [x] Automated updates
+- [x] Remote diagnostics
+- [x] White-labeling capability
+- [x] Remote feature toggles
+- [x] Automated deployment scripts
 - [x] Docker-based deployment
 
 ### 14. App Ecosystem
 - [x] Plugin framework (Floreant JSPF-based)
 - [x] REST API for integrations
 - [x] Webhook support
-- [ ] Developer documentation
-- [ ] App marketplace capability
+- [x] Developer documentation
+- [x] App marketplace capability
 
 ---
 
