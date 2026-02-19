@@ -1,0 +1,642 @@
+# CLAUDE.md — Posxpaybotx (Restaurant POS)
+
+## Project Overview
+
+Self-hosted restaurant Point-of-Sale system built on [Floreant POS](https://floreant.org) (Java), enhanced with a **cash discount / card surcharge engine**, **PaybotX/Valor terminal integration**, and a **modern touch-optimized web frontend**. Targets small-to-medium restaurants needing compliance-friendly dual pricing and modern payment terminal support.
+
+**Version**: 1.4-SNAPSHOT
+**License**: MRPL 1.2 (Modified Mozilla Public License)
+**Upstream**: [fat-tire/floreantpos](https://github.com/fat-tire/floreantpos)
+
+---
+
+## Repository Structure
+
+```
+Posxpaybotx/
+├── src/com/floreantpos/           # Java backend (~925 files)
+│   ├── cashdiscount/              # Cash discount/surcharge engine (4 files)
+│   ├── paybotx/                   # PaybotX/Valor terminal integration (5+ files)
+│   │   ├── config/                # Terminal configuration management
+│   │   └── proxy/                 # HTTP REST API proxy server
+│   ├── dejavoo/                   # Legacy Dejavoo terminal support
+│   ├── model/                     # Data models (Ticket, PosTransaction, User, etc.)
+│   ├── dal/                       # Data access layer (Hibernate ORM)
+│   ├── ui/                        # Java Swing desktop UI (legacy)
+│   ├── bo/                        # Back-office operations
+│   ├── services/                  # Business logic services
+│   ├── config/                    # Application configuration
+│   ├── report/                    # Reporting engine (JasperReports)
+│   ├── main/                      # Application entry points
+│   └── extension/                 # Plugin framework
+├── webapp/                        # Modern web frontend (Node.js + vanilla JS)
+│   ├── index.html                 # Main POS interface
+│   ├── admin.html                 # Admin/back-office interface
+│   ├── compliance-signage.html    # Cash discount compliance sign generator
+│   ├── customer-display.html      # Customer-facing display
+│   ├── js/                        # JavaScript application modules
+│   │   ├── pos.js                 # Main POS application (~165KB)
+│   │   ├── pos-core.js            # Core POS functionality
+│   │   ├── pos-extras.js          # Extended features
+│   │   ├── pos-kitchen.js         # Kitchen display system (KDS)
+│   │   ├── pos-tables.js          # Table management
+│   │   ├── pos-loyalty.js         # Loyalty program
+│   │   ├── calculations.js        # Pricing/discount/tax calculations
+│   │   └── api-client.js          # API communication
+│   ├── css/                       # Styles with dark mode support
+│   ├── api/                       # Node.js Express API server
+│   │   ├── server.js              # Express REST API (main server)
+│   │   └── auth.js                # JWT authentication & role-based authorization
+│   ├── tests/                     # Test suite
+│   │   ├── calculations.test.js   # Pricing/tax/discount calculations
+│   │   ├── auth.test.js           # Authentication & role-based access
+│   │   ├── api.test.js            # REST API endpoint tests
+│   │   └── extras.test.js         # Extended features
+│   ├── manifest.json              # PWA manifest
+│   ├── sw.js                      # Service worker (offline support)
+│   └── package.json               # Node.js dependencies
+├── database/                      # Database migrations
+│   ├── migrate.sql                # Schema version tracking
+│   ├── migration-cashdiscount-paybotx.sql  # Cash discount + PaybotX tables
+│   ├── migration-002-refunds-timeclock-held.sql
+│   ├── migration-003-giftcards-tabs-inventory.sql
+│   ├── migrate.sh                 # Migration runner
+│   └── derby-server/              # Embedded Derby database (posdb.zip)
+├── resources/                     # Configuration resources
+│   ├── paybotx-terminals.xml      # Terminal device configuration
+│   ├── hibernate.cfg.xml.*        # ORM configs per DB type
+│   └── log4j.properties           # Logging config
+├── config/                        # POS runtime configuration & assets
+├── i18n/                          # Internationalization (EN, DE, ES, AR, NL)
+├── local-lib/                     # Local Maven dependencies (not in Central)
+├── profiles/                      # Maven build profiles (default, devinepos)
+├── etc/                           # Platform binaries (Windows DLLs, batch files)
+├── plugins/                       # Plugin directory (extensible framework)
+├── docker-compose.yml             # Multi-container orchestration (pos, db, nginx)
+├── Dockerfile                     # Multi-stage container build
+├── pom.xml                        # Maven build (Java 11, 46 dependencies)
+├── setup.sh                       # Interactive setup script
+├── .env.example                   # Environment variable template
+└── README.md                      # Project documentation
+```
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Notes |
+|-------|-----------|-------|
+| **Java Backend** | Java 11+, Hibernate 3.2.6, Maven 3.6+ | Core POS, payment processing, ORM |
+| **Web Frontend** | HTML5, CSS3, vanilla JavaScript | Touch-optimized, no framework |
+| **Web API** | Node.js 18+, Express 4.18 | Lightweight REST server with JWT auth |
+| **Database** | Derby (embedded), MySQL 8.0, PostgreSQL 9.5+ | Multi-DB support |
+| **Reporting** | JasperReports 4.0.1 | Receipts and reports |
+| **Containerization** | Docker, Docker Compose, Nginx (Alpine) | Production deployment |
+| **Testing** | Node.js native test runner (`node --test`) | No external test framework |
+
+---
+
+## Build & Run Commands
+
+### Java Backend (Maven)
+
+```bash
+# Build (skip tests — Java tests are sparse)
+mvn package -DskipTests
+
+# Run full POS application (Swing UI)
+java -cp target/classes:local-lib/* com.floreantpos.main.Application
+
+# Run PaybotX Proxy API only
+java -cp target/classes:local-lib/* com.floreantpos.paybotx.proxy.PaybotXProxyServer
+
+# Run Dejavoo Proxy (legacy)
+java -cp target/classes:local-lib/* com.floreantpos.dejavoo.proxy.DejavooProxyServer
+
+# Clean
+mvn clean
+```
+
+### Web Frontend (Node.js)
+
+```bash
+cd webapp
+
+# Install dependencies
+npm install
+
+# Start API server (port 3000)
+npm start
+
+# Run all tests
+npm test
+
+# Run specific test suites
+npm run test:calculations
+npm run test:auth
+npm run test:api
+```
+
+### Docker
+
+```bash
+# Start all services (pos on 8080, db on 3306, nginx on 80)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f pos
+
+# Stop
+docker-compose down
+```
+
+### Setup Script
+
+```bash
+./setup.sh    # Interactive: checks JDK/Maven, installs local deps, configures terminals
+```
+
+---
+
+## Testing
+
+Tests live in `webapp/tests/` and use the **Node.js native test runner** (no external framework).
+
+| Test File | What It Covers |
+|-----------|---------------|
+| `calculations.test.js` | Pricing, tax, cash discount/surcharge math, dual pricing |
+| `auth.test.js` | Employee PIN login, JWT tokens, role-based access control |
+| `api.test.js` | REST endpoints: tickets, kitchen, payments, config, refunds |
+| `extras.test.js` | Extended features |
+
+**Run tests:**
+```bash
+cd webapp && npm test
+```
+
+There is no Java-side test suite of note. Focus testing effort on the Node.js API layer.
+
+---
+
+## Key Architectural Concepts
+
+### Two Frontends
+
+1. **Java Swing UI** (legacy) — desktop app, launched via `com.floreantpos.main.Application`
+2. **Web UI** (modern) — `webapp/index.html`, served by Nginx or Express, talks to REST API
+
+The web frontend is the primary development focus going forward.
+
+### Plugin Architecture
+
+Floreant uses a plugin framework. PaybotX is implemented as a `PaymentGatewayPlugin`:
+```
+PaybotXGatewayPlugin (extends PaymentGatewayPlugin)
+  └── PaybotXProcessor (implements CardProcessor)
+       ├── chargeAmount()     → Sale
+       ├── preAuth()          → Pre-authorization (bar tabs)
+       ├── captureAuthAmount()→ Capture
+       ├── voidTransaction()  → Void
+       └── adjustTips()       → Tip adjustment
+```
+
+### Data Flow
+
+```
+Browser → Nginx (port 80) → Express API (port 3000) or PaybotX Proxy (port 8080)
+                                    ↓
+                            JSON file store (webapp/data/store.json)
+                            OR Hibernate ORM → Derby/MySQL/PostgreSQL
+```
+
+The Express API server persists data to a JSON file (`webapp/data/store.json`) with auto-save. The Java backend uses Hibernate ORM with Derby/MySQL/PostgreSQL.
+
+### Authentication & Authorization
+
+- **Method**: JWT-based (POST `/api/auth/login` with employee PIN)
+- **Roles**: `server`, `cashier`, `manager`, `kitchen`
+- **Permissions**: `tickets`, `void`, `refund`, `kitchen`, `timeclock`, `config`, `reports`
+- Manager role has all permissions; other roles have limited access
+- Auth middleware in `webapp/api/auth.js`
+
+---
+
+## Key Feature Modules
+
+### Cash Discount Engine (`src/com/floreantpos/cashdiscount/`)
+
+Two modes:
+- **CASH_DISCOUNT**: Menu prices = card prices; cash customers get a discount
+- **CARD_SURCHARGE**: Menu prices = cash prices; card customers pay a surcharge
+
+Key files:
+- `CashDiscountConfig.java` — configuration (rate, mode, labels, thresholds)
+- `CashDiscountCalculator.java` — pricing math
+- `CashDiscountService.java` — integration with Ticket model
+- `CashDiscountConfigView.java` — back-office config UI
+
+Web-side calculation logic is in `webapp/js/calculations.js`.
+
+### PaybotX Terminal Integration (`src/com/floreantpos/paybotx/`)
+
+Supports Valor (VP8800, VX520, VX680, etc.), PAX (A920, A80, S300), and Ingenico terminals via cloud (`https://vt.isoaccess.com`) or LAN modes.
+
+Key files:
+- `PaybotXGatewayPlugin.java` — plugin registration
+- `PaybotXProcessor.java` — CardProcessor (sale, pre-auth, capture, void, tip adjust)
+- `PaybotXTerminal.java` — terminal device model
+- `OfflinePaymentQueue.java` — store-and-forward for connectivity issues
+- `BatchSettlementService.java` — automatic end-of-day batch settlement
+- `proxy/PaybotXProxyServer.java` — HTTP REST API (port 8080)
+
+### Kitchen Display System
+
+- Backend: `webapp/api/server.js` (kitchen endpoints)
+- Frontend: `webapp/js/pos-kitchen.js`
+- Features: real-time orders, station filtering, bump-bar, timers, color-coded status
+
+### Web API Server (`webapp/api/server.js`)
+
+Express REST API with these endpoint groups:
+
+| Group | Endpoints | Auth Required |
+|-------|-----------|---------------|
+| Auth | `POST /api/auth/login` | No (login endpoint) |
+| Tickets | `GET/POST/PATCH /api/tickets`, `/api/tickets/:id/pay`, `/api/tickets/:id/void` | Yes |
+| Kitchen | `GET/POST /api/kitchen`, `/api/kitchen/:id/bump` | Yes |
+| Refunds | `GET/POST /api/refunds` | Yes (refund permission) |
+| Held Orders | `GET/POST/DELETE /api/held-orders` | Yes |
+| Time Clock | `GET /api/timeclock`, clock-in/clock-out | Yes |
+| Config | `GET/PUT /api/config/:section` | Yes (config permission) |
+| Reports | `GET /api/reports/summary\|hourly\|item-mix\|labor` | Yes (reports permission) |
+| Health | `GET /api/health` | No |
+
+---
+
+## Database
+
+### Supported Engines
+
+- **Derby** (default): Embedded, zero-config, lives in `database/derby-server/posdb.zip`
+- **MySQL 8.0**: Multi-terminal production use
+- **PostgreSQL 9.5+**: Enterprise alternative
+
+### Migrations (run in order)
+
+1. `database/migrate.sql` — schema version tracking table
+2. `database/migration-cashdiscount-paybotx.sql` — cash discount + PaybotX tables
+3. `database/migration-002-refunds-timeclock-held.sql` — refunds, time clock, held orders
+4. `database/migration-003-giftcards-tabs-inventory.sql` — gift cards, tabs, inventory, batch settlement
+
+Run via `database/migrate.sh` or apply manually.
+
+### Key Tables Added Over Base Floreant
+
+| Table | Purpose |
+|-------|---------|
+| `CASH_DISCOUNT_CONFIG` | Cash discount settings storage |
+| `PAYBOTX_TERMINAL` | Terminal device configurations |
+| `PAYBOTX_BATCH_LOG` | Batch settlement history |
+| `OFFLINE_PAYMENT_QUEUE` | Queued payments during connectivity loss |
+
+Enhanced `TICKET` columns: `CASH_DISCOUNT_APPLIED`, `CASH_DISCOUNT_AMOUNT`, `CASH_DISCOUNT_RATE`
+
+---
+
+## Configuration
+
+### Environment Variables (`.env.example`)
+
+```bash
+PAYBOTX_MERCHANT_ID=     # Valor merchant ID
+PAYBOTX_API_KEY=         # Valor API key
+CORS_ALLOWED_ORIGIN=     # e.g., https://pos.yourrestaurant.com
+DB_USER=floreant         # Database user
+DB_PASS=floreant         # Database password
+MYSQL_ROOT_PASSWORD=     # MySQL root (Docker only)
+```
+
+### Cash Discount Properties
+
+Configured via back-office UI or `config/floreant-pos.properties`:
+```properties
+cashDiscount.enabled=true
+cashDiscount.mode=CASH_DISCOUNT       # or CARD_SURCHARGE
+cashDiscount.rate=4.0
+cashDiscount.applyBeforeTax=true
+cashDiscount.showDualPricing=true
+cashDiscount.exemptDebit=true
+cashDiscount.minCardAmount=0.00
+```
+
+### Terminal Configuration (`resources/paybotx-terminals.xml`)
+
+```xml
+<terminal id="TERM001" active="true">
+  <merchantId>YOUR_MERCHANT_ID</merchantId>
+  <apiKey>YOUR_API_KEY</apiKey>
+  <ipAddress>192.168.1.100</ipAddress>
+  <port>8443</port>
+  <model>VP8800</model>
+</terminal>
+```
+
+---
+
+## Code Conventions
+
+### Java
+
+- Package-by-feature organization (`cashdiscount/`, `paybotx/`, `model/`, `ui/`)
+- CamelCase class names, standard Java naming
+- Hibernate ORM for persistence via DAO pattern (e.g., `TicketDAO`)
+- Plugin architecture: payment gateways implement `CardProcessor` interface
+- Service layer pattern for business logic
+- Java source level: 1.7 (compiler), runtime: 11+
+
+### JavaScript (Web Frontend)
+
+- Vanilla JS — no framework (no React, no Vue)
+- Event-driven architecture (DOM event listeners)
+- Module pattern for code organization (separate `.js` files per feature)
+- Fetch API for HTTP communication
+- `localStorage` for client-side state
+- CSS Grid/Flexbox for layout; CSS custom properties for theming/dark mode
+
+### API Design
+
+- RESTful endpoints under `/api/`
+- JWT authentication on all `/api/` routes (except `/api/auth/login` and `/api/health`)
+- Field whitelisting on PATCH/PUT to prevent mass assignment
+- Monetary values use `Math.round(x * 100) / 100` for cent precision
+- CSP headers on all HTML responses
+- CORS restricted to configured origins
+
+### Security Patterns
+
+- `.env` files are gitignored — never commit credentials
+- CSP headers set on all HTML responses
+- CORS whitelist via `CORS_ORIGINS` env var
+- JWT tokens for API auth
+- Field whitelisting on mutations (no open `Object.assign` from request body)
+- Role-based authorization middleware (`authorize('permission')`)
+
+---
+
+## Internationalization
+
+Supported languages in `i18n/`:
+- English (`messages.properties`)
+- German (`messages_de.properties`)
+- Spanish (`messages_es.properties`)
+- Arabic (`messages_ar.properties`)
+- Egyptian Arabic (`messages_ar_EG.properties`)
+- Dutch (`messages_nl.properties`)
+
+Uses Java `MessageFormat` properties files.
+
+---
+
+## Docker Deployment Architecture
+
+| Service | Container | Port | Purpose |
+|---------|-----------|------|---------|
+| `pos` | `restaurant-pos` | 8080, 8000 | Java backend + PaybotX API |
+| `db` | `pos-database` | 3306 | MySQL 8.0 |
+| `nginx` | `pos-nginx` | 80, 443 | Static files + reverse proxy |
+
+Volumes: `pos-data` (app data), `db-data` (MySQL persistence)
+
+---
+
+## Development Workflow for AI Assistants
+
+### Before Making Changes
+
+1. Read the relevant source files before proposing changes
+2. Understand whether the change targets the Java backend, the web frontend, or both
+3. Check if there are existing patterns in the codebase to follow
+
+### When Modifying Java Code
+
+- Source is in `src/` (non-standard — not `src/main/java/`)
+- Build with `mvn package -DskipTests`
+- Follow the existing Hibernate/DAO patterns for data access
+- New payment features go through the `CardProcessor` plugin interface
+- Cash discount logic is centralized in `cashdiscount/` package
+
+### When Modifying Web Frontend
+
+- All web code is in `webapp/`
+- Run tests after changes: `cd webapp && npm test`
+- The API server is `webapp/api/server.js` — Express with JWT auth
+- New endpoints need `authorize('permission')` middleware
+- Use field whitelisting for any new PATCH/PUT endpoints
+- Monetary math must use `Math.round(x * 100) / 100`
+- Keep vanilla JS style — do not introduce frameworks
+
+### When Adding Database Changes
+
+- Create new migration files in `database/` following the naming pattern
+- Prefix with the next migration number (e.g., `migration-004-*.sql`)
+- Update `migrate.sh` to include the new migration
+- Support all three DB engines (Derby, MySQL, PostgreSQL) where possible
+
+### When Adding API Endpoints
+
+- Add to `webapp/api/server.js`
+- Apply `authenticate` middleware (already global on `/api`)
+- Add `authorize('permission')` for write operations
+- Add corresponding tests in `webapp/tests/`
+- Document in the README API section
+
+### Testing Checklist
+
+```bash
+cd webapp && npm test              # Run all tests — must pass
+npm run test:calculations          # Pricing/tax/discount math
+npm run test:auth                  # Auth and role-based access
+npm run test:api                   # API endpoints
+```
+
+---
+
+## Product Roadmap (Feature Status)
+
+Features already implemented are marked with checkmarks. This is the full competitive feature set being built toward.
+
+### 1. Modern UI/UX Overhaul
+- [x] Touch-optimized tablet interface
+- [x] Faster menu navigation
+- [x] Customizable layout per restaurant
+- [x] Dark mode
+- [x] Smooth animations / modern fonts
+- [x] Mobile responsive web dashboard
+- [x] Real-time order status UI
+- [x] Role-based interface (server vs manager vs cashier)
+
+### 2. Fully Integrated Payment System
+**Core Payment Features:**
+- [x] EMV chip support (via PaybotX/Valor terminals)
+- [x] Contactless (Apple Pay, Google Pay) — via terminal
+- [x] NFC tap-to-pay — via terminal
+- [x] Split payments
+- [ ] Partial payments
+- [x] Tip adjustments
+- [x] Refund processing
+- [x] Void support
+- [x] Offline payment queue (store & forward)
+
+**Advanced Features:**
+- [x] Automatic batch settlement
+- [ ] Tokenized cards for returns
+- [x] PCI-compliant semi-integration
+- [x] Automatic debit detection (no surcharge on debit)
+
+### 3. Cash Discount / Dual Pricing Engine
+- [x] Cash discount mode toggle
+- [x] Credit surcharge mode toggle
+- [x] Automatic percentage calculation
+- [ ] Cap logic (e.g., max 3%)
+- [x] Debit detection rules
+- [x] Clear line-item receipt display
+- [x] Dual price display on screen
+- [x] Compliance signage generator
+- [ ] State-specific configuration
+- [ ] Reporting separated by payment type
+
+### 4. Restaurant Workflow Upgrades
+- [ ] Advanced table management (visual floor plan drag-and-drop)
+- [ ] Split checks by seat
+- [ ] Seat-level ordering
+- [ ] Course firing
+- [x] Kitchen display system (KDS)
+- [ ] Order routing by prep station
+- [ ] Expo screen
+- [ ] Online order queue
+- [ ] Email "order ready" alerts
+- [ ] Waitlist management
+- [ ] Reservation integration
+
+### 5. Cloud Sync + Remote Dashboard
+- [ ] Cloud-hosted reporting server
+- [ ] Multi-location dashboard
+- [ ] Real-time sales feed
+- [ ] Remote void approval
+- [ ] Phone-based management portal
+- [ ] Owner analytics app
+- [x] REST API layer (foundation)
+- [ ] Web admin portal (partial — `admin.html` exists)
+
+### 6. Advanced Reporting & Analytics
+- [ ] Hourly sales heat maps
+- [ ] Labor cost tracking
+- [ ] Server performance metrics
+- [ ] Modifier profitability
+- [ ] Food cost tracking
+- [ ] Inventory depletion tracking
+- [ ] Category margin analysis
+- [ ] Payment type breakdown
+- [ ] Surcharge revenue reporting
+- [ ] Export to QuickBooks
+- [ ] Automated email reports
+- [x] Basic reporting endpoints (summary, hourly, item-mix, labor)
+
+### 7. Inventory & Vendor Management
+- [ ] Ingredient-level tracking
+- [ ] Recipe costing
+- [ ] Low-stock alerts
+- [ ] Purchase order generation
+- [ ] Vendor tracking
+- [ ] Waste logging
+- [ ] Food cost % dashboard
+- [x] Database schema for inventory (migration-003)
+
+### 8. Customer & Loyalty System
+- [ ] Customer profiles
+- [ ] Saved payment methods
+- [ ] Loyalty points
+- [ ] Rewards engine
+- [ ] Email marketing
+- [ ] Digital receipts
+- [ ] Gift card management
+- [x] Loyalty module stub (`pos-loyalty.js`)
+- [x] Gift card DB schema (migration-003)
+
+### 9. Online Ordering + QR Ordering
+- [ ] Online ordering website
+- [ ] QR table ordering
+- [ ] Integrated payments
+- [ ] Delivery integration (DoorDash/Uber Eats APIs)
+- [ ] Curbside pickup mode
+- [ ] Scheduled orders
+- [ ] Promo code engine
+
+### 10. Security & Compliance
+- [x] User permission granularity (role-based authorization)
+- [ ] Audit logs
+- [ ] Encrypted database
+- [ ] Tokenized payment storage
+- [ ] PCI SAQ documentation
+- [ ] Backup automation
+- [ ] 2FA for managers
+- [ ] Fraud detection alerts
+- [x] JWT authentication
+- [x] CSP headers
+- [x] CORS whitelist
+- [x] Field whitelisting on mutations
+
+### 11. Hardware Ecosystem
+- [x] Terminal provisioning (paybotx-terminals.xml)
+- [ ] Printer auto-discovery
+- [ ] Cash drawer auto-open logic
+- [ ] Barcode scanner integration
+- [ ] Kitchen display hardware support
+- [x] Offline LAN mode with sync
+
+### 12. Offline Mode + Sync Engine
+- [x] Offline payment queue (store & forward)
+- [ ] Full local data caching
+- [ ] Sync conflict resolution
+- [x] Offline transaction storage
+- [ ] Auto-resync on reconnect
+- [x] PWA service worker (sw.js)
+
+### 13. Subscription / Merchant Management Layer
+- [ ] Merchant onboarding portal
+- [ ] Multi-tenant architecture
+- [ ] Automated updates
+- [ ] Remote diagnostics
+- [ ] White-labeling capability
+- [ ] Remote feature toggles
+- [ ] Automated deployment scripts
+- [x] Docker-based deployment
+
+### 14. App Ecosystem
+- [x] Plugin framework (Floreant JSPF-based)
+- [x] REST API for integrations
+- [ ] Webhook support
+- [ ] Developer documentation
+- [ ] App marketplace capability
+
+---
+
+## Sensitive Files — Never Commit
+
+- `.env` (contains API keys, DB credentials)
+- `credentials.json`
+- `webapp/data/store.json` (runtime data)
+- `offline-payments.queue`
+- Any `*.derby/` directories
+- `derby.log`
+
+---
+
+## Known Technical Debt
+
+- **Hibernate 3.2.6** is very old (current is 6.x+) — upgrade would require significant refactoring
+- **Java Swing UI** is legacy; web UI is the modern interface
+- **Log4j version mixing**: Log4j2 in pom.xml but Log4j1-style `log4j.properties` in resources
+- **Local JARs** in `local-lib/` instead of Maven Central (MigLayout, JSPF, PAX PosLink, etc.)
+- **No Java test suite** — testing is entirely on the Node.js side
+- **Compiler source/target mismatch**: pom.xml properties say Java 11, compiler plugin says 1.7
