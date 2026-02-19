@@ -569,6 +569,212 @@
         </div>
     </div>
 
+    <!-- Time Clock Modal -->
+    <div id="timeclock-modal" class="modal">
+        <div class="modal-content timeclock-modal-content">
+            <div class="modal-header">
+                <h3>Time Clock</h3>
+                <button class="modal-close" id="close-timeclock">&times;</button>
+            </div>
+            <div class="timeclock-body">
+                <div class="timeclock-status" id="timeclock-status">
+                    <div class="timeclock-employee" id="tc-employee">--</div>
+                    <div class="timeclock-state" id="tc-state">Not Clocked In</div>
+                    <div class="timeclock-shift-time" id="tc-shift-time"></div>
+                </div>
+                <div class="timeclock-actions">
+                    <button class="tc-action-btn tc-clock-in" id="tc-btn-clockin">Clock In</button>
+                    <button class="tc-action-btn tc-clock-out" id="tc-btn-clockout" disabled>Clock Out</button>
+                    <button class="tc-action-btn tc-break" id="tc-btn-break" disabled>Start Break</button>
+                </div>
+                <div class="timeclock-log">
+                    <h4>Today's Shift Log</h4>
+                    <div class="tc-log-entries" id="tc-log-entries">
+                        <p class="tc-empty">No shifts recorded today</p>
+                    </div>
+                </div>
+                <div class="timeclock-all-staff" id="tc-all-staff-section" style="display:none">
+                    <h4>All Staff Today</h4>
+                    <table class="tc-staff-table">
+                        <thead>
+                            <tr><th>Employee</th><th>Role</th><th>In</th><th>Out</th><th>Hours</th></tr>
+                        </thead>
+                        <tbody id="tc-all-staff-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cash Drawer Modal -->
+    <div id="cashdrawer-modal" class="modal">
+        <div class="modal-content cashdrawer-modal-content">
+            <div class="modal-header">
+                <h3>Cash Drawer</h3>
+                <button class="modal-close" id="close-cashdrawer">&times;</button>
+            </div>
+            <div class="cashdrawer-body">
+                <div class="drawer-status" id="drawer-status">
+                    <span class="drawer-state" id="drawer-state-label">Drawer Closed</span>
+                    <span class="drawer-opened-by" id="drawer-opened-by"></span>
+                </div>
+                <div class="drawer-section">
+                    <h4>Opening Count</h4>
+                    <div class="drawer-count-grid">
+                        <label>$100</label><input type="number" class="drawer-denom" data-denom="100" min="0" value="0">
+                        <label>$50</label><input type="number" class="drawer-denom" data-denom="50" min="0" value="0">
+                        <label>$20</label><input type="number" class="drawer-denom" data-denom="20" min="0" value="0">
+                        <label>$10</label><input type="number" class="drawer-denom" data-denom="10" min="0" value="0">
+                        <label>$5</label><input type="number" class="drawer-denom" data-denom="5" min="0" value="0">
+                        <label>$1</label><input type="number" class="drawer-denom" data-denom="1" min="0" value="0">
+                        <label>Coins</label><input type="number" class="drawer-denom" data-denom="coins" min="0" step="0.01" value="0">
+                    </div>
+                    <div class="drawer-total-row">
+                        <span>Counted Total:</span>
+                        <span class="drawer-counted-total" id="drawer-counted-total">$0.00</span>
+                    </div>
+                </div>
+                <div class="drawer-actions">
+                    <button class="drawer-btn" id="btn-open-drawer">Open Drawer</button>
+                    <button class="drawer-btn" id="btn-close-drawer">Close Drawer</button>
+                    <button class="drawer-btn drawer-btn-danger" id="btn-no-sale">No Sale (Pop Drawer)</button>
+                </div>
+                <div class="drawer-activity" id="drawer-activity">
+                    <h4>Drawer Activity</h4>
+                    <div id="drawer-activity-log"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- End of Day Close-Out Modal -->
+    <div id="eod-modal" class="modal">
+        <div class="modal-content eod-modal-content">
+            <div class="modal-header">
+                <h3>End of Day Close-Out</h3>
+                <button class="modal-close" id="close-eod">&times;</button>
+            </div>
+            <div class="eod-body">
+                <div class="eod-steps">
+                    <div class="eod-step active" data-step="1">
+                        <span class="eod-step-num">1</span>
+                        <span>Review</span>
+                    </div>
+                    <div class="eod-step" data-step="2">
+                        <span class="eod-step-num">2</span>
+                        <span>Cash Count</span>
+                    </div>
+                    <div class="eod-step" data-step="3">
+                        <span class="eod-step-num">3</span>
+                        <span>Confirm</span>
+                    </div>
+                </div>
+
+                <!-- Step 1: Review -->
+                <div class="eod-panel active" id="eod-step-1">
+                    <h4>Day Summary</h4>
+                    <div class="eod-summary-grid" id="eod-summary-grid">
+                        <!-- Populated by JS -->
+                    </div>
+                    <div class="eod-warnings" id="eod-warnings"></div>
+                </div>
+
+                <!-- Step 2: Cash Count -->
+                <div class="eod-panel" id="eod-step-2">
+                    <h4>Count Cash Drawer</h4>
+                    <div class="eod-cash-count">
+                        <div class="drawer-count-grid">
+                            <label>$100</label><input type="number" class="eod-denom" data-denom="100" min="0" value="0">
+                            <label>$50</label><input type="number" class="eod-denom" data-denom="50" min="0" value="0">
+                            <label>$20</label><input type="number" class="eod-denom" data-denom="20" min="0" value="0">
+                            <label>$10</label><input type="number" class="eod-denom" data-denom="10" min="0" value="0">
+                            <label>$5</label><input type="number" class="eod-denom" data-denom="5" min="0" value="0">
+                            <label>$1</label><input type="number" class="eod-denom" data-denom="1" min="0" value="0">
+                            <label>Coins</label><input type="number" class="eod-denom" data-denom="coins" min="0" step="0.01" value="0">
+                        </div>
+                        <div class="eod-cash-comparison">
+                            <div class="eod-cash-row">
+                                <span>Expected Cash:</span>
+                                <span id="eod-expected-cash">$0.00</span>
+                            </div>
+                            <div class="eod-cash-row">
+                                <span>Counted:</span>
+                                <span id="eod-counted-cash">$0.00</span>
+                            </div>
+                            <div class="eod-cash-row eod-variance">
+                                <span>Variance:</span>
+                                <span id="eod-variance">$0.00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Confirm -->
+                <div class="eod-panel" id="eod-step-3">
+                    <h4>Close-Out Confirmation</h4>
+                    <div class="eod-confirm-details" id="eod-confirm-details">
+                        <!-- Populated by JS -->
+                    </div>
+                    <div class="eod-confirm-actions">
+                        <label class="eod-checkbox-label">
+                            <input type="checkbox" id="eod-confirm-check">
+                            I confirm the above totals are correct
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="eod-footer">
+                <button class="btn-cancel" id="eod-prev" style="display:none">Previous</button>
+                <button class="btn-confirm" id="eod-next">Next</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Keyboard Shortcuts Help -->
+    <div id="shortcuts-overlay" class="modal">
+        <div class="modal-content shortcuts-modal-content">
+            <div class="modal-header">
+                <h3>Keyboard Shortcuts</h3>
+                <button class="modal-close" id="close-shortcuts">&times;</button>
+            </div>
+            <div class="shortcuts-body">
+                <div class="shortcuts-section">
+                    <h4>Navigation</h4>
+                    <div class="shortcut-row"><kbd>F1</kbd><span>New Order</span></div>
+                    <div class="shortcut-row"><kbd>F2</kbd><span>Tables</span></div>
+                    <div class="shortcut-row"><kbd>F3</kbd><span>Kitchen</span></div>
+                    <div class="shortcut-row"><kbd>F4</kbd><span>Tickets</span></div>
+                    <div class="shortcut-row"><kbd>F5</kbd><span>Reports</span></div>
+                </div>
+                <div class="shortcuts-section">
+                    <h4>Order Actions</h4>
+                    <div class="shortcut-row"><kbd>F8</kbd><span>Send to Kitchen</span></div>
+                    <div class="shortcut-row"><kbd>F9</kbd><span>Pay Cash</span></div>
+                    <div class="shortcut-row"><kbd>F10</kbd><span>Pay Card</span></div>
+                    <div class="shortcut-row"><kbd>F11</kbd><span>Hold Order</span></div>
+                    <div class="shortcut-row"><kbd>F12</kbd><span>Discount</span></div>
+                </div>
+                <div class="shortcuts-section">
+                    <h4>Quick Actions</h4>
+                    <div class="shortcut-row"><kbd>Esc</kbd><span>Close modal / Clear</span></div>
+                    <div class="shortcut-row"><kbd>Ctrl+N</kbd><span>New Ticket</span></div>
+                    <div class="shortcut-row"><kbd>Ctrl+F</kbd><span>Search Menu</span></div>
+                    <div class="shortcut-row"><kbd>Ctrl+D</kbd><span>Toggle Dark Mode</span></div>
+                    <div class="shortcut-row"><kbd>?</kbd><span>Show Shortcuts</span></div>
+                </div>
+                <div class="shortcuts-section">
+                    <h4>Menu Categories</h4>
+                    <div class="shortcut-row"><kbd>1</kbd><span>Popular</span></div>
+                    <div class="shortcut-row"><kbd>2</kbd><span>Appetizers</span></div>
+                    <div class="shortcut-row"><kbd>3</kbd><span>Entrees</span></div>
+                    <div class="shortcut-row"><kbd>4</kbd><span>Sides</span></div>
+                    <div class="shortcut-row"><kbd>5</kbd><span>Drinks</span></div>
+                    <div class="shortcut-row"><kbd>6</kbd><span>Desserts</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>
 

@@ -3352,6 +3352,632 @@ completePayment = function(total, method) {
 setInterval(saveState, 30000);
 
 // ==========================================
+// Time Clock UI
+// ==========================================
+const timeClockModal = document.getElementById('timeclock-modal');
+const tcClockInBtn = document.getElementById('tc-btn-clockin');
+const tcClockOutBtn = document.getElementById('tc-btn-clockout');
+const tcBreakBtn = document.getElementById('tc-btn-break');
+
+document.getElementById('close-timeclock').addEventListener('click', () => {
+    timeClockModal.classList.remove('active');
+});
+
+// Override the side menu clock-in to open the full time clock modal
+document.getElementById('menu-clock-in').removeEventListener('click', () => {});
+document.getElementById('menu-clock-in').addEventListener('click', () => {
+    openTimeClockModal();
+    $('#side-menu').classList.remove('open');
+    const overlay = document.querySelector('.side-menu-overlay');
+    if (overlay) overlay.classList.remove('active');
+});
+
+function openTimeClockModal() {
+    timeClockModal.classList.add('active');
+    updateTimeClockUI();
+}
+
+function updateTimeClockUI() {
+    const empEl = document.getElementById('tc-employee');
+    const stateEl = document.getElementById('tc-state');
+    const shiftEl = document.getElementById('tc-shift-time');
+
+    empEl.textContent = state.currentUser || '--';
+
+    if (state.clockedIn) {
+        stateEl.textContent = 'Clocked In';
+        stateEl.className = 'timeclock-state tc-active';
+        tcClockInBtn.disabled = true;
+        tcClockOutBtn.disabled = false;
+        tcBreakBtn.disabled = false;
+
+        // Show elapsed shift time
+        const record = timeClock.filter(r => r.empId === (state.currentStaff && state.currentStaff.id) && !r.clockOut).pop();
+        if (record) {
+            const elapsed = ((new Date() - new Date(record.clockIn)) / 3600000).toFixed(2);
+            shiftEl.textContent = 'Shift: ' + elapsed + ' hrs';
+        }
+    } else {
+        stateEl.textContent = 'Not Clocked In';
+        stateEl.className = 'timeclock-state tc-inactive';
+        tcClockInBtn.disabled = false;
+        tcClockOutBtn.disabled = true;
+        tcBreakBtn.disabled = true;
+        shiftEl.textContent = '';
+    }
+
+    // Show today's log entries for this user
+    const logEl = document.getElementById('tc-log-entries');
+    const today = new Date().toDateString();
+    const myRecords = timeClock.filter(r => {
+        const d = new Date(r.clockIn);
+        return r.empId === (state.currentStaff && state.currentStaff.id) && d.toDateString() === today;
+    });
+
+    if (myRecords.length === 0) {
+        logEl.innerHTML = '<p class="tc-empty">No shifts recorded today</p>';
+    } else {
+        logEl.innerHTML = myRecords.map(r => {
+            const inTime = new Date(r.clockIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            const outTime = r.clockOut ? new Date(r.clockOut).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--';
+            const hrs = r.clockOut ? ((new Date(r.clockOut) - new Date(r.clockIn)) / 3600000).toFixed(2) : 'active';
+            return `<div class="tc-log-entry">
+                <span class="tc-log-time">${inTime} - ${outTime}</span>
+                <span class="tc-log-hours">${hrs} hrs</span>
+            </div>`;
+        }).join('');
+    }
+
+    // Show all staff for managers
+    const allStaffSection = document.getElementById('tc-all-staff-section');
+    if (state.currentRole === 'admin' || state.currentRole === 'manager') {
+        allStaffSection.style.display = 'block';
+        const tbody = document.getElementById('tc-all-staff-body');
+        const todayRecords = timeClock.filter(r => new Date(r.clockIn).toDateString() === today);
+        tbody.innerHTML = todayRecords.map(r => {
+            const inTime = new Date(r.clockIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            const outTime = r.clockOut ? new Date(r.clockOut).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '--';
+            const hrs = r.clockOut ? ((new Date(r.clockOut) - new Date(r.clockIn)) / 3600000).toFixed(2) : 'active';
+            return `<tr><td>${r.empName}</td><td>${r.role}</td><td>${inTime}</td><td>${outTime}</td><td>${hrs}</td></tr>`;
+        }).join('') || '<tr><td colspan="5" style="text-align:center">No staff clocked in today</td></tr>';
+    } else {
+        allStaffSection.style.display = 'none';
+    }
+}
+
+tcClockInBtn.addEventListener('click', () => {
+    clockIn();
+    updateTimeClockUI();
+});
+
+tcClockOutBtn.addEventListener('click', () => {
+    clockOut();
+    updateTimeClockUI();
+});
+
+// Break tracking
+let onBreak = false;
+let breakStart = null;
+
+tcBreakBtn.addEventListener('click', () => {
+    if (!onBreak) {
+        onBreak = true;
+        breakStart = new Date();
+        tcBreakBtn.textContent = 'End Break';
+        tcBreakBtn.classList.add('tc-on-break');
+        showToast('Break started');
+    } else {
+        onBreak = false;
+        const breakMins = Math.round((new Date() - breakStart) / 60000);
+        tcBreakBtn.textContent = 'Start Break';
+        tcBreakBtn.classList.remove('tc-on-break');
+        showToast('Break ended (' + breakMins + ' min)');
+        breakStart = null;
+    }
+});
+
+// ==========================================
+// Cash Drawer Management
+// ==========================================
+const cashDrawerState = {
+    isOpen: false,
+    openedBy: null,
+    openedAt: null,
+    openingAmount: 0,
+    activity: []
+};
+
+const cashDrawerModal = document.getElementById('cashdrawer-modal');
+
+document.getElementById('close-cashdrawer').addEventListener('click', () => {
+    cashDrawerModal.classList.remove('active');
+});
+
+// Override the side menu open drawer to show the full modal
+document.getElementById('menu-open-drawer').addEventListener('click', () => {
+    openCashDrawerModal();
+    $('#side-menu').classList.remove('open');
+    const overlay = document.querySelector('.side-menu-overlay');
+    if (overlay) overlay.classList.remove('active');
+});
+
+function openCashDrawerModal() {
+    cashDrawerModal.classList.add('active');
+    updateCashDrawerUI();
+}
+
+function updateCashDrawerUI() {
+    const stateLabel = document.getElementById('drawer-state-label');
+    const openedBy = document.getElementById('drawer-opened-by');
+
+    if (cashDrawerState.isOpen) {
+        stateLabel.textContent = 'Drawer Open';
+        stateLabel.className = 'drawer-state drawer-open';
+        openedBy.textContent = 'Opened by ' + (cashDrawerState.openedBy || 'Unknown') +
+            ' at ' + (cashDrawerState.openedAt ? new Date(cashDrawerState.openedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '');
+    } else {
+        stateLabel.textContent = 'Drawer Closed';
+        stateLabel.className = 'drawer-state drawer-closed';
+        openedBy.textContent = '';
+    }
+
+    // Activity log
+    const logEl = document.getElementById('drawer-activity-log');
+    if (cashDrawerState.activity.length === 0) {
+        logEl.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:8px">No activity today</p>';
+    } else {
+        logEl.innerHTML = cashDrawerState.activity.slice(-10).reverse().map(a => {
+            const time = new Date(a.time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            return `<div class="drawer-activity-entry">
+                <span>${time}</span>
+                <span>${a.action}</span>
+                <span>${a.user || ''}</span>
+                ${a.amount ? '<span>' + formatCurrency(a.amount) + '</span>' : ''}
+            </div>`;
+        }).join('');
+    }
+}
+
+// Denomination counting
+document.querySelectorAll('.drawer-denom').forEach(input => {
+    input.addEventListener('input', () => {
+        let total = 0;
+        document.querySelectorAll('.drawer-denom').forEach(el => {
+            const denom = el.dataset.denom;
+            const val = parseFloat(el.value) || 0;
+            total += denom === 'coins' ? val : val * parseFloat(denom);
+        });
+        document.getElementById('drawer-counted-total').textContent = formatCurrency(total);
+    });
+});
+
+document.getElementById('btn-open-drawer').addEventListener('click', () => {
+    let total = 0;
+    document.querySelectorAll('.drawer-denom').forEach(el => {
+        const denom = el.dataset.denom;
+        const val = parseFloat(el.value) || 0;
+        total += denom === 'coins' ? val : val * parseFloat(denom);
+    });
+
+    cashDrawerState.isOpen = true;
+    cashDrawerState.openedBy = state.currentUser;
+    cashDrawerState.openedAt = new Date();
+    cashDrawerState.openingAmount = total;
+    cashDrawerState.activity.push({
+        action: 'Drawer Opened',
+        user: state.currentUser,
+        amount: total,
+        time: new Date()
+    });
+    updateCashDrawerUI();
+    showToast('Cash drawer opened with ' + formatCurrency(total));
+});
+
+document.getElementById('btn-close-drawer').addEventListener('click', () => {
+    cashDrawerState.isOpen = false;
+    cashDrawerState.activity.push({
+        action: 'Drawer Closed',
+        user: state.currentUser,
+        time: new Date()
+    });
+    updateCashDrawerUI();
+    showToast('Cash drawer closed');
+});
+
+document.getElementById('btn-no-sale').addEventListener('click', () => {
+    cashDrawerState.activity.push({
+        action: 'No Sale',
+        user: state.currentUser,
+        time: new Date()
+    });
+    updateCashDrawerUI();
+    showToast('No sale - drawer popped');
+});
+
+// ==========================================
+// End of Day Close-Out
+// ==========================================
+const eodModal = document.getElementById('eod-modal');
+let eodCurrentStep = 1;
+
+document.getElementById('close-eod').addEventListener('click', () => {
+    eodModal.classList.remove('active');
+    eodCurrentStep = 1;
+});
+
+// Wire up the Reports Close Day button
+const eodButton = document.getElementById('btn-eod');
+if (eodButton) {
+    eodButton.addEventListener('click', openEOD);
+}
+
+function openEOD() {
+    eodCurrentStep = 1;
+    eodModal.classList.add('active');
+    updateEODStep();
+    populateEODSummary();
+}
+
+function updateEODStep() {
+    document.querySelectorAll('.eod-step').forEach(el => {
+        const step = parseInt(el.dataset.step);
+        el.classList.toggle('active', step <= eodCurrentStep);
+        el.classList.toggle('completed', step < eodCurrentStep);
+    });
+    document.querySelectorAll('.eod-panel').forEach((el, idx) => {
+        el.classList.toggle('active', idx + 1 === eodCurrentStep);
+    });
+
+    const prevBtn = document.getElementById('eod-prev');
+    const nextBtn = document.getElementById('eod-next');
+
+    prevBtn.style.display = eodCurrentStep > 1 ? 'inline-block' : 'none';
+
+    if (eodCurrentStep === 3) {
+        nextBtn.textContent = 'Close Day';
+        nextBtn.disabled = !document.getElementById('eod-confirm-check').checked;
+    } else {
+        nextBtn.textContent = 'Next';
+        nextBtn.disabled = false;
+    }
+}
+
+function populateEODSummary() {
+    const grid = document.getElementById('eod-summary-grid');
+    const warnings = document.getElementById('eod-warnings');
+
+    let totalSales = 0, cashSales = 0, cardSales = 0, ticketCount = 0;
+    let totalTips = 0, totalDiscounts = 0, voidCount = 0, refundTotal = 0;
+    const refunds = state.allTickets.filter(t => t.status === 'refunded');
+
+    state.allTickets.forEach(t => {
+        if (t.status === 'voided') { voidCount++; return; }
+        if (t.status === 'refunded') { refundTotal += t.total || 0; }
+        if (t.paid) {
+            ticketCount++;
+            totalSales += t.total || 0;
+            if (t.tip) totalTips += t.tip;
+            if (t.discount) totalDiscounts += t.discount.amount || 0;
+            if (t.paymentMethod === 'cash') cashSales += t.total || 0;
+            else cardSales += t.total || 0;
+        }
+    });
+
+    const openTickets = state.allTickets.filter(t => t.status === 'open');
+
+    grid.innerHTML = `
+        <div class="eod-summary-item"><span>Total Sales</span><strong>${formatCurrency(totalSales)}</strong></div>
+        <div class="eod-summary-item"><span>Tickets</span><strong>${ticketCount}</strong></div>
+        <div class="eod-summary-item"><span>Cash Sales</span><strong>${formatCurrency(cashSales)}</strong></div>
+        <div class="eod-summary-item"><span>Card Sales</span><strong>${formatCurrency(cardSales)}</strong></div>
+        <div class="eod-summary-item"><span>Tips</span><strong>${formatCurrency(totalTips)}</strong></div>
+        <div class="eod-summary-item"><span>Discounts</span><strong>${formatCurrency(totalDiscounts)}</strong></div>
+        <div class="eod-summary-item"><span>Voids</span><strong>${voidCount}</strong></div>
+        <div class="eod-summary-item"><span>Refunds</span><strong>${formatCurrency(refundTotal)}</strong></div>
+        <div class="eod-summary-item eod-net"><span>Net Sales</span><strong>${formatCurrency(totalSales - refundTotal)}</strong></div>
+    `;
+
+    // Expected cash in drawer
+    const expectedCash = cashDrawerState.openingAmount + cashSales;
+    document.getElementById('eod-expected-cash').textContent = formatCurrency(expectedCash);
+
+    // Warnings
+    let warningHtml = '';
+    if (openTickets.length > 0) {
+        warningHtml += `<div class="eod-warning">Warning: ${openTickets.length} open ticket(s) remaining</div>`;
+    }
+    if (voidCount > 3) {
+        warningHtml += `<div class="eod-warning">Note: ${voidCount} voided tickets today</div>`;
+    }
+    warnings.innerHTML = warningHtml;
+}
+
+// EOD denomination counting
+document.querySelectorAll('.eod-denom').forEach(input => {
+    input.addEventListener('input', () => {
+        let total = 0;
+        document.querySelectorAll('.eod-denom').forEach(el => {
+            const denom = el.dataset.denom;
+            const val = parseFloat(el.value) || 0;
+            total += denom === 'coins' ? val : val * parseFloat(denom);
+        });
+        document.getElementById('eod-counted-cash').textContent = formatCurrency(total);
+
+        const expected = parseFloat(document.getElementById('eod-expected-cash').textContent.replace(/[^0-9.-]/g, '')) || 0;
+        const variance = total - expected;
+        const varianceEl = document.getElementById('eod-variance');
+        varianceEl.textContent = (variance >= 0 ? '+' : '') + formatCurrency(variance);
+        varianceEl.className = Math.abs(variance) < 1 ? 'eod-variance-ok' : 'eod-variance-bad';
+    });
+});
+
+document.getElementById('eod-confirm-check').addEventListener('change', () => {
+    updateEODStep();
+});
+
+document.getElementById('eod-next').addEventListener('click', () => {
+    if (eodCurrentStep < 3) {
+        eodCurrentStep++;
+        updateEODStep();
+
+        if (eodCurrentStep === 3) {
+            // Populate confirmation
+            const countedCash = document.getElementById('eod-counted-cash').textContent;
+            const expectedCash = document.getElementById('eod-expected-cash').textContent;
+            const variance = document.getElementById('eod-variance').textContent;
+
+            let totalSales = 0;
+            state.allTickets.forEach(t => {
+                if (t.paid && t.status !== 'voided') totalSales += t.total || 0;
+            });
+
+            document.getElementById('eod-confirm-details').innerHTML = `
+                <div class="eod-confirm-row"><span>Total Sales:</span><strong>${formatCurrency(totalSales)}</strong></div>
+                <div class="eod-confirm-row"><span>Expected Cash:</span><strong>${expectedCash}</strong></div>
+                <div class="eod-confirm-row"><span>Counted Cash:</span><strong>${countedCash}</strong></div>
+                <div class="eod-confirm-row"><span>Variance:</span><strong>${variance}</strong></div>
+                <div class="eod-confirm-row"><span>Closed By:</span><strong>${state.currentUser}</strong></div>
+                <div class="eod-confirm-row"><span>Date:</span><strong>${new Date().toLocaleDateString()}</strong></div>
+            `;
+        }
+    } else {
+        // Close day
+        if (!document.getElementById('eod-confirm-check').checked) {
+            showToast('Please confirm the totals', 'error');
+            return;
+        }
+        eodModal.classList.remove('active');
+        eodCurrentStep = 1;
+
+        cashDrawerState.isOpen = false;
+        cashDrawerState.activity.push({
+            action: 'EOD Close',
+            user: state.currentUser,
+            time: new Date()
+        });
+
+        showToast('Day closed successfully');
+    }
+});
+
+document.getElementById('eod-prev').addEventListener('click', () => {
+    if (eodCurrentStep > 1) {
+        eodCurrentStep--;
+        updateEODStep();
+    }
+});
+
+// ==========================================
+// 86'd Items (Mark Items Out of Stock)
+// ==========================================
+const eightySixed = new Set();
+
+function toggleEightySix(itemId) {
+    if (eightySixed.has(itemId)) {
+        eightySixed.delete(itemId);
+        showToast('Item back in stock');
+    } else {
+        eightySixed.add(itemId);
+        showToast("Item 86'd (out of stock)");
+    }
+    populateMenu();
+}
+window.toggleEightySix = toggleEightySix;
+
+// Patch the addToOrder function to check 86'd status
+const _origAddToOrder = typeof addToOrder !== 'undefined' ? addToOrder : null;
+
+function addToOrderWith86Check(item) {
+    if (eightySixed.has(item.id)) {
+        showToast(item.name + " is 86'd (out of stock)", 'error');
+        return;
+    }
+    if (_origAddToOrder) {
+        _origAddToOrder(item);
+    }
+}
+
+// ==========================================
+// Keyboard Shortcuts
+// ==========================================
+const shortcutsModal = document.getElementById('shortcuts-overlay');
+
+document.getElementById('close-shortcuts').addEventListener('click', () => {
+    shortcutsModal.classList.remove('active');
+});
+
+const categoryKeys = ['popular', 'appetizers', 'entrees', 'sides', 'drinks', 'desserts'];
+
+document.addEventListener('keydown', (e) => {
+    // Don't fire shortcuts when typing in an input
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+        // Allow Escape to blur input
+        if (e.key === 'Escape') {
+            e.target.blur();
+            e.preventDefault();
+        }
+        return;
+    }
+
+    // Don't fire shortcuts on login screen
+    if (document.getElementById('login-screen').classList.contains('active')) return;
+
+    // Check for active modals - Escape closes them
+    const activeModals = document.querySelectorAll('.modal.active');
+    if (e.key === 'Escape') {
+        if (activeModals.length > 0) {
+            activeModals.forEach(m => m.classList.remove('active'));
+            e.preventDefault();
+            return;
+        }
+    }
+
+    // Ctrl + key shortcuts
+    if (e.ctrlKey || e.metaKey) {
+        switch (e.key.toLowerCase()) {
+            case 'n':
+                e.preventDefault();
+                if (typeof newTicket === 'function') newTicket();
+                break;
+            case 'f':
+                e.preventDefault();
+                const searchInput = document.getElementById('menu-search');
+                if (searchInput) searchInput.focus();
+                break;
+            case 'd':
+                e.preventDefault();
+                document.getElementById('btn-theme').click();
+                break;
+        }
+        return;
+    }
+
+    // F-key shortcuts
+    switch (e.key) {
+        case 'F1':
+            e.preventDefault();
+            switchToView('order');
+            break;
+        case 'F2':
+            e.preventDefault();
+            switchToView('tables');
+            break;
+        case 'F3':
+            e.preventDefault();
+            switchToView('kitchen');
+            break;
+        case 'F4':
+            e.preventDefault();
+            switchToView('tickets');
+            break;
+        case 'F5':
+            e.preventDefault();
+            switchToView('reports');
+            break;
+        case 'F8':
+            e.preventDefault();
+            document.getElementById('btn-send').click();
+            break;
+        case 'F9':
+            e.preventDefault();
+            document.getElementById('btn-pay-cash').click();
+            break;
+        case 'F10':
+            e.preventDefault();
+            document.getElementById('btn-pay-card').click();
+            break;
+        case 'F11':
+            e.preventDefault();
+            document.getElementById('btn-hold').click();
+            break;
+        case 'F12':
+            e.preventDefault();
+            document.getElementById('btn-discount').click();
+            break;
+    }
+
+    // Number keys 1-6 for category switching (only in order view)
+    if (state.currentView === 'order' && e.key >= '1' && e.key <= '6') {
+        const idx = parseInt(e.key) - 1;
+        if (idx < categoryKeys.length) {
+            const tabs = document.querySelectorAll('.category-tab');
+            tabs.forEach(t => t.classList.remove('active'));
+            if (tabs[idx]) {
+                tabs[idx].classList.add('active');
+                state.currentCategory = categoryKeys[idx];
+                state.menuSearchQuery = '';
+                const searchInput = document.getElementById('menu-search');
+                if (searchInput) searchInput.value = '';
+                populateMenu();
+            }
+        }
+    }
+
+    // ? key shows shortcuts help
+    if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+        shortcutsModal.classList.add('active');
+    }
+});
+
+// Helper to switch views programmatically
+function switchToView(viewName) {
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    tabBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === viewName);
+    });
+
+    document.querySelectorAll('.main-view').forEach(v => v.classList.remove('active'));
+    const viewEl = document.getElementById(viewName + '-view');
+    if (viewEl) viewEl.classList.add('active');
+    state.currentView = viewName;
+
+    // Trigger population callbacks
+    if (viewName === 'kitchen' && typeof populateKitchen === 'function') populateKitchen();
+    if (viewName === 'tickets' && typeof populateTicketsList === 'function') populateTicketsList();
+}
+
+// ==========================================
+// Patch Menu Rendering for 86'd Items
+// ==========================================
+const _origPopulateMenu = populateMenu;
+populateMenu = function() {
+    _origPopulateMenu();
+
+    // Add 86'd visual state to menu items
+    const grid = document.getElementById('menu-grid');
+    if (!grid) return;
+
+    grid.querySelectorAll('.menu-item').forEach(btn => {
+        const itemName = btn.querySelector('.menu-item-name');
+        if (!itemName) return;
+        const name = itemName.textContent;
+
+        // Find the item by name across all categories
+        let foundItem = null;
+        Object.values(MENU).forEach(catItems => {
+            const match = catItems.find(i => i.name === name);
+            if (match) foundItem = match;
+        });
+
+        if (foundItem && eightySixed.has(foundItem.id)) {
+            btn.classList.add('menu-item-86d');
+            btn.setAttribute('title', '86\'d - Out of Stock');
+        }
+
+        // Right-click to toggle 86'd (for managers)
+        if (state.currentRole === 'admin' || state.currentRole === 'manager') {
+            btn.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                if (foundItem) {
+                    toggleEightySix(foundItem.id);
+                }
+            });
+        }
+    });
+};
+
+// ==========================================
 // Service Worker Registration
 // ==========================================
 if ('serviceWorker' in navigator) {
