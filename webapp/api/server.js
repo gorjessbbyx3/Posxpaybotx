@@ -58,6 +58,9 @@ const store = {
     promoCodes: [],
     onlineOrders: [],
     fraudAlerts: [],
+    ingredients: [],
+    inventoryMovements: [],
+    scheduledOrders: [],
     config: {
         cashDiscount: {
             enabled: true,
@@ -118,6 +121,9 @@ function loadStore() {
             if (data.promoCodes) store.promoCodes = data.promoCodes;
             if (data.onlineOrders) store.onlineOrders = data.onlineOrders;
             if (data.fraudAlerts) store.fraudAlerts = data.fraudAlerts;
+            if (data.ingredients) store.ingredients = data.ingredients;
+            if (data.inventoryMovements) store.inventoryMovements = data.inventoryMovements;
+            if (data.scheduledOrders) store.scheduledOrders = data.scheduledOrders;
             if (data.nextTicketId) store.nextTicketId = data.nextTicketId;
             if (data.config) {
                 Object.keys(data.config).forEach(k => {
@@ -147,6 +153,9 @@ function saveStore() {
             promoCodes: store.promoCodes,
             onlineOrders: store.onlineOrders,
             fraudAlerts: store.fraudAlerts,
+            ingredients: store.ingredients,
+            inventoryMovements: store.inventoryMovements,
+            scheduledOrders: store.scheduledOrders,
             nextTicketId: store.nextTicketId,
             config: store.config,
             savedAt: new Date().toISOString()
@@ -1816,6 +1825,365 @@ app.post('/api/fraud-alerts/:id/resolve', authorize('reports'), (req, res) => {
     alert.resolution = req.body.resolution || '';
     scheduleSave();
     res.json(alert);
+});
+
+// ==========================================
+// Modifier Profitability Report
+// ==========================================
+app.get('/api/reports/modifier-profitability', authorize('reports'), (req, res) => {
+    const modifiers = {};
+
+    store.tickets.forEach(t => {
+        if (t.status === 'voided') return;
+        (t.items || []).forEach(item => {
+            (item.modifiers || []).forEach(mod => {
+                const key = mod.name || 'Unknown Modifier';
+                if (!modifiers[key]) {
+                    modifiers[key] = { name: key, count: 0, revenue: 0, cost: 0 };
+                }
+                modifiers[key].count++;
+                modifiers[key].revenue += Math.round((parseFloat(mod.price) || 0) * 100) / 100;
+                modifiers[key].cost += Math.round((parseFloat(mod.cost) || 0) * 100) / 100;
+            });
+        });
+    });
+
+    const result = Object.values(modifiers).map(m => ({
+        ...m,
+        revenue: Math.round(m.revenue * 100) / 100,
+        cost: Math.round(m.cost * 100) / 100,
+        profit: Math.round((m.revenue - m.cost) * 100) / 100,
+        marginPct: m.revenue > 0 ? Math.round((m.revenue - m.cost) / m.revenue * 1000) / 10 : 0
+    })).sort((a, b) => b.revenue - a.revenue);
+
+    const totalModRevenue = result.reduce((s, m) => s + m.revenue, 0);
+
+    res.json({
+        modifiers: result,
+        totalModifierRevenue: Math.round(totalModRevenue * 100) / 100,
+        totalModifiers: result.length
+    });
+});
+
+// ==========================================
+// Food Cost Tracking Report
+// ==========================================
+app.get('/api/reports/food-cost', authorize('reports'), (req, res) => {
+    let totalRevenue = 0;
+    let totalFoodCost = 0;
+    const byItem = {};
+
+    store.tickets.forEach(t => {
+        if (t.status === 'voided') return;
+        (t.items || []).forEach(item => {
+            const key = item.name || 'Unknown';
+            const qty = parseInt(item.qty, 10) || 0;
+            const price = parseFloat(item.price) || 0;
+            const cost = parseFloat(item.cost) || 0;
+            const rev = Math.round(price * qty * 100) / 100;
+            const fc = Math.round(cost * qty * 100) / 100;
+
+            totalRevenue += rev;
+            totalFoodCost += fc;
+
+            if (!byItem[key]) byItem[key] = { name: key, qty: 0, revenue: 0, cost: 0 };
+            byItem[key].qty += qty;
+            byItem[key].revenue += rev;
+            byItem[key].cost += fc;
+        });
+    });
+
+    const items = Object.values(byItem).map(i => ({
+        ...i,
+        revenue: Math.round(i.revenue * 100) / 100,
+        cost: Math.round(i.cost * 100) / 100,
+        profit: Math.round((i.revenue - i.cost) * 100) / 100,
+        foodCostPct: i.revenue > 0 ? Math.round(i.cost / i.revenue * 1000) / 10 : 0
+    })).sort((a, b) => b.foodCostPct - a.foodCostPct);
+
+    totalRevenue = Math.round(totalRevenue * 100) / 100;
+    totalFoodCost = Math.round(totalFoodCost * 100) / 100;
+    const overallFoodCostPct = totalRevenue > 0 ? Math.round(totalFoodCost / totalRevenue * 1000) / 10 : 0;
+
+    res.json({
+        totalRevenue,
+        totalFoodCost,
+        totalProfit: Math.round((totalRevenue - totalFoodCost) * 100) / 100,
+        overallFoodCostPct,
+        items
+    });
+});
+
+// ==========================================
+// Ingredient-Level Tracking (CRUD)
+// ==========================================
+const INGREDIENT_FIELDS = ['name', 'unit', 'stock', 'lowThreshold', 'cost', 'supplier', 'category'];
+
+app.get('/api/ingredients', authorize('config'), (req, res) => {
+    let ingredients = store.ingredients;
+    const { search, lowStock } = req.query;
+    if (search) {
+        const q = search.toLowerCase();
+        ingredients = ingredients.filter(i => (i.name || '').toLowerCase().includes(q));
+    }
+    if (lowStock === 'true') {
+        ingredients = ingredients.filter(i => i.stock <= (i.lowThreshold || 0));
+    }
+    res.json({ ingredients, total: ingredients.length });
+});
+
+app.post('/api/ingredients', authorize('config'), (req, res) => {
+    const { name, unit, stock, lowThreshold, cost, supplier, category } = req.body;
+    if (!name) return res.status(400).json({ error: 'Ingredient name required' });
+
+    const ingredient = {
+        id: store.ingredients.length > 0 ? Math.max(...store.ingredients.map(i => i.id)) + 1 : 1,
+        name,
+        unit: unit || 'units',
+        stock: parseFloat(stock) || 0,
+        lowThreshold: parseFloat(lowThreshold) || 5,
+        cost: Math.round((parseFloat(cost) || 0) * 100) / 100,
+        supplier: supplier || '',
+        category: category || 'General',
+        createdAt: new Date().toISOString(),
+        createdBy: req.user ? req.user.name : 'unknown'
+    };
+    store.ingredients.push(ingredient);
+    scheduleSave();
+    res.status(201).json(ingredient);
+});
+
+app.patch('/api/ingredients/:id', authorize('config'), (req, res) => {
+    const ingredient = store.ingredients.find(i => i.id === parseInt(req.params.id));
+    if (!ingredient) return res.status(404).json({ error: 'Ingredient not found' });
+
+    INGREDIENT_FIELDS.forEach(field => {
+        if (req.body[field] !== undefined) ingredient[field] = req.body[field];
+    });
+    ingredient.updatedAt = new Date().toISOString();
+    scheduleSave();
+    res.json(ingredient);
+});
+
+app.delete('/api/ingredients/:id', authorize('config'), (req, res) => {
+    const idx = store.ingredients.findIndex(i => i.id === parseInt(req.params.id));
+    if (idx === -1) return res.status(404).json({ error: 'Ingredient not found' });
+    const removed = store.ingredients.splice(idx, 1)[0];
+    scheduleSave();
+    res.json(removed);
+});
+
+// ==========================================
+// Inventory Depletion Tracking
+// ==========================================
+app.post('/api/ingredients/:id/adjust', authorize('config'), (req, res) => {
+    const ingredient = store.ingredients.find(i => i.id === parseInt(req.params.id));
+    if (!ingredient) return res.status(404).json({ error: 'Ingredient not found' });
+
+    const { quantity, reason, type } = req.body;
+    const qty = parseFloat(quantity) || 0;
+    if (qty === 0) return res.status(400).json({ error: 'Quantity required' });
+
+    const oldStock = ingredient.stock;
+    ingredient.stock = Math.round((ingredient.stock + qty) * 100) / 100;
+
+    const movement = {
+        id: store.inventoryMovements.length + 1,
+        ingredientId: ingredient.id,
+        ingredientName: ingredient.name,
+        type: type || (qty > 0 ? 'restock' : 'usage'),
+        quantity: qty,
+        oldStock,
+        newStock: ingredient.stock,
+        reason: reason || '',
+        recordedBy: req.user ? req.user.name : 'unknown',
+        time: new Date().toISOString()
+    };
+    store.inventoryMovements.push(movement);
+    scheduleSave();
+
+    res.json({ ingredient, movement });
+});
+
+app.get('/api/inventory-movements', authorize('reports'), (req, res) => {
+    let movements = store.inventoryMovements;
+    const { ingredientId, type, limit: limitParam } = req.query;
+
+    if (ingredientId) movements = movements.filter(m => m.ingredientId === parseInt(ingredientId));
+    if (type) movements = movements.filter(m => m.type === type);
+
+    movements = [...movements].reverse();
+
+    const limit = parseInt(limitParam, 10);
+    if (limit > 0) movements = movements.slice(0, limit);
+
+    res.json({ movements, total: movements.length });
+});
+
+app.get('/api/reports/inventory-depletion', authorize('reports'), (req, res) => {
+    const depletion = {};
+
+    store.inventoryMovements.forEach(m => {
+        if (m.quantity < 0) {
+            if (!depletion[m.ingredientName]) {
+                depletion[m.ingredientName] = { name: m.ingredientName, totalUsed: 0, movements: 0 };
+            }
+            depletion[m.ingredientName].totalUsed += Math.abs(m.quantity);
+            depletion[m.ingredientName].movements++;
+        }
+    });
+
+    const items = Object.values(depletion).map(d => ({
+        ...d,
+        totalUsed: Math.round(d.totalUsed * 100) / 100
+    })).sort((a, b) => b.totalUsed - a.totalUsed);
+
+    res.json({ items, totalItems: items.length });
+});
+
+// ==========================================
+// Low-Stock Alerts
+// ==========================================
+app.get('/api/alerts/low-stock', authorize('config'), (req, res) => {
+    const lowStock = store.ingredients.filter(i => i.stock <= (i.lowThreshold || 0));
+    const outOfStock = store.ingredients.filter(i => i.stock <= 0);
+
+    res.json({
+        lowStock: lowStock.map(i => ({
+            id: i.id,
+            name: i.name,
+            stock: i.stock,
+            unit: i.unit,
+            threshold: i.lowThreshold,
+            supplier: i.supplier
+        })),
+        outOfStock: outOfStock.map(i => ({
+            id: i.id,
+            name: i.name,
+            unit: i.unit,
+            supplier: i.supplier
+        })),
+        lowStockCount: lowStock.length,
+        outOfStockCount: outOfStock.length
+    });
+});
+
+// ==========================================
+// Scheduled Orders
+// ==========================================
+app.get('/api/scheduled-orders', authorize('tickets'), (req, res) => {
+    let orders = store.scheduledOrders;
+    const { status, date } = req.query;
+    if (status) orders = orders.filter(o => o.status === status);
+    if (date) orders = orders.filter(o => o.scheduledFor && o.scheduledFor.startsWith(date));
+    res.json({ orders, total: orders.length });
+});
+
+app.post('/api/scheduled-orders', (req, res) => {
+    const { customerName, customerPhone, items, scheduledFor, type, note } = req.body;
+    if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'Items required' });
+    }
+    if (!scheduledFor) return res.status(400).json({ error: 'Scheduled time required' });
+    if (!customerName) return res.status(400).json({ error: 'Customer name required' });
+
+    const subtotal = items.reduce((s, i) => {
+        return s + Math.round((parseFloat(i.price) || 0) * (parseInt(i.qty, 10) || 0) * 100) / 100;
+    }, 0);
+    const tax = Math.round(subtotal * (store.config.tax.rate / 100) * 100) / 100;
+
+    const order = {
+        id: store.scheduledOrders.length > 0 ? Math.max(...store.scheduledOrders.map(o => o.id)) + 1 : 7001,
+        customerName,
+        customerPhone: customerPhone || '',
+        items,
+        type: type || 'pickup',
+        scheduledFor,
+        note: note || '',
+        subtotal: Math.round(subtotal * 100) / 100,
+        tax,
+        total: Math.round((subtotal + tax) * 100) / 100,
+        status: 'scheduled',
+        createdAt: new Date().toISOString()
+    };
+    store.scheduledOrders.push(order);
+    scheduleSave();
+    res.status(201).json(order);
+});
+
+app.post('/api/scheduled-orders/:id/confirm', authorize('tickets'), (req, res) => {
+    const order = store.scheduledOrders.find(o => o.id === parseInt(req.params.id));
+    if (!order) return res.status(404).json({ error: 'Scheduled order not found' });
+    if (order.status !== 'scheduled') return res.status(400).json({ error: 'Order is not scheduled' });
+
+    order.status = 'confirmed';
+    order.confirmedAt = new Date().toISOString();
+    order.confirmedBy = req.user ? req.user.name : 'unknown';
+    scheduleSave();
+    res.json(order);
+});
+
+app.post('/api/scheduled-orders/:id/cancel', authorize('tickets'), (req, res) => {
+    const order = store.scheduledOrders.find(o => o.id === parseInt(req.params.id));
+    if (!order) return res.status(404).json({ error: 'Scheduled order not found' });
+    if (order.status === 'cancelled') return res.status(400).json({ error: 'Already cancelled' });
+
+    order.status = 'cancelled';
+    order.cancelledAt = new Date().toISOString();
+    order.cancelReason = req.body.reason || '';
+    scheduleSave();
+    res.json(order);
+});
+
+// ==========================================
+// Curbside Pickup Mode
+// ==========================================
+app.get('/api/curbside', authorize('tickets'), (req, res) => {
+    // Get all curbside orders (from tickets, online orders, and scheduled orders)
+    const curbsideTickets = store.tickets.filter(t =>
+        t.type === 'curbside' && t.status !== 'voided' && t.status !== 'refunded'
+    );
+    const curbsideOnline = store.onlineOrders.filter(o =>
+        o.type === 'curbside' && o.status === 'accepted'
+    );
+
+    const orders = [
+        ...curbsideTickets.map(t => ({
+            source: 'ticket',
+            id: t.id,
+            customerName: t.customerName || t.server,
+            items: t.items,
+            total: t.total,
+            status: t.status,
+            vehicleInfo: t.vehicleInfo || null,
+            arrivedAt: t.arrivedAt || null,
+            time: t.time
+        })),
+        ...curbsideOnline.map(o => ({
+            source: 'online',
+            id: o.id,
+            customerName: o.customerName,
+            items: o.items,
+            total: o.total,
+            status: o.status,
+            vehicleInfo: o.vehicleInfo || null,
+            arrivedAt: o.arrivedAt || null,
+            time: o.createdAt
+        }))
+    ];
+
+    res.json({ orders, total: orders.length });
+});
+
+app.post('/api/tickets/:id/curbside-arrival', authorize('tickets'), (req, res) => {
+    const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+    ticket.arrivedAt = new Date().toISOString();
+    ticket.vehicleInfo = req.body.vehicleInfo || '';
+    ticket.curbsideNotes = req.body.notes || '';
+    scheduleSave();
+    res.json(ticket);
 });
 
 // ==========================================

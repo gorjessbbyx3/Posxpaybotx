@@ -150,7 +150,7 @@ function authenticate(req, res, next) {
     // Allow login, health, and public-facing endpoints without auth
     if (req.path === '/api/auth/login' || req.path === '/auth/login' ||
         req.path === '/api/health' || req.path === '/health' ||
-        (req.path === '/online-orders' && req.method === 'POST')) {
+        ((req.path === '/online-orders' || req.path === '/scheduled-orders') && req.method === 'POST')) {
         return next();
     }
 

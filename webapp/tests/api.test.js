@@ -73,6 +73,9 @@ before(() => {
             store.promoCodes.length = 0;
             store.onlineOrders.length = 0;
             store.fraudAlerts.length = 0;
+            store.ingredients.length = 0;
+            store.inventoryMovements.length = 0;
+            store.scheduledOrders.length = 0;
             store.nextTicketId = 1001;
             resolve();
         });
@@ -1705,6 +1708,366 @@ describe('Fraud Detection Alerts', () => {
 
     it('returns 404 for missing alert', async () => {
         const res = await req('POST', '/api/fraud-alerts/99999/resolve', {}, managerToken);
+        assert.equal(res.status, 404);
+    });
+});
+
+// ==========================================
+// Modifier Profitability Report
+// ==========================================
+describe('Modifier Profitability Report', () => {
+    it('creates ticket with modifiers', async () => {
+        const res = await req('POST', '/api/tickets', {
+            items: [
+                {
+                    name: 'Burger', price: 12, qty: 1, cost: 4,
+                    modifiers: [
+                        { name: 'Extra Cheese', price: 1.50, cost: 0.30 },
+                        { name: 'Bacon', price: 2.00, cost: 0.50 }
+                    ]
+                },
+                {
+                    name: 'Fries', price: 5, qty: 1, cost: 1,
+                    modifiers: [
+                        { name: 'Extra Cheese', price: 1.50, cost: 0.30 }
+                    ]
+                }
+            ],
+            type: 'dine-in'
+        }, serverToken);
+        assert.equal(res.status, 201);
+    });
+
+    it('returns modifier profitability breakdown', async () => {
+        const res = await req('GET', '/api/reports/modifier-profitability', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body.modifiers));
+        assert.ok(res.body.totalModifierRevenue > 0);
+
+        const cheese = res.body.modifiers.find(m => m.name === 'Extra Cheese');
+        assert.ok(cheese);
+        assert.equal(cheese.count, 2);
+        assert.equal(cheese.revenue, 3); // 1.50 * 2
+        assert.ok(cheese.marginPct > 0);
+    });
+
+    it('server cannot access modifier report', async () => {
+        const res = await req('GET', '/api/reports/modifier-profitability', null, serverToken);
+        assert.equal(res.status, 403);
+    });
+});
+
+// ==========================================
+// Food Cost Tracking Report
+// ==========================================
+describe('Food Cost Tracking Report', () => {
+    it('returns food cost data', async () => {
+        const res = await req('GET', '/api/reports/food-cost', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok('totalRevenue' in res.body);
+        assert.ok('totalFoodCost' in res.body);
+        assert.ok('totalProfit' in res.body);
+        assert.ok('overallFoodCostPct' in res.body);
+        assert.ok(Array.isArray(res.body.items));
+    });
+
+    it('includes per-item food cost percentage', async () => {
+        const res = await req('GET', '/api/reports/food-cost', null, managerToken);
+        if (res.body.items.length > 0) {
+            const item = res.body.items[0];
+            assert.ok('name' in item);
+            assert.ok('revenue' in item);
+            assert.ok('cost' in item);
+            assert.ok('profit' in item);
+            assert.ok('foodCostPct' in item);
+        }
+    });
+
+    it('server cannot access food-cost report', async () => {
+        const res = await req('GET', '/api/reports/food-cost', null, serverToken);
+        assert.equal(res.status, 403);
+    });
+});
+
+// ==========================================
+// Ingredient-Level Tracking
+// ==========================================
+describe('Ingredient Tracking API', () => {
+    it('creates an ingredient', async () => {
+        const res = await req('POST', '/api/ingredients', {
+            name: 'Tomatoes',
+            unit: 'lbs',
+            stock: 50,
+            lowThreshold: 10,
+            cost: 2.50,
+            supplier: 'Farm Fresh',
+            category: 'Produce'
+        }, managerToken);
+
+        assert.equal(res.status, 201);
+        assert.equal(res.body.name, 'Tomatoes');
+        assert.equal(res.body.stock, 50);
+        assert.equal(res.body.unit, 'lbs');
+    });
+
+    it('creates another ingredient', async () => {
+        const res = await req('POST', '/api/ingredients', {
+            name: 'Chicken Breast',
+            unit: 'lbs',
+            stock: 30,
+            lowThreshold: 5,
+            cost: 4.50,
+            supplier: 'Meat Co',
+            category: 'Protein'
+        }, managerToken);
+        assert.equal(res.status, 201);
+    });
+
+    it('rejects ingredient without name', async () => {
+        const res = await req('POST', '/api/ingredients', {
+            unit: 'oz'
+        }, managerToken);
+        assert.equal(res.status, 400);
+    });
+
+    it('lists all ingredients', async () => {
+        const res = await req('GET', '/api/ingredients', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.ingredients.length, 2);
+    });
+
+    it('searches ingredients', async () => {
+        const res = await req('GET', '/api/ingredients?search=tomato', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.ingredients.length, 1);
+    });
+
+    it('updates an ingredient', async () => {
+        const res = await req('PATCH', '/api/ingredients/1', {
+            stock: 45,
+            cost: 2.75
+        }, managerToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.stock, 45);
+        assert.equal(res.body.cost, 2.75);
+    });
+
+    it('server cannot manage ingredients', async () => {
+        const res = await req('POST', '/api/ingredients', {
+            name: 'Salt', unit: 'oz', stock: 100
+        }, serverToken);
+        assert.equal(res.status, 403);
+    });
+});
+
+// ==========================================
+// Inventory Depletion Tracking
+// ==========================================
+describe('Inventory Depletion Tracking', () => {
+    it('adjusts ingredient stock (usage)', async () => {
+        const res = await req('POST', '/api/ingredients/1/adjust', {
+            quantity: -5,
+            reason: 'Daily prep',
+            type: 'usage'
+        }, managerToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.ingredient.stock, 40); // was 45
+        assert.equal(res.body.movement.type, 'usage');
+        assert.equal(res.body.movement.quantity, -5);
+    });
+
+    it('adjusts ingredient stock (restock)', async () => {
+        const res = await req('POST', '/api/ingredients/1/adjust', {
+            quantity: 20,
+            reason: 'Delivery received',
+            type: 'restock'
+        }, managerToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.ingredient.stock, 60); // was 40
+        assert.equal(res.body.movement.type, 'restock');
+    });
+
+    it('rejects zero quantity adjustment', async () => {
+        const res = await req('POST', '/api/ingredients/1/adjust', {
+            quantity: 0
+        }, managerToken);
+        assert.equal(res.status, 400);
+    });
+
+    it('lists inventory movements', async () => {
+        const res = await req('GET', '/api/inventory-movements', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.movements.length >= 2);
+    });
+
+    it('filters movements by type', async () => {
+        const res = await req('GET', '/api/inventory-movements?type=usage', null, managerToken);
+        assert.equal(res.status, 200);
+        res.body.movements.forEach(m => assert.equal(m.type, 'usage'));
+    });
+
+    it('returns depletion report', async () => {
+        const res = await req('GET', '/api/reports/inventory-depletion', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body.items));
+        if (res.body.items.length > 0) {
+            assert.ok('name' in res.body.items[0]);
+            assert.ok('totalUsed' in res.body.items[0]);
+        }
+    });
+});
+
+// ==========================================
+// Low-Stock Alerts
+// ==========================================
+describe('Low-Stock Alerts', () => {
+    it('detects low stock ingredients', async () => {
+        // Deplete Chicken Breast below threshold (stock 30, threshold 5)
+        await req('POST', '/api/ingredients/2/adjust', {
+            quantity: -26,
+            reason: 'Busy night'
+        }, managerToken);
+
+        const res = await req('GET', '/api/alerts/low-stock', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.lowStockCount > 0);
+        assert.ok(res.body.lowStock.length > 0);
+
+        const chicken = res.body.lowStock.find(i => i.name === 'Chicken Breast');
+        assert.ok(chicken);
+        assert.equal(chicken.stock, 4);
+    });
+
+    it('includes out-of-stock items', async () => {
+        const res = await req('GET', '/api/alerts/low-stock', null, managerToken);
+        assert.ok('outOfStock' in res.body);
+        assert.ok('outOfStockCount' in res.body);
+    });
+
+    it('server cannot access low-stock alerts', async () => {
+        const res = await req('GET', '/api/alerts/low-stock', null, serverToken);
+        assert.equal(res.status, 403);
+    });
+});
+
+// ==========================================
+// Scheduled Orders
+// ==========================================
+describe('Scheduled Orders', () => {
+    let scheduledId;
+
+    it('creates a scheduled order (no auth required)', async () => {
+        const res = await req('POST', '/api/scheduled-orders', {
+            customerName: 'Schedule Sam',
+            customerPhone: '555-3333',
+            items: [
+                { name: 'Catering Platter', price: 75, qty: 2 },
+                { name: 'Drinks Pack', price: 25, qty: 1 }
+            ],
+            scheduledFor: '2026-03-01T18:00:00Z',
+            type: 'pickup'
+        });
+
+        assert.equal(res.status, 201);
+        scheduledId = res.body.id;
+        assert.equal(res.body.status, 'scheduled');
+        assert.equal(res.body.customerName, 'Schedule Sam');
+        assert.ok(res.body.total > 0);
+    });
+
+    it('rejects scheduled order without time', async () => {
+        const res = await req('POST', '/api/scheduled-orders', {
+            customerName: 'Bob',
+            items: [{ name: 'Test', price: 10, qty: 1 }]
+        });
+        assert.equal(res.status, 400);
+    });
+
+    it('rejects scheduled order without items', async () => {
+        const res = await req('POST', '/api/scheduled-orders', {
+            customerName: 'Bob',
+            items: [],
+            scheduledFor: '2026-03-01T18:00:00Z'
+        });
+        assert.equal(res.status, 400);
+    });
+
+    it('lists scheduled orders', async () => {
+        const res = await req('GET', '/api/scheduled-orders', null, serverToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.orders.length > 0);
+    });
+
+    it('confirms a scheduled order', async () => {
+        const res = await req('POST', `/api/scheduled-orders/${scheduledId}/confirm`, {}, serverToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'confirmed');
+    });
+
+    it('rejects confirming non-scheduled order', async () => {
+        const res = await req('POST', `/api/scheduled-orders/${scheduledId}/confirm`, {}, serverToken);
+        assert.equal(res.status, 400);
+    });
+
+    it('cancels a scheduled order', async () => {
+        // Create another to cancel
+        const create = await req('POST', '/api/scheduled-orders', {
+            customerName: 'Cancel Cathy',
+            items: [{ name: 'Cake', price: 30, qty: 1 }],
+            scheduledFor: '2026-03-02T12:00:00Z'
+        });
+        const res = await req('POST', `/api/scheduled-orders/${create.body.id}/cancel`, {
+            reason: 'Customer changed plans'
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'cancelled');
+        assert.equal(res.body.cancelReason, 'Customer changed plans');
+    });
+});
+
+// ==========================================
+// Curbside Pickup Mode
+// ==========================================
+describe('Curbside Pickup API', () => {
+    it('creates a curbside ticket', async () => {
+        const res = await req('POST', '/api/tickets', {
+            items: [{ name: 'Takeout Combo', price: 18, qty: 1 }],
+            type: 'curbside',
+            server: 'John'
+        }, serverToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.type, 'curbside');
+    });
+
+    it('lists curbside orders', async () => {
+        const res = await req('GET', '/api/curbside', null, serverToken);
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body.orders));
+        assert.ok(res.body.orders.length > 0);
+        assert.equal(res.body.orders[0].source, 'ticket');
+    });
+
+    it('records curbside arrival', async () => {
+        // Get the curbside ticket ID
+        const curbside = await req('GET', '/api/curbside', null, serverToken);
+        const ticketId = curbside.body.orders[0].id;
+
+        const res = await req('POST', `/api/tickets/${ticketId}/curbside-arrival`, {
+            vehicleInfo: 'Red Toyota Camry',
+            notes: 'Parked in spot 3'
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.ok(res.body.arrivedAt);
+        assert.equal(res.body.vehicleInfo, 'Red Toyota Camry');
+    });
+
+    it('returns 404 for missing ticket arrival', async () => {
+        const res = await req('POST', '/api/tickets/99999/curbside-arrival', {}, serverToken);
         assert.equal(res.status, 404);
     });
 });
