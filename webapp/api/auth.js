@@ -150,7 +150,8 @@ function authenticate(req, res, next) {
     // Allow login, health, and public-facing endpoints without auth
     if (req.path === '/api/auth/login' || req.path === '/auth/login' ||
         req.path === '/api/health' || req.path === '/health' ||
-        ((req.path === '/online-orders' || req.path === '/scheduled-orders' || req.path === '/reservations' || req.path === '/qr-orders' || req.path === '/waitlist') && req.method === 'POST')) {
+        ((req.path === '/online-orders' || req.path === '/scheduled-orders' || req.path === '/reservations' || req.path === '/qr-orders' || req.path === '/waitlist') && req.method === 'POST') ||
+        (req.path.match(/^\/hardware\/kds-displays\/\d+\/heartbeat$/) && req.method === 'POST')) {
         return next();
     }
 
