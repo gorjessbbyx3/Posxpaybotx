@@ -4193,3 +4193,204 @@ textarea:focus-visible {
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
+
+/* ========== WAITLIST ========== */
+.wl-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--danger);
+    color: white;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.wl-entry {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    margin-bottom: 8px;
+}
+
+.wl-entry.wl-notified {
+    border-left: 3px solid var(--success);
+    background: var(--success-bg);
+}
+
+.wl-entry.wl-overdue {
+    border-left: 3px solid var(--danger);
+    background: var(--danger-bg);
+}
+
+.wl-entry-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.wl-entry-info strong { font-size: 0.95rem; color: var(--text-primary); }
+.wl-party { font-size: 0.8rem; color: var(--text-secondary); }
+.wl-phone { font-size: 0.75rem; color: var(--text-muted); }
+.wl-note { font-size: 0.75rem; color: var(--accent); font-style: italic; }
+
+.wl-entry-time {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    min-width: 70px;
+}
+
+.wl-elapsed { font-size: 0.9rem; font-weight: 600; color: var(--text-primary); }
+.wl-elapsed.overdue { color: var(--danger); }
+.wl-est { font-size: 0.7rem; color: var(--text-muted); }
+.wl-notified-label { font-size: 0.75rem; color: var(--success); font-weight: 600; }
+
+.wl-entry-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.wl-btn {
+    padding: 5px 10px;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.wl-notify-btn { background: var(--warning-bg); color: var(--warning); }
+.wl-notify-btn:hover { background: var(--warning); color: white; }
+.wl-seat-btn { background: var(--success-bg); color: var(--success); }
+.wl-seat-btn:hover { background: var(--success); color: white; }
+.wl-remove-btn { background: var(--danger-bg); color: var(--danger); }
+.wl-remove-btn:hover { background: var(--danger); color: white; }
+
+/* ========== AUTO-GRATUITY NOTICE ========== */
+.auto-grat-notice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--warning-bg);
+    border: 1px solid var(--warning);
+    border-radius: var(--radius-sm);
+    margin-top: 12px;
+}
+
+.auto-grat-icon { font-size: 1.4rem; }
+
+.auto-grat-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.auto-grat-text strong { font-size: 0.85rem; color: var(--text-primary); }
+.auto-grat-text span { font-size: 0.75rem; color: var(--text-secondary); }
+
+.auto-grat-amount {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--warning);
+}
+
+/* ========== ALLERGEN BADGES ========== */
+.allergen-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-top: 4px;
+    justify-content: center;
+}
+
+.allergen-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    border-radius: 9px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: white;
+    line-height: 1;
+}
+
+.allergen-badge.dietary {
+    border: 1.5px solid currentColor;
+}
+
+/* ========== ALLERGEN FILTER BAR ========== */
+.allergen-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    margin: 6px 0;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+}
+
+.af-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    margin-right: 2px;
+}
+
+.allergen-filter-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--bg-card);
+    cursor: pointer;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    transition: var(--transition);
+}
+
+.allergen-filter-btn:hover {
+    border-color: var(--accent);
+}
+
+.allergen-filter-btn.active {
+    background: var(--danger-bg);
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.af-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    font-size: 0.55rem;
+    font-weight: 700;
+    color: white;
+}
+
+.af-name { font-weight: 500; }

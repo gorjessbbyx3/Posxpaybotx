@@ -156,7 +156,7 @@ function clockIn() {
 
     // Sync to API backend
     if (typeof APIClient !== 'undefined') {
-        APIClient.clockIn(state.currentStaff.id).catch(() => {});
+        APIClient.clockIn(state.currentStaff.id, state.currentUser, state.currentRole).catch(() => {});
     }
 
     showToast('Clocked in at ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
@@ -1029,7 +1029,7 @@ function completePayment(total, method) {
 
         // Sync payment to API backend
         if (typeof APIClient !== 'undefined') {
-            APIClient.payTicket(t.id, { method, total: t.total, tip: t.tip || 0 }).catch(() => {});
+            APIClient.payTicket(t.id, method, t.tip || 0).catch(() => {});
         }
 
         // Auto-print receipt
@@ -1966,7 +1966,7 @@ function voidTicket(ticketId) {
 
         // Sync void to API backend
         if (typeof APIClient !== 'undefined') {
-            APIClient.voidTicket(ticketId).catch(() => {});
+            APIClient.voidTicket(ticketId, state.currentUser, 'User void').catch(() => {});
         }
 
         showToast('Ticket #' + ticketId + ' voided');
@@ -2119,7 +2119,7 @@ function openRefundModal(ticket) {
 
         // Sync refund to API backend
         if (typeof APIClient !== 'undefined') {
-            APIClient.createRefund(ticket.id, { amount: refundAmount, reason, type: isPartial ? 'partial' : 'full' }).catch(() => {});
+            APIClient.createRefund(ticket.id, refundAmount, reason, isPartial ? 'partial' : 'full', state.currentUser).catch(() => {});
         }
 
         modal.classList.remove('active');

@@ -3,7 +3,7 @@
 // Provides offline capabilities and caching
 // ==========================================
 
-const CACHE_NAME = 'pos-cache-v3';
+const CACHE_NAME = 'pos-cache-v4';
 const ASSETS_TO_CACHE = [
     '/',
     '/index.html',
@@ -17,6 +17,7 @@ const ASSETS_TO_CACHE = [
     '/js/pos-kitchen.js',
     '/js/pos-tables.js',
     '/js/pos-loyalty.js',
+    '/js/pos-extras.js',
     'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
 ];
 
