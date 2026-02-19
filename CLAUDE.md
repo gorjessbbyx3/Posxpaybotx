@@ -268,17 +268,34 @@ Express REST API with these endpoint groups:
 |-------|-----------|---------------|
 | Auth | `POST /api/auth/login` | No (login endpoint) |
 | Tickets | `GET/POST/PATCH /api/tickets`, `/api/tickets/:id/pay`, `/api/tickets/:id/void` | Yes |
+| Tickets | `POST /api/tickets/:id/seats`, `GET /api/tickets/:id/split-by-seat` | Yes |
+| Tickets | `GET /api/tickets/:id/receipt` | No (digital receipt) |
+| Tickets | `POST /api/tickets/:id/curbside-arrival` | Yes |
 | Kitchen | `GET/POST /api/kitchen`, `/api/kitchen/:id/bump`, `/api/kitchen/:id/fire-course` | Yes |
-| Kitchen | `GET /api/kitchen/station/:station` | Yes |
+| Kitchen | `GET /api/kitchen/station/:station`, `GET /api/kitchen/expo` | Yes |
+| Kitchen | `POST /api/kitchen/:id/pickup` | Yes |
 | Refunds | `GET/POST /api/refunds` | Yes (refund permission) |
 | Held Orders | `GET/POST/DELETE /api/held-orders` | Yes |
 | Time Clock | `GET /api/timeclock`, clock-in/clock-out | Yes |
+| Customers | `GET/POST/PATCH/DELETE /api/customers` | Yes |
+| Customers | `GET/POST /api/customers/:id/loyalty`, earn/redeem | Yes |
+| Gift Cards | `GET/POST /api/gift-cards`, charge/reload | Yes |
+| Promo Codes | `GET/POST/DELETE /api/promo-codes`, validate/redeem | Yes (config to manage) |
+| Online Orders | `POST /api/online-orders` | No (customer-facing) |
+| Online Orders | `GET /api/online-orders`, accept/reject | Yes |
+| Scheduled | `POST /api/scheduled-orders` | No (customer-facing) |
+| Scheduled | `GET /api/scheduled-orders`, confirm/cancel | Yes |
+| Curbside | `GET /api/curbside` | Yes |
+| Ingredients | `GET/POST/PATCH/DELETE /api/ingredients`, adjust | Yes (config permission) |
+| Inventory | `GET /api/inventory-movements`, `GET /api/alerts/low-stock` | Yes |
 | Config | `GET/PUT /api/config/:section` | Yes (config permission) |
+| Config | `GET/PUT/DELETE /api/config/cashDiscount/state-rules/:state` | Yes (config permission) |
 | Reports | `GET /api/reports/summary\|hourly\|item-mix\|labor` | Yes (reports permission) |
-| Reports | `GET /api/reports/payment-type` | Yes (reports permission) |
-| Reports | `GET /api/reports/surcharge` | Yes (reports permission) |
-| Reports | `GET /api/reports/labor-cost` | Yes (reports permission) |
-| Reports | `GET /api/reports/server-performance` | Yes (reports permission) |
+| Reports | `GET /api/reports/payment-type\|surcharge\|labor-cost` | Yes (reports permission) |
+| Reports | `GET /api/reports/server-performance\|hourly-heatmap` | Yes (reports permission) |
+| Reports | `GET /api/reports/category-margin\|modifier-profitability\|food-cost` | Yes (reports permission) |
+| Reports | `GET /api/reports/inventory-depletion` | Yes (reports permission) |
+| Fraud | `GET /api/fraud-alerts`, scan/resolve | Yes (reports permission) |
 | Audit | `GET /api/audit-log` | Yes (reports permission) |
 | Webhooks | `GET/POST/DELETE /api/webhooks` | Yes (config permission) |
 | Health | `GET /api/health` | No |
@@ -468,7 +485,7 @@ Volumes: `pos-data` (app data), `db-data` (MySQL persistence)
 
 ```bash
 cd webapp && npm install           # Install deps first (express required)
-npm test                           # Run core tests (174 tests) — must pass
+npm test                           # Run core tests (286 tests) — must pass
 npm run test:calculations          # Pricing/tax/discount math
 npm run test:auth                  # Auth and role-based access
 npm run test:api                   # API endpoints
@@ -518,18 +535,18 @@ Features already implemented are marked with checkmarks. This is the full compet
 - [x] Clear line-item receipt display
 - [x] Dual price display on screen
 - [x] Compliance signage generator
-- [ ] State-specific configuration
+- [x] State-specific configuration
 - [x] Reporting separated by payment type
 
 ### 4. Restaurant Workflow Upgrades
 - [ ] Advanced table management (visual floor plan drag-and-drop)
-- [ ] Split checks by seat
-- [ ] Seat-level ordering
+- [x] Split checks by seat
+- [x] Seat-level ordering
 - [x] Course firing
 - [x] Kitchen display system (KDS)
 - [x] Order routing by prep station
-- [ ] Expo screen
-- [ ] Online order queue
+- [x] Expo screen
+- [x] Online order queue
 - [ ] Email "order ready" alerts
 - [ ] Waitlist management
 - [ ] Reservation integration
@@ -545,13 +562,13 @@ Features already implemented are marked with checkmarks. This is the full compet
 - [ ] Web admin portal (partial — `admin.html` exists)
 
 ### 6. Advanced Reporting & Analytics
-- [ ] Hourly sales heat maps
+- [x] Hourly sales heat maps
 - [x] Labor cost tracking
 - [x] Server performance metrics
-- [ ] Modifier profitability
-- [ ] Food cost tracking
-- [ ] Inventory depletion tracking
-- [ ] Category margin analysis
+- [x] Modifier profitability
+- [x] Food cost tracking
+- [x] Inventory depletion tracking
+- [x] Category margin analysis
 - [x] Payment type breakdown
 - [x] Surcharge revenue reporting
 - [ ] Export to QuickBooks
@@ -559,23 +576,23 @@ Features already implemented are marked with checkmarks. This is the full compet
 - [x] Basic reporting endpoints (summary, hourly, item-mix, labor)
 
 ### 7. Inventory & Vendor Management
-- [ ] Ingredient-level tracking
+- [x] Ingredient-level tracking
 - [ ] Recipe costing
-- [ ] Low-stock alerts
+- [x] Low-stock alerts
 - [ ] Purchase order generation
 - [ ] Vendor tracking
 - [ ] Waste logging
-- [ ] Food cost % dashboard
+- [x] Food cost % dashboard
 - [x] Database schema for inventory (migration-003)
 
 ### 8. Customer & Loyalty System
-- [ ] Customer profiles
+- [x] Customer profiles
 - [ ] Saved payment methods
-- [ ] Loyalty points
-- [ ] Rewards engine
+- [x] Loyalty points
+- [x] Rewards engine
 - [ ] Email marketing
-- [ ] Digital receipts
-- [ ] Gift card management
+- [x] Digital receipts
+- [x] Gift card management
 - [x] Loyalty module stub (`pos-loyalty.js`)
 - [x] Gift card DB schema (migration-003)
 
@@ -584,9 +601,9 @@ Features already implemented are marked with checkmarks. This is the full compet
 - [ ] QR table ordering
 - [ ] Integrated payments
 - [ ] Delivery integration (DoorDash/Uber Eats APIs)
-- [ ] Curbside pickup mode
-- [ ] Scheduled orders
-- [ ] Promo code engine
+- [x] Curbside pickup mode
+- [x] Scheduled orders
+- [x] Promo code engine
 
 ### 10. Security & Compliance
 - [x] User permission granularity (role-based authorization)
@@ -596,7 +613,7 @@ Features already implemented are marked with checkmarks. This is the full compet
 - [ ] PCI SAQ documentation
 - [ ] Backup automation
 - [ ] 2FA for managers
-- [ ] Fraud detection alerts
+- [x] Fraud detection alerts
 - [x] JWT authentication
 - [x] CSP headers
 - [x] CORS whitelist
