@@ -66,6 +66,7 @@ before(() => {
             store.heldOrders.length = 0;
             store.refunds.length = 0;
             store.timeClock.length = 0;
+            store.auditLog.length = 0;
             store.nextTicketId = 1001;
             resolve();
         });
@@ -444,5 +445,205 @@ describe('Reports API', () => {
         const res = await req('GET', '/api/reports/item-mix', null, managerToken);
         assert.equal(res.status, 200);
         assert.ok(Array.isArray(res.body.items));
+    });
+});
+
+// ==========================================
+// Partial Payments
+// ==========================================
+describe('Partial Payments API', () => {
+    let partialTicketId;
+
+    it('creates a ticket for partial payment testing', async () => {
+        const res = await req('POST', '/api/tickets', {
+            items: [{ name: 'Steak', price: 40.00, qty: 1 }],
+            type: 'dine-in'
+        }, serverToken);
+
+        assert.equal(res.status, 201);
+        partialTicketId = res.body.id;
+        assert.ok(res.body.total > 0);
+    });
+
+    it('accepts partial payment', async () => {
+        const res = await req('POST', `/api/tickets/${partialTicketId}/pay`, {
+            method: 'card',
+            amount: 20.00,
+            tip: 2.00
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'partial');
+        assert.equal(res.body.totalPaid, 20);
+        assert.ok(res.body.remaining > 0);
+        assert.equal(res.body.payments.length, 1);
+        assert.equal(res.body.payments[0].amount, 20);
+    });
+
+    it('accepts second partial payment with different method', async () => {
+        const ticket = store.tickets.find(t => t.id === partialTicketId);
+        const remaining = ticket.remaining;
+
+        const res = await req('POST', `/api/tickets/${partialTicketId}/pay`, {
+            method: 'cash',
+            amount: remaining,
+            tip: 1.00
+        }, serverToken);
+
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'paid');
+        assert.equal(res.body.remaining, 0);
+        assert.equal(res.body.payments.length, 2);
+    });
+
+    it('rejects payment on fully paid ticket', async () => {
+        const res = await req('POST', `/api/tickets/${partialTicketId}/pay`, {
+            method: 'cash',
+            amount: 5
+        }, serverToken);
+
+        assert.equal(res.status, 400);
+    });
+
+    it('rejects payment exceeding remaining balance', async () => {
+        // Create another ticket
+        const create = await req('POST', '/api/tickets', {
+            items: [{ name: 'Wine', price: 15.00, qty: 1 }],
+            type: 'dine-in'
+        }, serverToken);
+
+        const res = await req('POST', `/api/tickets/${create.body.id}/pay`, {
+            method: 'card',
+            amount: 999.99
+        }, serverToken);
+
+        assert.equal(res.status, 400);
+        assert.ok(res.body.error.includes('exceeds'));
+    });
+
+    it('rejects zero/negative payment amount', async () => {
+        const create = await req('POST', '/api/tickets', {
+            items: [{ name: 'Soda', price: 3.00, qty: 1 }],
+            type: 'dine-in'
+        }, serverToken);
+
+        const res = await req('POST', `/api/tickets/${create.body.id}/pay`, {
+            method: 'cash',
+            amount: 0
+        }, serverToken);
+
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Audit Log
+// ==========================================
+describe('Audit Log API', () => {
+    it('server cannot access audit log', async () => {
+        const res = await req('GET', '/api/audit-log', null, serverToken);
+        assert.equal(res.status, 403);
+    });
+
+    it('manager can access audit log', async () => {
+        const res = await req('GET', '/api/audit-log', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(Array.isArray(res.body.entries));
+    });
+
+    it('void actions are logged', async () => {
+        const res = await req('GET', '/api/audit-log?action=void', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.entries.length > 0);
+        assert.equal(res.body.entries[0].action, 'void');
+        assert.ok(res.body.entries[0].details.ticketId);
+    });
+
+    it('refund actions are logged', async () => {
+        const res = await req('GET', '/api/audit-log?action=refund', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.entries.length > 0);
+        assert.equal(res.body.entries[0].action, 'refund');
+        assert.ok(res.body.entries[0].details.amount);
+    });
+
+    it('config changes are logged', async () => {
+        const res = await req('GET', '/api/audit-log?action=config_change', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.entries.length > 0);
+        assert.equal(res.body.entries[0].action, 'config_change');
+        assert.ok(res.body.entries[0].details.section);
+    });
+
+    it('supports limit parameter', async () => {
+        const res = await req('GET', '/api/audit-log?limit=2', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.entries.length <= 2);
+    });
+
+    it('returns entries in reverse chronological order', async () => {
+        const res = await req('GET', '/api/audit-log', null, managerToken);
+        if (res.body.entries.length >= 2) {
+            assert.ok(res.body.entries[0].time >= res.body.entries[1].time);
+        }
+    });
+});
+
+// ==========================================
+// Payment Type Breakdown Report
+// ==========================================
+describe('Payment Type Breakdown Report', () => {
+    it('server cannot access payment-type report', async () => {
+        const res = await req('GET', '/api/reports/payment-type', null, serverToken);
+        assert.equal(res.status, 403);
+    });
+
+    it('manager can access payment-type breakdown', async () => {
+        const res = await req('GET', '/api/reports/payment-type', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.breakdown);
+        // We have tickets paid by card and cash from earlier tests
+        assert.ok(res.body.breakdown.card || res.body.breakdown.cash);
+    });
+
+    it('breakdown includes sales and tips per method', async () => {
+        const res = await req('GET', '/api/reports/payment-type', null, managerToken);
+        const methods = Object.values(res.body.breakdown);
+        methods.forEach(m => {
+            assert.ok('sales' in m);
+            assert.ok('tips' in m);
+            assert.ok('count' in m);
+            assert.ok('tickets' in m);
+        });
+    });
+});
+
+// ==========================================
+// Surcharge Revenue Report
+// ==========================================
+describe('Surcharge Revenue Report', () => {
+    it('server cannot access surcharge report', async () => {
+        const res = await req('GET', '/api/reports/surcharge', null, serverToken);
+        assert.equal(res.status, 403);
+    });
+
+    it('manager can access surcharge report', async () => {
+        const res = await req('GET', '/api/reports/surcharge', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok('mode' in res.body);
+        assert.ok('rate' in res.body);
+        assert.ok('totalSurchargeRevenue' in res.body);
+        assert.ok('cashTickets' in res.body);
+        assert.ok('cardTickets' in res.body);
+        assert.ok('cashSales' in res.body);
+        assert.ok('cardSales' in res.body);
+        assert.ok('cashPct' in res.body);
+        assert.ok('cardPct' in res.body);
+    });
+
+    it('includes surcharge ticket count', async () => {
+        const res = await req('GET', '/api/reports/surcharge', null, managerToken);
+        assert.ok('surchargeTicketCount' in res.body);
+        assert.equal(typeof res.body.surchargeTicketCount, 'number');
     });
 });

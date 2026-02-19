@@ -172,7 +172,7 @@ Tests live in `webapp/tests/` and use the **Node.js native test runner** (no ext
 
 **Run tests:**
 ```bash
-cd webapp && npm test              # Runs calculations, auth, and api tests (127 tests)
+cd webapp && npm test              # Runs calculations, auth, and api tests (150 tests)
 node --test tests/extras.test.js   # Run extras tests separately
 ```
 
@@ -274,6 +274,9 @@ Express REST API with these endpoint groups:
 | Time Clock | `GET /api/timeclock`, clock-in/clock-out | Yes |
 | Config | `GET/PUT /api/config/:section` | Yes (config permission) |
 | Reports | `GET /api/reports/summary\|hourly\|item-mix\|labor` | Yes (reports permission) |
+| Reports | `GET /api/reports/payment-type` | Yes (reports permission) |
+| Reports | `GET /api/reports/surcharge` | Yes (reports permission) |
+| Audit | `GET /api/audit-log` | Yes (reports permission) |
 | Health | `GET /api/health` | No |
 
 ---
@@ -461,7 +464,7 @@ Volumes: `pos-data` (app data), `db-data` (MySQL persistence)
 
 ```bash
 cd webapp && npm install           # Install deps first (express required)
-npm test                           # Run core tests (127 tests) — must pass
+npm test                           # Run core tests (150 tests) — must pass
 npm run test:calculations          # Pricing/tax/discount math
 npm run test:auth                  # Auth and role-based access
 npm run test:api                   # API endpoints
@@ -490,7 +493,7 @@ Features already implemented are marked with checkmarks. This is the full compet
 - [x] Contactless (Apple Pay, Google Pay) — via terminal
 - [x] NFC tap-to-pay — via terminal
 - [x] Split payments
-- [ ] Partial payments
+- [x] Partial payments
 - [x] Tip adjustments
 - [x] Refund processing
 - [x] Void support
@@ -506,13 +509,13 @@ Features already implemented are marked with checkmarks. This is the full compet
 - [x] Cash discount mode toggle
 - [x] Credit surcharge mode toggle
 - [x] Automatic percentage calculation
-- [ ] Cap logic (e.g., max 3%)
+- [x] Cap logic (e.g., max 3%)
 - [x] Debit detection rules
 - [x] Clear line-item receipt display
 - [x] Dual price display on screen
 - [x] Compliance signage generator
 - [ ] State-specific configuration
-- [ ] Reporting separated by payment type
+- [x] Reporting separated by payment type
 
 ### 4. Restaurant Workflow Upgrades
 - [ ] Advanced table management (visual floor plan drag-and-drop)
@@ -545,8 +548,8 @@ Features already implemented are marked with checkmarks. This is the full compet
 - [ ] Food cost tracking
 - [ ] Inventory depletion tracking
 - [ ] Category margin analysis
-- [ ] Payment type breakdown
-- [ ] Surcharge revenue reporting
+- [x] Payment type breakdown
+- [x] Surcharge revenue reporting
 - [ ] Export to QuickBooks
 - [ ] Automated email reports
 - [x] Basic reporting endpoints (summary, hourly, item-mix, labor)
@@ -583,7 +586,7 @@ Features already implemented are marked with checkmarks. This is the full compet
 
 ### 10. Security & Compliance
 - [x] User permission granularity (role-based authorization)
-- [ ] Audit logs
+- [x] Audit logs
 - [ ] Encrypted database
 - [ ] Tokenized payment storage
 - [ ] PCI SAQ documentation
