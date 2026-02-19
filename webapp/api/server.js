@@ -158,7 +158,11 @@ function loadStore() {
             if (data.nextTicketId) store.nextTicketId = data.nextTicketId;
             if (data.config) {
                 Object.keys(data.config).forEach(k => {
-                    if (store.config[k]) Object.assign(store.config[k], data.config[k]);
+                    if (store.config[k] && typeof store.config[k] === 'object' && typeof data.config[k] === 'object') {
+                        Object.assign(store.config[k], data.config[k]);
+                    } else {
+                        store.config[k] = data.config[k];
+                    }
                 });
             }
         }
@@ -769,7 +773,7 @@ app.get('/api/reports/summary', authorize('reports'), (req, res) => {
 
 app.get('/api/reports/hourly', authorize('reports'), (req, res) => {
     const hourlyData = {};
-    for (let h = 6; h <= 23; h++) hourlyData[h] = { sales: 0, tickets: 0 };
+    for (let h = 0; h < 24; h++) hourlyData[h] = { sales: 0, tickets: 0 };
 
     store.tickets.forEach(t => {
         if (!t.time || t.status === 'voided') return;
@@ -878,7 +882,7 @@ app.get('/api/reports/server-performance', authorize('reports'), (req, res) => {
     const perfMap = {};
 
     store.tickets.forEach(t => {
-        if (t.status === 'voided' || !t.server) return;
+        if (!t.server) return;
         if (!perfMap[t.server]) {
             perfMap[t.server] = { name: t.server, tickets: 0, sales: 0, tips: 0, voids: 0, avgTicket: 0 };
         }
@@ -2439,7 +2443,7 @@ app.post('/api/reservations', (req, res) => {
     res.status(201).json(reservation);
 });
 
-app.delete('/api/reservations/:id', (req, res) => {
+app.delete('/api/reservations/:id', authorize('tickets'), (req, res) => {
     const idx = store.reservations.findIndex(r => r.id === parseInt(req.params.id));
     if (idx === -1) return res.status(404).json({ error: 'Reservation not found' });
     const removed = store.reservations.splice(idx, 1)[0];
@@ -2720,7 +2724,7 @@ app.get('/api/compliance/pci-saq', authorize('config'), (req, res) => {
 app.get('/api/live-feed', authorize('reports'), (req, res) => {
     const since = req.query.since ? new Date(req.query.since) : new Date(Date.now() - 3600000);
     const recentTickets = store.tickets.filter(t => new Date(t.createdAt) > since);
-    const recentRefunds = store.refunds.filter(r => new Date(r.createdAt) > since);
+    const recentRefunds = store.refunds.filter(r => new Date(r.time || r.createdAt) > since);
     res.json({
         tickets: recentTickets, refunds: recentRefunds,
         summary: {
@@ -2740,10 +2744,10 @@ app.post('/api/tickets/:id/remote-void', authorize('void'), (req, res) => {
     const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
     const { reason, approvedBy } = req.body;
-    ticket.status = 'void';
+    ticket.status = 'voided';
     ticket.voidedAt = new Date().toISOString();
     ticket.voidReason = reason || 'Remote void';
-    ticket.voidApprovedBy = approvedBy || req.user.name;
+    ticket.voidApprovedBy = req.user.name;
     ticket.remoteVoid = true;
     logAudit('remote_void', req.user, { ticketId: ticket.id, reason });
     fireWebhooks('ticket.voided', ticket);
@@ -2798,7 +2802,7 @@ app.get('/api/analytics/owner', authorize('reports'), (req, res) => {
     const totalRevenue = periodTickets.reduce((s, t) => s + (t.total || 0), 0);
     const wasteCost = store.wasteLog.filter(w => new Date(w.loggedAt) > since).reduce((s, w) => s + (w.cost || 0), 0);
     const counts = {};
-    periodTickets.forEach(t => (t.items || []).forEach(i => { counts[i.name] = (counts[i.name] || 0) + (i.quantity || 1); }));
+    periodTickets.forEach(t => (t.items || []).forEach(i => { counts[i.name] = (counts[i.name] || 0) + (i.qty || i.quantity || 1); }));
     const topItems = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, qty]) => ({ name, quantity: qty }));
     res.json({
         period: days + ' days',
@@ -2838,8 +2842,8 @@ app.get('/api/cloud-reports', authorize('reports'), (req, res) => {
         period,
         totalRevenue: Math.round(tickets.filter(t => t.status === 'paid').reduce((s, t) => s + (t.total || 0), 0) * 100) / 100,
         ticketCount: tickets.length,
-        voidCount: tickets.filter(t => t.status === 'void').length,
-        refundCount: store.refunds.filter(r => r.createdAt >= since).length,
+        voidCount: tickets.filter(t => t.status === 'voided').length,
+        refundCount: store.refunds.filter(r => (r.time || r.createdAt) >= since).length,
         paymentBreakdown: {
             cash: tickets.filter(t => t.paymentMethod === 'cash').length,
             card: tickets.filter(t => t.paymentMethod === 'card').length,

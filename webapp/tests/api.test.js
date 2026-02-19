@@ -90,6 +90,15 @@ before(() => {
             store.backups.length = 0;
             store.merchants.length = 0;
             store.plugins.length = 0;
+            // Reset config sections modified by tests
+            delete store.config.emailReports;
+            delete store.config.security;
+            delete store.config.branding;
+            delete store.config.hardware;
+            delete store.config.tables;
+            delete store.config.lastDeploy;
+            delete store.config.autoDeploy;
+            store.featureToggles = {};
             store.nextTicketId = 1001;
             resolve();
         });
@@ -2587,9 +2596,10 @@ describe('Remote Void Approval', () => {
             reason: 'Customer complaint', approvedBy: 'Maria'
         }, managerToken);
         assert.equal(res.status, 200);
-        assert.equal(res.body.status, 'void');
+        assert.equal(res.body.status, 'voided');
         assert.equal(res.body.remoteVoid, true);
         assert.equal(res.body.voidReason, 'Customer complaint');
+        assert.equal(res.body.voidApprovedBy, 'Maria');
     });
 
     it('returns 404 for invalid ticket', async () => {
