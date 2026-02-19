@@ -70,7 +70,8 @@ Posxpaybotx/
 ├── i18n/                          # Internationalization (EN, DE, ES, AR, NL)
 ├── local-lib/                     # Local Maven dependencies (not in Central)
 ├── profiles/                      # Maven build profiles (default, devinepos)
-├── etc/                           # Platform binaries (Windows DLLs, batch files)
+├── images/                        # UI icon/asset PNGs (~58 files)
+├── etc/                           # Platform binaries, nginx.conf, jpos.xml
 ├── plugins/                       # Plugin directory (extensible framework)
 ├── docker-compose.yml             # Multi-container orchestration (pos, db, nginx)
 ├── Dockerfile                     # Multi-stage container build
@@ -164,14 +165,15 @@ Tests live in `webapp/tests/` and use the **Node.js native test runner** (no ext
 
 | Test File | What It Covers |
 |-----------|---------------|
-| `calculations.test.js` | Pricing, tax, cash discount/surcharge math, dual pricing |
+| `calculations.test.js` | Pricing, tax, cash discount/surcharge math, dual pricing, loyalty, gift cards, inventory, split checks, labor cost |
 | `auth.test.js` | Employee PIN login, JWT tokens, role-based access control |
-| `api.test.js` | REST endpoints: tickets, kitchen, payments, config, refunds |
-| `extras.test.js` | Extended features |
+| `api.test.js` | REST endpoints: tickets, kitchen, payments, config, refunds, void, timeclock |
+| `extras.test.js` | Extended features (not included in default `npm test` — run separately) |
 
 **Run tests:**
 ```bash
-cd webapp && npm test
+cd webapp && npm test              # Runs calculations, auth, and api tests (127 tests)
+node --test tests/extras.test.js   # Run extras tests separately
 ```
 
 There is no Java-side test suite of note. Focus testing effort on the Node.js API layer.
@@ -214,9 +216,12 @@ The Express API server persists data to a JSON file (`webapp/data/store.json`) w
 ### Authentication & Authorization
 
 - **Method**: JWT-based (POST `/api/auth/login` with employee PIN)
-- **Roles**: `server`, `cashier`, `manager`, `kitchen`
+- **Roles**: `admin`, `manager`, `server`, `cashier`, `bartender`, `kitchen`
 - **Permissions**: `tickets`, `void`, `refund`, `kitchen`, `timeclock`, `config`, `reports`
-- Manager role has all permissions; other roles have limited access
+- Admin and manager roles have all permissions
+- Server, cashier, and bartender can create tickets and use timeclock only
+- Kitchen role can only access kitchen and timeclock
+- PINs are stored as pre-hashed values (no plaintext) in `webapp/api/auth.js`
 - Auth middleware in `webapp/api/auth.js`
 
 ---
@@ -405,6 +410,8 @@ Uses Java `MessageFormat` properties files.
 | `db` | `pos-database` | 3306 | MySQL 8.0 |
 | `nginx` | `pos-nginx` | 80, 443 | Static files + reverse proxy |
 
+Nginx config: `etc/nginx.conf` (proxies API to port 8080, serves static files, gzip, CORS headers)
+
 Volumes: `pos-data` (app data), `db-data` (MySQL persistence)
 
 ---
@@ -453,10 +460,12 @@ Volumes: `pos-data` (app data), `db-data` (MySQL persistence)
 ### Testing Checklist
 
 ```bash
-cd webapp && npm test              # Run all tests — must pass
+cd webapp && npm install           # Install deps first (express required)
+npm test                           # Run core tests (127 tests) — must pass
 npm run test:calculations          # Pricing/tax/discount math
 npm run test:auth                  # Auth and role-based access
 npm run test:api                   # API endpoints
+node --test tests/extras.test.js   # Extended features (run separately)
 ```
 
 ---
