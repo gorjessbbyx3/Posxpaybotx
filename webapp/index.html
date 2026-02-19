@@ -216,6 +216,9 @@
                         <button class="floor-tab">Bar</button>
                         <button class="floor-tab">Private</button>
                     </div>
+                    <div class="floor-actions">
+                        <button class="floor-action-btn" id="btn-reservations">Reservations</button>
+                    </div>
                 </div>
                 <div class="table-grid" id="table-grid">
                     <!-- Tables populated by JS -->
@@ -948,6 +951,59 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Reservation Modal -->
+    <div id="reservation-modal" class="modal">
+        <div class="modal-content reservation-modal-content">
+            <div class="modal-header">
+                <h3>Reservations</h3>
+                <button class="modal-close" id="close-reservation">&times;</button>
+            </div>
+            <div class="reservation-body">
+                <div class="res-new-section">
+                    <h4>New Reservation</h4>
+                    <div class="res-form-grid">
+                        <label>Name</label>
+                        <input type="text" id="res-name" class="res-input" placeholder="Guest name" autocomplete="off">
+                        <label>Party</label>
+                        <input type="number" id="res-party-size" class="res-input" placeholder="# guests" min="1" value="2">
+                        <label>Date</label>
+                        <input type="date" id="res-date" class="res-input">
+                        <label>Time</label>
+                        <input type="time" id="res-time" class="res-input" value="19:00">
+                        <label>Phone</label>
+                        <input type="tel" id="res-phone" class="res-input" placeholder="Phone number" autocomplete="off">
+                        <label>Table</label>
+                        <select id="res-table" class="res-input">
+                            <option value="">Auto-assign</option>
+                        </select>
+                        <label>Notes</label>
+                        <input type="text" id="res-notes" class="res-input" placeholder="Special requests" autocomplete="off">
+                    </div>
+                    <button class="btn-confirm" id="res-save-btn" style="width:100%;margin-top:8px;">Add Reservation</button>
+                </div>
+                <div class="res-list-section">
+                    <h4>Today's Reservations</h4>
+                    <div class="res-list" id="res-list">
+                        <p class="res-empty">No reservations today</p>
+                    </div>
+                </div>
+                <div class="res-upcoming-section">
+                    <h4>Upcoming</h4>
+                    <div class="res-upcoming" id="res-upcoming">
+                        <p class="res-empty">No upcoming reservations</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Happy Hour Banner (shown when active) -->
+    <div id="happy-hour-banner" class="happy-hour-banner" style="display:none">
+        <span class="hh-icon">&#x1F37A;</span>
+        <span class="hh-text" id="hh-banner-text">Happy Hour Active</span>
+        <span class="hh-time" id="hh-banner-time"></span>
     </div>
 
     <!-- Toast Notifications -->

@@ -4891,6 +4891,544 @@ function toggleQuickService() {
 window.toggleQuickService = toggleQuickService;
 
 // ==========================================
+// Happy Hour / Scheduled Pricing
+// ==========================================
+const HAPPY_HOUR = {
+    enabled: true,
+    schedules: [
+        { name: 'Happy Hour', days: [1, 2, 3, 4, 5], startHour: 16, startMin: 0, endHour: 18, endMin: 0, discountPct: 25, categories: ['drinks', 'appetizers'] },
+        { name: 'Late Night', days: [4, 5, 6], startHour: 21, startMin: 0, endHour: 23, endMin: 0, discountPct: 15, categories: ['drinks'] },
+        { name: 'Lunch Special', days: [1, 2, 3, 4, 5], startHour: 11, startMin: 0, endHour: 14, endMin: 0, discountPct: 10, categories: ['entrees'] }
+    ]
+};
+
+function getActiveHappyHour() {
+    if (!HAPPY_HOUR.enabled) return null;
+    const now = new Date();
+    const day = now.getDay(); // 0=Sun, 1=Mon...
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+
+    for (const schedule of HAPPY_HOUR.schedules) {
+        if (!schedule.days.includes(day)) continue;
+        const startMins = schedule.startHour * 60 + schedule.startMin;
+        const endMins = schedule.endHour * 60 + schedule.endMin;
+        if (currentMins >= startMins && currentMins < endMins) {
+            return schedule;
+        }
+    }
+    return null;
+}
+
+function getHappyHourPrice(item, category) {
+    const hh = getActiveHappyHour();
+    if (!hh) return item.price;
+    if (hh.categories.includes(category)) {
+        return Math.round(item.price * (1 - hh.discountPct / 100) * 100) / 100;
+    }
+    return item.price;
+}
+
+function updateHappyHourBanner() {
+    const banner = document.getElementById('happy-hour-banner');
+    if (!banner) return;
+
+    const hh = getActiveHappyHour();
+    if (hh) {
+        banner.style.display = 'flex';
+        document.getElementById('hh-banner-text').textContent = `${hh.name} - ${hh.discountPct}% off ${hh.categories.join(', ')}`;
+        const endStr = String(hh.endHour % 12 || 12) + ':' + String(hh.endMin).padStart(2, '0') + (hh.endHour >= 12 ? 'PM' : 'AM');
+        document.getElementById('hh-banner-time').textContent = `Ends at ${endStr}`;
+    } else {
+        banner.style.display = 'none';
+    }
+}
+
+// Check happy hour status every minute
+setInterval(updateHappyHourBanner, 60000);
+
+// ==========================================
+// Course Firing for Kitchen
+// ==========================================
+const COURSES = ['appetizer', 'main', 'dessert'];
+
+function assignCourses(items) {
+    return items.map(item => {
+        if (item.course) return item;
+        // Auto-assign course based on category
+        const catName = findItemCategory(item.id);
+        if (catName === 'appetizers' || catName === 'sides') {
+            item.course = 'appetizer';
+        } else if (catName === 'desserts') {
+            item.course = 'dessert';
+        } else if (catName === 'drinks') {
+            item.course = 'appetizer'; // drinks go with first course
+        } else {
+            item.course = 'main';
+        }
+        return item;
+    });
+}
+
+function findItemCategory(itemId) {
+    for (const [cat, items] of Object.entries(MENU)) {
+        if (items.find(i => i.id === itemId)) return cat;
+    }
+    return 'entrees';
+}
+
+// Patch kitchen to show courses with fire buttons
+const _origPopulateKitchenCourse = populateKitchen;
+populateKitchen = function() {
+    const container = $('#kds-tickets');
+    container.innerHTML = '';
+
+    let activeCount = 0;
+    let totalTime = 0;
+
+    state.kitchenOrders.forEach(order => {
+        const elapsed = Math.floor((new Date() - order.time) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+        const timeStr = minutes + ':' + String(seconds).padStart(2, '0');
+
+        let timeClass = 'green';
+        if (minutes >= 10) timeClass = 'red';
+        else if (minutes >= 5) timeClass = 'yellow';
+
+        const isUrgent = minutes >= 10;
+        activeCount++;
+        totalTime += elapsed;
+
+        // Group items by course
+        const items = assignCourses([...order.items]);
+        const courseGroups = {};
+        items.forEach(item => {
+            const c = item.course || 'main';
+            if (!courseGroups[c]) courseGroups[c] = [];
+            courseGroups[c].push(item);
+        });
+
+        const el = document.createElement('div');
+        el.className = 'kds-ticket' + (isUrgent ? ' urgent' : '');
+
+        let coursesHtml = '';
+        COURSES.forEach(course => {
+            if (!courseGroups[course]) return;
+            const fired = order.firedCourses && order.firedCourses.includes(course);
+            coursesHtml += `
+                <div class="kds-course ${fired ? 'kds-course-fired' : ''}">
+                    <div class="kds-course-header">
+                        <span class="kds-course-name">${course.toUpperCase()}</span>
+                        ${!fired ? `<button class="kds-fire-btn" data-order-id="${order.id}" data-course="${course}">FIRE</button>` : '<span class="kds-fired-label">FIRED</span>'}
+                    </div>
+                    ${courseGroups[course].map(item => `
+                        <div class="kds-item">
+                            <span class="kds-item-name">${item.name}</span>
+                            <span class="kds-item-qty">x${item.qty}</span>
+                            ${item.note ? '<div class="kds-item-note">' + item.note + '</div>' : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        });
+
+        el.innerHTML = `
+            <div class="kds-ticket-header">
+                <span>#${order.id} - ${order.type}</span>
+                <span class="kds-ticket-time ${timeClass}">${timeStr}</span>
+            </div>
+            ${order.server ? '<div class="kds-ticket-server">Server: ' + order.server + (order.table ? ' | T' + order.table : '') + '</div>' : ''}
+            <div class="kds-ticket-courses">${coursesHtml}</div>
+            <div class="kds-ticket-footer">
+                <button class="kds-reprint-btn" data-order-id="${order.id}">REPRINT</button>
+                <button class="kds-bump-btn" data-order-id="${order.id}">BUMP ALL</button>
+            </div>
+        `;
+
+        // Fire course buttons
+        el.querySelectorAll('.kds-fire-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const orderId = parseInt(btn.dataset.orderId);
+                const course = btn.dataset.course;
+                const o = state.kitchenOrders.find(ko => ko.id === orderId);
+                if (o) {
+                    if (!o.firedCourses) o.firedCourses = [];
+                    o.firedCourses.push(course);
+                    showToast(`Course "${course}" fired for #${orderId}`);
+                    populateKitchen();
+                }
+            });
+        });
+
+        // Reprint button
+        const reprintBtn = el.querySelector('.kds-reprint-btn');
+        if (reprintBtn) {
+            reprintBtn.addEventListener('click', () => {
+                if (typeof printKitchenOrder === 'function') {
+                    printKitchenOrder(parseInt(reprintBtn.dataset.orderId));
+                }
+            });
+        }
+
+        // Bump button
+        el.querySelector('.kds-bump-btn').addEventListener('click', () => {
+            state.kitchenOrders = state.kitchenOrders.filter(o => o.id !== order.id);
+            showToast('Order #' + order.id + ' bumped');
+            populateKitchen();
+        });
+
+        container.appendChild(el);
+    });
+
+    $('#kds-active').textContent = activeCount;
+    const avgSeconds = activeCount > 0 ? Math.floor(totalTime / activeCount) : 0;
+    $('#kds-avg-time').textContent = Math.floor(avgSeconds / 60) + ':' + String(avgSeconds % 60).padStart(2, '0');
+};
+
+// ==========================================
+// Receipt Reprint from Ticket History
+// ==========================================
+const _origPopulateTicketsReprint = populateTicketsList;
+populateTicketsList = function() {
+    _origPopulateTicketsReprint();
+
+    const container = document.getElementById('tickets-list');
+    if (!container) return;
+
+    container.querySelectorAll('.ticket-card').forEach((el, idx) => {
+        const ticket = state.allTickets[idx];
+        if (!ticket) return;
+
+        // Add action buttons row
+        const actionsRow = document.createElement('div');
+        actionsRow.className = 'ticket-card-actions-row';
+
+        if (ticket.paid) {
+            actionsRow.innerHTML += `<button class="ticket-action-sm" onclick="reprintReceipt(${ticket.id})">Reprint</button>`;
+        }
+        if (ticket.status === 'open') {
+            actionsRow.innerHTML += `<button class="ticket-action-sm ticket-action-recall" onclick="recallTicket(${ticket.id})">Recall</button>`;
+        }
+
+        el.appendChild(actionsRow);
+    });
+};
+
+function reprintReceipt(ticketId) {
+    const ticket = state.allTickets.find(t => t.id === ticketId);
+    if (!ticket) {
+        showToast('Ticket not found', 'error');
+        return;
+    }
+    printReceipt(ticket);
+    showToast('Receipt reprinted for #' + ticketId);
+}
+window.reprintReceipt = reprintReceipt;
+
+function recallTicket(ticketId) {
+    const ticket = state.allTickets.find(t => t.id === ticketId);
+    if (!ticket || ticket.status !== 'open') {
+        showToast('Cannot recall this ticket', 'error');
+        return;
+    }
+    // Load it into the current ticket
+    state.ticket = {
+        id: ticket.id,
+        type: ticket.type,
+        items: [...ticket.items],
+        table: ticket.table,
+        server: ticket.server,
+        discount: ticket.discount,
+        note: ticket.note
+    };
+    updateTicketDisplay();
+    switchToView('order');
+    showToast('Ticket #' + ticketId + ' recalled');
+}
+window.recallTicket = recallTicket;
+
+// ==========================================
+// Table Reservation System
+// ==========================================
+const reservations = [];
+const reservationModal = document.getElementById('reservation-modal');
+
+document.getElementById('close-reservation').addEventListener('click', () => {
+    reservationModal.classList.remove('active');
+});
+
+document.getElementById('btn-reservations').addEventListener('click', () => {
+    openReservationModal();
+});
+
+function openReservationModal() {
+    reservationModal.classList.add('active');
+
+    // Set default date to today
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('res-date').value = today;
+
+    // Populate table dropdown
+    const tableSelect = document.getElementById('res-table');
+    tableSelect.innerHTML = '<option value="">Auto-assign</option>';
+    TABLES.forEach(t => {
+        tableSelect.innerHTML += `<option value="${t.number}">Table ${t.number} (${t.seats} seats)</option>`;
+    });
+
+    refreshReservationList();
+}
+
+function refreshReservationList() {
+    const today = new Date().toDateString();
+    const todayRes = reservations.filter(r => new Date(r.date + 'T' + r.time).toDateString() === today && r.status !== 'cancelled');
+    const upcoming = reservations.filter(r => {
+        const d = new Date(r.date + 'T' + r.time);
+        return d > new Date() && d.toDateString() !== today && r.status !== 'cancelled';
+    });
+
+    // Today's list
+    const listEl = document.getElementById('res-list');
+    if (todayRes.length === 0) {
+        listEl.innerHTML = '<p class="res-empty">No reservations today</p>';
+    } else {
+        listEl.innerHTML = todayRes.sort((a, b) => a.time.localeCompare(b.time)).map((r, idx) => {
+            const timeStr = formatResTime(r.time);
+            return `
+                <div class="res-card ${r.status}">
+                    <div class="res-card-header">
+                        <strong>${r.name}</strong>
+                        <span class="res-time">${timeStr}</span>
+                    </div>
+                    <div class="res-card-details">
+                        <span>Party of ${r.partySize}</span>
+                        ${r.table ? '<span>Table ' + r.table + '</span>' : ''}
+                        ${r.phone ? '<span>' + r.phone + '</span>' : ''}
+                    </div>
+                    ${r.notes ? '<div class="res-card-notes">' + r.notes + '</div>' : ''}
+                    <div class="res-card-actions">
+                        <button class="res-btn-sm" onclick="seatReservation(${reservations.indexOf(r)})">Seat</button>
+                        <button class="res-btn-sm res-btn-noshow" onclick="noShowReservation(${reservations.indexOf(r)})">No Show</button>
+                        <button class="res-btn-sm res-btn-cancel" onclick="cancelReservation(${reservations.indexOf(r)})">Cancel</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // Upcoming list
+    const upEl = document.getElementById('res-upcoming');
+    if (upcoming.length === 0) {
+        upEl.innerHTML = '<p class="res-empty">No upcoming reservations</p>';
+    } else {
+        upEl.innerHTML = upcoming.slice(0, 10).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).map(r => {
+            const dateStr = new Date(r.date + 'T12:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            return `
+                <div class="res-upcoming-row">
+                    <span>${dateStr} ${formatResTime(r.time)}</span>
+                    <span>${r.name} (${r.partySize})</span>
+                </div>
+            `;
+        }).join('');
+    }
+}
+
+function formatResTime(time) {
+    const [h, m] = time.split(':').map(Number);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + ' ' + ampm;
+}
+
+document.getElementById('res-save-btn').addEventListener('click', () => {
+    const name = document.getElementById('res-name').value.trim();
+    if (!name) { showToast('Name is required', 'error'); return; }
+
+    const res = {
+        name,
+        partySize: parseInt(document.getElementById('res-party-size').value) || 2,
+        date: document.getElementById('res-date').value,
+        time: document.getElementById('res-time').value,
+        phone: document.getElementById('res-phone').value.trim(),
+        table: document.getElementById('res-table').value || null,
+        notes: document.getElementById('res-notes').value.trim(),
+        status: 'confirmed',
+        createdAt: new Date().toISOString(),
+        createdBy: state.currentUser
+    };
+
+    reservations.push(res);
+
+    // If table assigned, mark it as reserved
+    if (res.table) {
+        const tbl = TABLES.find(t => t.number === parseInt(res.table));
+        if (tbl) tbl.status = 'reserved';
+        populateTables();
+    }
+
+    // Clear form
+    document.getElementById('res-name').value = '';
+    document.getElementById('res-phone').value = '';
+    document.getElementById('res-notes').value = '';
+    document.getElementById('res-party-size').value = '2';
+    document.getElementById('res-table').value = '';
+
+    refreshReservationList();
+    showToast(`Reservation for ${name} at ${formatResTime(res.time)}`);
+});
+
+function seatReservation(idx) {
+    const res = reservations[idx];
+    if (!res) return;
+    res.status = 'seated';
+
+    // Find a table
+    let table = res.table ? TABLES.find(t => t.number === parseInt(res.table)) : null;
+    if (!table) {
+        table = TABLES.find(t => t.status === 'available' && t.seats >= res.partySize);
+    }
+
+    if (table) {
+        table.status = 'occupied';
+        table.server = state.currentUser;
+        table.startTime = new Date().toISOString();
+        state.ticket.table = table.number;
+        populateTables();
+    }
+
+    refreshReservationList();
+    showToast(`${res.name} seated${table ? ' at Table ' + table.number : ''}`);
+}
+window.seatReservation = seatReservation;
+
+function noShowReservation(idx) {
+    const res = reservations[idx];
+    if (!res) return;
+    res.status = 'noshow';
+    if (res.table) {
+        const tbl = TABLES.find(t => t.number === parseInt(res.table));
+        if (tbl && tbl.status === 'reserved') tbl.status = 'available';
+        populateTables();
+    }
+    refreshReservationList();
+    showToast(`${res.name} marked as no-show`);
+}
+window.noShowReservation = noShowReservation;
+
+function cancelReservation(idx) {
+    const res = reservations[idx];
+    if (!res) return;
+    res.status = 'cancelled';
+    if (res.table) {
+        const tbl = TABLES.find(t => t.number === parseInt(res.table));
+        if (tbl && tbl.status === 'reserved') tbl.status = 'available';
+        populateTables();
+    }
+    refreshReservationList();
+    showToast(`Reservation for ${res.name} cancelled`);
+}
+window.cancelReservation = cancelReservation;
+
+// ==========================================
+// Accessibility (ARIA)
+// ==========================================
+function enhanceAccessibility() {
+    // Add ARIA roles to main navigation
+    const topBar = document.querySelector('.top-bar');
+    if (topBar) topBar.setAttribute('role', 'navigation');
+
+    const tabCenter = document.querySelector('.top-bar-center');
+    if (tabCenter) {
+        tabCenter.setAttribute('role', 'tablist');
+        tabCenter.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.setAttribute('role', 'tab');
+            btn.setAttribute('aria-selected', btn.classList.contains('active'));
+        });
+    }
+
+    // Add ARIA to views
+    document.querySelectorAll('.main-view').forEach(view => {
+        view.setAttribute('role', 'tabpanel');
+        view.setAttribute('aria-hidden', !view.classList.contains('active'));
+    });
+
+    // Add ARIA to modals
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        const header = modal.querySelector('.modal-header h3');
+        if (header) {
+            const id = modal.id + '-title';
+            header.id = id;
+            modal.setAttribute('aria-labelledby', id);
+        }
+    });
+
+    // Add ARIA to menu grid
+    const menuGrid = document.getElementById('menu-grid');
+    if (menuGrid) {
+        menuGrid.setAttribute('role', 'grid');
+        menuGrid.setAttribute('aria-label', 'Menu items');
+    }
+
+    // Category tabs
+    const catTabs = document.getElementById('category-tabs');
+    if (catTabs) {
+        catTabs.setAttribute('role', 'tablist');
+        catTabs.querySelectorAll('.category-tab').forEach(tab => {
+            tab.setAttribute('role', 'tab');
+        });
+    }
+
+    // Ticket items
+    const ticketItems = document.getElementById('ticket-items');
+    if (ticketItems) {
+        ticketItems.setAttribute('role', 'list');
+        ticketItems.setAttribute('aria-label', 'Order items');
+    }
+
+    // Live region for toasts
+    const toastContainer = document.getElementById('toast-container');
+    if (toastContainer) {
+        toastContainer.setAttribute('role', 'status');
+        toastContainer.setAttribute('aria-live', 'polite');
+        toastContainer.setAttribute('aria-atomic', 'true');
+    }
+
+    // Add labels to icon buttons
+    const iconLabels = {
+        'btn-theme': 'Toggle dark mode',
+        'btn-fullscreen': 'Toggle fullscreen',
+        'btn-logout': 'Logout',
+        'btn-menu': 'Open side menu'
+    };
+
+    Object.entries(iconLabels).forEach(([id, label]) => {
+        const el = document.getElementById(id);
+        if (el) el.setAttribute('aria-label', label);
+    });
+
+    // Add skip link
+    const skipLink = document.createElement('a');
+    skipLink.href = '#order-view';
+    skipLink.className = 'skip-link';
+    skipLink.textContent = 'Skip to main content';
+    document.body.prepend(skipLink);
+}
+
+// Update ARIA on view switch
+const _origSwitchToViewAria = switchToView;
+switchToView = function(viewName) {
+    _origSwitchToViewAria(viewName);
+
+    // Update ARIA states
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.setAttribute('aria-selected', btn.classList.contains('active'));
+    });
+    document.querySelectorAll('.main-view').forEach(view => {
+        view.setAttribute('aria-hidden', !view.classList.contains('active'));
+    });
+};
+
+// ==========================================
 // Service Worker Registration
 // ==========================================
 if ('serviceWorker' in navigator) {
@@ -4908,3 +5446,5 @@ if ('serviceWorker' in navigator) {
 // ==========================================
 loadState();
 populateMenu();
+updateHappyHourBanner();
+enhanceAccessibility();

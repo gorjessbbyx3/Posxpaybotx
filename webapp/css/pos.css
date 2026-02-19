@@ -3768,3 +3768,356 @@ button {
     background: var(--warning);
     z-index: 1;
 }
+
+/* ========== HAPPY HOUR BANNER ========== */
+.happy-hour-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 6px 16px;
+    background: linear-gradient(135deg, #ff9500, #ff5e3a);
+    color: white;
+    font-size: 0.85rem;
+    font-weight: 600;
+    z-index: 2000;
+    box-shadow: 0 2px 8px rgba(255, 149, 0, 0.4);
+}
+
+.hh-icon {
+    font-size: 1.1rem;
+}
+
+.hh-time {
+    font-weight: 400;
+    opacity: 0.85;
+    font-size: 0.8rem;
+}
+
+/* Push content down when happy hour is active */
+.happy-hour-banner ~ #pos-screen .top-bar {
+    top: 32px;
+}
+
+/* ========== COURSE FIRING (KDS) ========== */
+.kds-ticket-courses {
+    padding: 0 8px;
+}
+
+.kds-course {
+    margin-bottom: 6px;
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+}
+
+.kds-course-fired {
+    opacity: 0.5;
+    background: var(--success-bg);
+}
+
+.kds-course-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.kds-course-name {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.kds-fire-btn {
+    padding: 2px 10px;
+    border: none;
+    border-radius: 4px;
+    background: var(--danger);
+    color: white;
+    font-size: 0.65rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-transform: uppercase;
+}
+
+.kds-fire-btn:hover {
+    filter: brightness(1.1);
+}
+
+.kds-fired-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--success);
+    text-transform: uppercase;
+}
+
+.kds-item-note {
+    font-size: 0.65rem;
+    color: var(--warning);
+    font-style: italic;
+    padding-left: 8px;
+}
+
+.kds-ticket-server {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    padding: 0 8px 4px;
+}
+
+.kds-reprint-btn {
+    padding: 6px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.kds-reprint-btn:hover {
+    background: var(--bg-hover);
+}
+
+/* ========== TICKET ACTIONS ROW ========== */
+.ticket-card-actions-row {
+    display: flex;
+    gap: 6px;
+    padding-top: 6px;
+    margin-top: 4px;
+    border-top: 1px solid var(--border-light);
+}
+
+.ticket-action-sm {
+    padding: 3px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.ticket-action-sm:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.ticket-action-recall {
+    background: var(--success-bg);
+    color: var(--success);
+    border-color: var(--success);
+}
+
+.ticket-action-recall:hover {
+    background: var(--success);
+    color: white;
+}
+
+/* ========== RESERVATION MODAL ========== */
+.reservation-modal-content {
+    max-width: 560px;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+.reservation-body {
+    padding: 16px;
+}
+
+.reservation-body h4 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+}
+
+.res-form-grid {
+    display: grid;
+    grid-template-columns: 60px 1fr;
+    gap: 6px 12px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.res-form-grid label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-align: right;
+}
+
+.res-input {
+    padding: 7px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 0.85rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.res-input:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.res-list, .res-upcoming {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+}
+
+.res-card {
+    padding: 10px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+    border-left: 3px solid var(--accent);
+}
+
+.res-card.seated {
+    border-left-color: var(--success);
+    opacity: 0.6;
+}
+
+.res-card.noshow {
+    border-left-color: var(--danger);
+    opacity: 0.5;
+}
+
+.res-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.res-time {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.res-card-details {
+    display: flex;
+    gap: 12px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin: 4px 0;
+}
+
+.res-card-notes {
+    font-size: 0.75rem;
+    color: var(--warning);
+    font-style: italic;
+    margin-bottom: 4px;
+}
+
+.res-card-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.res-btn-sm {
+    padding: 3px 10px;
+    border: none;
+    border-radius: 4px;
+    background: var(--success);
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.res-btn-sm:hover {
+    filter: brightness(1.1);
+}
+
+.res-btn-noshow {
+    background: var(--warning);
+}
+
+.res-btn-cancel {
+    background: var(--danger);
+}
+
+.res-upcoming-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 0.8rem;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.res-empty {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 12px;
+    font-size: 0.85rem;
+}
+
+.floor-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.floor-action-btn {
+    padding: 6px 14px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--accent);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.floor-action-btn:hover {
+    background: var(--accent);
+    color: white;
+}
+
+/* ========== ACCESSIBILITY ========== */
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: var(--accent);
+    color: white;
+    padding: 8px 16px;
+    z-index: 9999;
+    font-size: 0.85rem;
+    text-decoration: none;
+    border-radius: 0 0 var(--radius-sm) 0;
+    transition: top 0.2s;
+}
+
+.skip-link:focus {
+    top: 0;
+}
+
+/* Focus visible styles */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px var(--accent-light);
+}
