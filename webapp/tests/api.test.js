@@ -3015,5 +3015,294 @@ describe('Online Ordering Menu', () => {
         assert.ok(res.body.categories !== undefined);
         assert.ok(res.body.items !== undefined);
     });
+
+    it('updates menu via PUT', async () => {
+        const res = await req('PUT', '/api/menu', {
+            categories: [{ id: 1, name: 'Appetizers' }],
+            items: [{ id: 1, name: 'Fries', price: 5.99, categoryId: 1, barcode: 'FRIES001' }]
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.categories.length, 1);
+        assert.equal(res.body.items.length, 1);
+        assert.equal(res.body.items[0].name, 'Fries');
+    });
+
+    it('PUT requires config permission', async () => {
+        const res = await req('PUT', '/api/menu', { categories: [] }, serverToken);
+        assert.equal(res.status, 403);
+    });
+});
+
+// ==========================================
+// Held Orders (ID-based)
+// ==========================================
+describe('Held Orders', () => {
+    it('creates a held order with an ID', async () => {
+        const res = await req('POST', '/api/held-orders', {
+            items: [{ name: 'Pizza', price: 12.00, qty: 1 }],
+            type: 'dine-in',
+            table: 'T3',
+            note: 'Waiting for guest'
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.ok(res.body.id);
+        assert.equal(res.body.table, 'T3');
+        assert.equal(res.body.note, 'Waiting for guest');
+    });
+
+    it('lists held orders', async () => {
+        const res = await req('GET', '/api/held-orders');
+        assert.equal(res.status, 200);
+        assert.ok(res.body.orders.length >= 1);
+        assert.ok(res.body.orders[0].id);
+    });
+
+    it('deletes a held order by ID', async () => {
+        // Create one
+        const create = await req('POST', '/api/held-orders', {
+            items: [{ name: 'Burger', price: 10.00, qty: 1 }]
+        }, managerToken);
+        const id = create.body.id;
+
+        const res = await req('DELETE', `/api/held-orders/${id}`, null, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.id, id);
+    });
+
+    it('returns 404 for invalid held order ID', async () => {
+        const res = await req('DELETE', '/api/held-orders/99999', null, managerToken);
+        assert.equal(res.status, 404);
+    });
+});
+
+// ==========================================
+// Ticket PATCH recalculates totals
+// ==========================================
+describe('Ticket PATCH recalculates totals', () => {
+    it('recalculates when items change', async () => {
+        const create = await req('POST', '/api/tickets', {
+            items: [{ name: 'Steak', price: 20, qty: 1 }],
+            type: 'dine-in'
+        }, managerToken);
+        const id = create.body.id;
+        const originalTotal = create.body.total;
+
+        const res = await req('PATCH', `/api/tickets/${id}`, {
+            items: [{ name: 'Steak', price: 20, qty: 2 }]
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.total > originalTotal);
+        assert.ok(res.body.subtotal === 40);
+    });
+});
+
+// ==========================================
+// QR Order Workflow
+// ==========================================
+describe('QR Order Workflow', () => {
+    let qrOrderId;
+
+    it('creates QR order', async () => {
+        const res = await req('POST', '/api/qr-orders', {
+            tableNumber: 'T5',
+            items: [{ name: 'Wings', price: 9.99, quantity: 2 }],
+            customerName: 'Table 5 Guest'
+        });
+        assert.equal(res.status, 201);
+        assert.equal(res.body.status, 'pending');
+        qrOrderId = res.body.id;
+    });
+
+    it('accepts QR order', async () => {
+        const res = await req('POST', `/api/qr-orders/${qrOrderId}/accept`, {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'accepted');
+        assert.ok(res.body.acceptedAt);
+    });
+
+    it('cannot accept non-pending order', async () => {
+        const res = await req('POST', `/api/qr-orders/${qrOrderId}/accept`, {}, managerToken);
+        assert.equal(res.status, 400);
+    });
+
+    it('completes accepted QR order', async () => {
+        const res = await req('POST', `/api/qr-orders/${qrOrderId}/complete`, {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'completed');
+    });
+
+    it('rejects a pending QR order', async () => {
+        const create = await req('POST', '/api/qr-orders', {
+            tableNumber: 'T6', items: [{ name: 'Salad', price: 8, quantity: 1 }]
+        });
+        const res = await req('POST', `/api/qr-orders/${create.body.id}/reject`, { reason: 'Kitchen closed' }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.status, 'rejected');
+        assert.equal(res.body.rejectReason, 'Kitchen closed');
+    });
+
+    it('cannot complete non-accepted order', async () => {
+        const create = await req('POST', '/api/qr-orders', {
+            tableNumber: 'T7', items: [{ name: 'Pasta', price: 12, quantity: 1 }]
+        });
+        const res = await req('POST', `/api/qr-orders/${create.body.id}/complete`, {}, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Scheduled Order Fulfill
+// ==========================================
+describe('Scheduled Order Fulfill', () => {
+    it('converts scheduled order to ticket', async () => {
+        const create = await req('POST', '/api/scheduled-orders', {
+            customerName: 'Bob', items: [{ name: 'Soup', price: 7, qty: 1 }],
+            scheduledFor: '2026-02-20T18:00:00Z'
+        });
+        assert.equal(create.status, 201);
+
+        const res = await req('POST', `/api/scheduled-orders/${create.body.id}/fulfill`, {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.order.status, 'fulfilled');
+        assert.ok(res.body.ticket);
+        assert.ok(res.body.ticket.id);
+        assert.equal(res.body.order.ticketId, res.body.ticket.id);
+    });
+
+    it('cannot fulfill cancelled order', async () => {
+        const create = await req('POST', '/api/scheduled-orders', {
+            customerName: 'Alice', items: [{ name: 'Cake', price: 5, qty: 1 }],
+            scheduledFor: '2026-02-20T19:00:00Z'
+        });
+        await req('POST', `/api/scheduled-orders/${create.body.id}/cancel`, { reason: 'no show' }, managerToken);
+
+        const res = await req('POST', `/api/scheduled-orders/${create.body.id}/fulfill`, {}, managerToken);
+        assert.equal(res.status, 400);
+    });
+});
+
+// ==========================================
+// Waste Log Stock Deduction
+// ==========================================
+describe('Waste Log Stock Deduction', () => {
+    it('deducts from ingredient stock when waste logged', async () => {
+        // Create an ingredient with known stock
+        const ing = await req('POST', '/api/ingredients', {
+            name: 'Lettuce', unit: 'kg', stock: 50, cost: 2.50
+        }, managerToken);
+        const ingId = ing.body.id;
+
+        // Log waste
+        const res = await req('POST', '/api/waste-log', { ingredientId: ingId, quantity: 10 }, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.cost, 25); // 2.50 * 10
+
+        // Check ingredient stock is reduced
+        const inv = await req('GET', '/api/ingredients', null, managerToken);
+        const updated = inv.body.ingredients.find(i => i.id === ingId);
+        assert.equal(updated.stock, 40); // 50 - 10
+    });
+
+    it('does not go below zero stock', async () => {
+        const ing = await req('POST', '/api/ingredients', {
+            name: 'Basil', unit: 'bunch', stock: 3, cost: 1.00
+        }, managerToken);
+        await req('POST', '/api/waste-log', { ingredientId: ing.body.id, quantity: 10 }, managerToken);
+
+        const inv = await req('GET', '/api/ingredients', null, managerToken);
+        const updated = inv.body.ingredients.find(i => i.id === ing.body.id);
+        assert.equal(updated.stock, 0);
+    });
+});
+
+// ==========================================
+// Webhook Events Completeness
+// ==========================================
+describe('Webhook Events', () => {
+    it('lists all supported events including ticket.created and ticket.voided', async () => {
+        const res = await req('GET', '/api/webhooks', null, managerToken);
+        assert.equal(res.status, 200);
+        const events = res.body.supportedEvents;
+        assert.ok(events.includes('ticket.created'));
+        assert.ok(events.includes('ticket.paid'));
+        assert.ok(events.includes('ticket.voided'));
+        assert.ok(events.includes('kitchen.new'));
+        assert.ok(events.includes('qr_order.created'));
+        assert.ok(events.includes('reservation.created'));
+    });
+
+    it('can register webhook for ticket.created', async () => {
+        const res = await req('POST', '/api/webhooks', {
+            url: 'https://example.com/hook',
+            events: ['ticket.created', 'ticket.voided']
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.deepEqual(res.body.events, ['ticket.created', 'ticket.voided']);
+    });
+});
+
+// ==========================================
+// Surcharge Cap Enforcement
+// ==========================================
+describe('Surcharge Cap in Config', () => {
+    it('caps cashDiscount rate at maxSurchargeRate', async () => {
+        // Set a max surcharge rate
+        await req('PUT', '/api/surcharge-cap', { maxRate: 3.0 }, managerToken);
+
+        // Try to set rate above cap
+        const res = await req('PUT', '/api/config/cashDiscount', { rate: 5.0 }, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.rate <= 3.0);
+    });
+});
+
+// ==========================================
+// Reports: Hourly and Labor
+// ==========================================
+describe('Reports Endpoints', () => {
+    it('GET /api/reports/hourly returns 24 hours', async () => {
+        const res = await req('GET', '/api/reports/hourly', null, managerToken);
+        assert.equal(res.status, 200);
+        // Hourly report is keyed 0-23
+        assert.ok(res.body['0'] !== undefined);
+        assert.ok(res.body['23'] !== undefined);
+        assert.equal(Object.keys(res.body).length, 24);
+    });
+
+    it('GET /api/reports/labor returns labor data', async () => {
+        const res = await req('GET', '/api/reports/labor', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.employees !== undefined);
+    });
+});
+
+// ==========================================
+// GET Refunds and Timeclock
+// ==========================================
+describe('GET list endpoints', () => {
+    it('GET /api/refunds returns refund list', async () => {
+        const res = await req('GET', '/api/refunds');
+        assert.equal(res.status, 200);
+        assert.ok(res.body.refunds !== undefined);
+    });
+
+    it('GET /api/timeclock returns records', async () => {
+        const res = await req('GET', '/api/timeclock');
+        assert.equal(res.status, 200);
+        assert.ok(res.body.records !== undefined);
+    });
+});
+
+// ==========================================
+// Barcode Scanner - Menu Items
+// ==========================================
+describe('Barcode Scanner', () => {
+    it('finds menu item by barcode', async () => {
+        // Menu was set up in menu test above
+        const res = await req('POST', '/api/hardware/barcode-scan', { barcode: 'FRIES001' }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.type, 'menu_item');
+        assert.equal(res.body.item.name, 'Fries');
+    });
 });
 

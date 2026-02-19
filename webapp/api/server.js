@@ -372,6 +372,7 @@ app.post('/api/tickets', authorize('tickets'), (req, res) => {
     }
 
     store.tickets.push(ticket);
+    fireWebhooks('ticket.created', { ticketId: ticket.id, type: ticket.type, server: ticket.server });
     scheduleSave();
     res.status(201).json(ticket);
 });
@@ -386,6 +387,22 @@ app.patch('/api/tickets/:id', authorize('tickets'), (req, res) => {
             ticket[field] = req.body[field];
         }
     });
+
+    // Recalculate totals when items or discount change
+    if (req.body.items !== undefined || req.body.discount !== undefined || req.body.deliveryFee !== undefined) {
+        if (ticket.items && ticket.items.length > 0) {
+            const subtotal = ticket.items.reduce((s, i) => s + Math.round((parseFloat(i.price) || 0) * (parseInt(i.qty, 10) || 1) * 100) / 100, 0);
+            const discountAmt = ticket.discount ? (parseFloat(ticket.discount.amount) || 0) : 0;
+            const afterDiscount = Math.round(Math.max(0, subtotal - discountAmt) * 100) / 100;
+            const tax = Math.round(afterDiscount * (store.config.tax.rate / 100) * 100) / 100;
+            const dFee = parseFloat(ticket.deliveryFee) || 0;
+
+            ticket.subtotal = Math.round(subtotal * 100) / 100;
+            ticket.tax = tax;
+            ticket.total = Math.round((afterDiscount + tax + dFee) * 100) / 100;
+        }
+    }
+
     ticket.updatedAt = new Date().toISOString();
     ticket.updatedBy = req.user ? req.user.name : 'unknown';
 
@@ -470,7 +487,9 @@ app.post('/api/tickets/:id/void', authorize('void'), (req, res) => {
     ticket.voidedAt = new Date().toISOString();
     ticket.voidReason = req.body.reason || '';
 
+    checkFraudPatterns(ticket, req.user);
     logAudit('void', req.user, { ticketId: ticket.id, reason: ticket.voidReason, total: ticket.total });
+    fireWebhooks('ticket.voided', { ticketId: ticket.id, voidedBy: req.user.name, reason: ticket.voidReason });
     scheduleSave();
     res.json(ticket);
 });
@@ -521,6 +540,7 @@ app.post('/api/refunds', authorize('refund'), (req, res) => {
         ticket.status = 'refunded';
     }
 
+    checkFraudPatterns(ticket, req.user);
     logAudit('refund', req.user, { ticketId: ticket.id, amount: refundAmount, reason: refund.reason });
     scheduleSave();
     res.status(201).json(refund);
@@ -621,7 +641,9 @@ app.get('/api/held-orders', (req, res) => {
 
 app.post('/api/held-orders', authorize('tickets'), (req, res) => {
     const { items, type, server: serverName, table, discount, note } = req.body;
+    const nextId = store.heldOrders.length > 0 ? Math.max(...store.heldOrders.map(h => h.id || 0)) + 1 : 1;
     const held = {
+        id: nextId,
         items: items || [],
         type: type || 'dine-in',
         server: serverName || (req.user ? req.user.name : 'unknown'),
@@ -636,9 +658,10 @@ app.post('/api/held-orders', authorize('tickets'), (req, res) => {
     res.status(201).json(held);
 });
 
-app.delete('/api/held-orders/:index', authorize('tickets'), (req, res) => {
-    const idx = parseInt(req.params.index);
-    if (idx < 0 || idx >= store.heldOrders.length) {
+app.delete('/api/held-orders/:id', authorize('tickets'), (req, res) => {
+    const id = parseInt(req.params.id);
+    const idx = store.heldOrders.findIndex(h => h.id === id);
+    if (idx === -1) {
         return res.status(404).json({ error: 'Held order not found' });
     }
     const removed = store.heldOrders.splice(idx, 1)[0];
@@ -733,6 +756,17 @@ app.put('/api/config/:section', authorize('config'), (req, res) => {
             store.config[sectionName][field] = req.body[field];
         }
     });
+
+    // Enforce surcharge cap on cashDiscount rate
+    if (sectionName === 'cashDiscount' && store.config.cashDiscount) {
+        const cd = store.config.cashDiscount;
+        const maxRate = cd.maxSurchargeRate || 4.0;
+        if (cd.rate > maxRate) {
+            cd.rate = maxRate;
+            changed.rate = { ...changed.rate, cappedTo: maxRate };
+        }
+    }
+
     logAudit('config_change', req.user, { section: sectionName, changed });
     scheduleSave();
     res.json(store.config[sectionName]);
@@ -2189,6 +2223,42 @@ app.post('/api/scheduled-orders/:id/cancel', authorize('tickets'), (req, res) =>
     res.json(order);
 });
 
+app.post('/api/scheduled-orders/:id/fulfill', authorize('tickets'), (req, res) => {
+    const order = store.scheduledOrders.find(o => o.id === parseInt(req.params.id));
+    if (!order) return res.status(404).json({ error: 'Scheduled order not found' });
+    if (order.status === 'cancelled') return res.status(400).json({ error: 'Cannot fulfill cancelled order' });
+
+    // Convert to a ticket
+    const ticket = {
+        id: store.nextTicketId++,
+        items: order.items,
+        type: order.type || 'pickup',
+        server: req.user ? req.user.name : 'unknown',
+        table: null,
+        discount: null,
+        deliveryFee: 0,
+        deliveryAddress: '',
+        note: order.note || '',
+        status: 'open',
+        paid: false,
+        subtotal: order.subtotal,
+        tax: order.tax,
+        total: order.total,
+        time: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        createdBy: req.user ? req.user.name : 'unknown',
+        scheduledOrderId: order.id
+    };
+    store.tickets.push(ticket);
+
+    order.status = 'fulfilled';
+    order.fulfilledAt = new Date().toISOString();
+    order.ticketId = ticket.id;
+    fireWebhooks('ticket.created', { ticketId: ticket.id, type: ticket.type, server: ticket.server });
+    scheduleSave();
+    res.json({ order, ticket });
+});
+
 // ==========================================
 // Curbside Pickup Mode
 // ==========================================
@@ -2243,7 +2313,12 @@ app.post('/api/tickets/:id/curbside-arrival', authorize('tickets'), (req, res) =
 // ==========================================
 // Webhook Management Endpoints (requires config permission)
 // ==========================================
-const WEBHOOK_EVENTS = ['ticket.paid', 'kitchen.new', 'kitchen.bumped', 'kitchen.course_fired'];
+const WEBHOOK_EVENTS = [
+    'ticket.created', 'ticket.paid', 'ticket.voided',
+    'kitchen.new', 'kitchen.bumped', 'kitchen.course_fired',
+    'order.ready', 'purchase_order.created', 'reservation.created',
+    'qr_order.created', 'email_campaign.sent'
+];
 
 app.get('/api/webhooks', authorize('config'), (req, res) => {
     res.json({ webhooks: store.webhooks, supportedEvents: WEBHOOK_EVENTS });
@@ -2367,9 +2442,20 @@ app.get('/api/waste-log', authorize('reports'), (req, res) => {
 app.post('/api/waste-log', authorize('config'), (req, res) => {
     const { ingredientId, quantity, reason, cost } = req.body;
     if (!ingredientId || !quantity) return res.status(400).json({ error: 'Ingredient ID and quantity required' });
+
+    // Deduct from ingredient stock
+    const ingredient = store.ingredients.find(i => i.id === ingredientId);
+    let actualCost = Math.round((cost || 0) * 100) / 100;
+    if (ingredient) {
+        ingredient.stock = Math.max(0, (ingredient.stock || 0) - quantity);
+        if (!cost && ingredient.cost) {
+            actualCost = Math.round(ingredient.cost * quantity * 100) / 100;
+        }
+    }
+
     const entry = {
         id: store.wasteLog.length + 1, ingredientId, quantity,
-        reason: reason || 'spoilage', cost: Math.round((cost || 0) * 100) / 100,
+        reason: reason || 'spoilage', cost: actualCost,
         loggedAt: new Date().toISOString(),
         loggedBy: req.user ? req.user.name : 'unknown'
     };
@@ -2529,6 +2615,40 @@ app.post('/api/qr-orders', (req, res) => {
     fireWebhooks('qr_order.created', order);
     scheduleSave();
     res.status(201).json(order);
+});
+
+app.post('/api/qr-orders/:id/accept', authorize('tickets'), (req, res) => {
+    const order = store.qrOrders.find(o => o.id === parseInt(req.params.id));
+    if (!order) return res.status(404).json({ error: 'QR order not found' });
+    if (order.status !== 'pending') return res.status(400).json({ error: 'Order is not pending' });
+    order.status = 'accepted';
+    order.acceptedAt = new Date().toISOString();
+    order.acceptedBy = req.user ? req.user.name : 'unknown';
+    scheduleSave();
+    res.json(order);
+});
+
+app.post('/api/qr-orders/:id/reject', authorize('tickets'), (req, res) => {
+    const order = store.qrOrders.find(o => o.id === parseInt(req.params.id));
+    if (!order) return res.status(404).json({ error: 'QR order not found' });
+    if (order.status === 'completed' || order.status === 'rejected') {
+        return res.status(400).json({ error: 'Order cannot be rejected' });
+    }
+    order.status = 'rejected';
+    order.rejectedAt = new Date().toISOString();
+    order.rejectReason = req.body.reason || '';
+    scheduleSave();
+    res.json(order);
+});
+
+app.post('/api/qr-orders/:id/complete', authorize('tickets'), (req, res) => {
+    const order = store.qrOrders.find(o => o.id === parseInt(req.params.id));
+    if (!order) return res.status(404).json({ error: 'QR order not found' });
+    if (order.status !== 'accepted') return res.status(400).json({ error: 'Order must be accepted first' });
+    order.status = 'completed';
+    order.completedAt = new Date().toISOString();
+    scheduleSave();
+    res.json(order);
 });
 
 // ==========================================
@@ -2929,6 +3049,9 @@ app.post('/api/hardware/barcode-scan', authorize('tickets'), (req, res) => {
     if (!barcode) return res.status(400).json({ error: 'Barcode required' });
     const ingredient = store.ingredients.find(i => i.barcode === barcode);
     if (ingredient) return res.json({ type: 'ingredient', item: ingredient });
+    const menuItems = (store.config.menu && store.config.menu.items) || [];
+    const menuItem = menuItems.find(i => i.barcode === barcode);
+    if (menuItem) return res.json({ type: 'menu_item', item: menuItem });
     res.json({ type: 'unknown', barcode, message: 'Item not found in inventory' });
 });
 
@@ -3140,6 +3263,16 @@ app.post('/api/plugins', authorize('config'), (req, res) => {
 // ==========================================
 app.get('/api/menu', (req, res) => {
     res.json(store.config.menu || { categories: [], items: [] });
+});
+
+app.put('/api/menu', authorize('config'), (req, res) => {
+    const { categories, items } = req.body;
+    if (!store.config.menu) store.config.menu = { categories: [], items: [] };
+    if (categories !== undefined) store.config.menu.categories = categories;
+    if (items !== undefined) store.config.menu.items = items;
+    logAudit('menu_updated', req.user, { categoryCount: (store.config.menu.categories || []).length, itemCount: (store.config.menu.items || []).length });
+    scheduleSave();
+    res.json(store.config.menu);
 });
 
 // ==========================================
