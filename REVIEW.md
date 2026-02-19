@@ -1,325 +1,267 @@
-# Code Review: POS System Updates
+# Code Review: POS System Updates (Revision 2)
 
 **Date:** 2026-02-19
-**Scope:** 10 recent commits adding POS features (payment processing, kitchen display, reservations, gift cards, inventory, reports, etc.)
-**Files reviewed:** `webapp/js/pos.js`, `webapp/css/pos.css`, `webapp/index.html`, `webapp/admin.html`, `webapp/customer-display.html`, `webapp/api/server.js`, `webapp/sw.js`, `database/migration-*.sql`, Java `WebApiServer.java`
+**Scope:** 14 commits total -- 10 original feature commits + 4 new commits (loyalty, modularization, tests, waitlist/allergens)
+**Files reviewed:** All `.js`, `.css`, `.html`, `.sql`, `.sh`, `.java` files across the codebase
 
 ---
 
 ## Executive Summary
 
-The codebase has grown rapidly (~10,000 lines added across 10 commits) with a comprehensive restaurant POS feature set. However, there are **critical financial calculation bugs** that cause customers to be charged incorrect amounts, **severe security gaps** across both frontend and backend, and **data integrity risks** in payment, inventory, and gift card flows. These must be addressed before any production deployment.
+Four new commits added modularization (7 new JS modules), an auth layer, test suites, a migration runner, a loyalty/combo system, waitlist, allergen tracking, and auto-gratuity. These address some previous findings (M10 tests, M11 modularization, M4 migration tooling, C7 auth) but introduce **new critical issues** and leave most original financial bugs unfixed.
 
-| Severity | Count | Categories |
-|----------|-------|------------|
-| **Critical** | 16 | Payment math errors, no API auth, XSS, credential exposure |
-| **High** | 19 | Race conditions, data loss, mass assignment, broken DOM, wrong ticket bindings |
-| **Medium** | 20 | Missing DB constraints, no tests, z-index issues, accessibility gaps |
-| **Low** | 10 | Dead code, inline styles, animation naming |
+### Revision 2 Totals
+
+| Severity | Rev 1 | Rev 2 | Change | Categories |
+|----------|-------|-------|--------|------------|
+| **Critical** | 16 | 20 | +4 | Auth backdoor, SQL injection in migrate.sh, new XSS in modules, payroll rounding |
+| **High** | 19 | 26 | +7 | Audit trail spoofing, auto-gratuity logic bugs, function patch conflicts, offline queue flaws |
+| **Medium** | 20 | 28 | +8 | Missing modal CSS, test gaps on financial paths, API input validation, cache strategy bugs |
+| **Low** | 10 | 10 | 0 | Dead code (unchanged) |
+
+### Status of Previously Reported Issues
+
+| Previous Finding | Status | Notes |
+|------------------|--------|-------|
+| C1. processPayment() ignores discount | **STILL OPEN** | Not fixed in any new commit |
+| C2. Cash discount not applied at payment | **STILL OPEN** | Not fixed |
+| C3. Gift card ignores discount | **STILL OPEN** | Not fixed |
+| C4. Gift card creates duplicate tickets | **STILL OPEN** | Not fixed |
+| C5. Floating-point currency | **PARTIALLY FIXED** | `calculations.js` adds `round()` but `pos.js` still has raw arithmetic |
+| C6. Reports average includes voided | **STILL OPEN** | Not fixed |
+| C7. No API authentication | **PARTIALLY FIXED** | `auth.js` added but has critical backdoor (see NC1) |
+| C8. Refund over-payment | **STILL OPEN** | Still validates against total, not remaining |
+| C9. Mass assignment Object.assign | **STILL OPEN** | server.js still uses Object.assign |
+| C10. Wildcard CORS | **STILL OPEN** | Still `Access-Control-Allow-Origin: *` |
+| C11. Hardcoded PINs in client JS | **STILL OPEN** | Still in pos-core.js |
+| C13. innerHTML XSS vectors | **WORSE** | New modules add more innerHTML with user data |
+| M4. No migration tooling | **FIXED** | migrate.sh added (but has SQL injection) |
+| M10. No tests | **PARTIALLY FIXED** | 4 test files added (but gaps on critical paths) |
+| M11. Monolithic pos.js | **PARTIALLY FIXED** | 7 modules extracted, but pos.js still ~4,300 lines |
+| M12. Frontend/backend disconnected | **PARTIALLY FIXED** | api-client.js added with offline queue |
 
 ---
 
-## CRITICAL: Financial Calculation Bugs
+## NEW CRITICAL ISSUES (from commits a640dca, 2dab1ba, d620d99, b06d20b)
 
-These bugs cause the **amount charged to differ from the amount displayed**.
+### NC1. Authentication backdoor -- login by role name without PIN
+**File:** `webapp/api/auth.js:113-130`
 
-### C1. `processPayment()` ignores discount and delivery fee
-**File:** `webapp/js/pos.js:1364-1381`
-
-The payment function recalculates total from scratch but **omits discount subtraction and delivery fee addition**. The customer sees one price in the ticket display but is charged a different amount.
+The login endpoint allows authentication by sending a role name (e.g., `"admin"`, `"manager"`) in the `user` field **without a PIN**. This completely bypasses PIN authentication.
 
 ```javascript
-function processPayment(via) {
-    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
-    const tax = subtotal * (CONFIG.taxRate / 100);
-    let total = subtotal + tax;  // discount NOT subtracted, delivery fee NOT added
-    // ...
-    completePayment(total, state.paymentMethod);  // wrong total
-}
+// Anyone can send: POST /api/auth/login { "user": "admin" }
+// and receive a valid admin JWT token
 ```
 
-Meanwhile, `updateTicketDisplay()` (lines 772-796) correctly computes both. **Fix:** Use the same calculation in both places, or pass the displayed total through.
+**Impact:** The entire auth layer is meaningless. Any client can obtain admin privileges.
+**Fix:** Remove the role-name fallback immediately.
 
-### C2. Cash discount/surcharge not applied at payment time
-**File:** `webapp/js/pos.js:1364-1381`
+### NC2. SQL injection in migration runner
+**File:** `database/migrate.sh:199, 204`
 
-The payment modal's `openPayment()` correctly shows dual pricing (cash vs card), but `processPayment()` always charges the base total regardless of payment method. Cash customers don't receive their discount; card customers aren't charged the surcharge.
+Variables `$desc` and `$file` are interpolated directly into SQL INSERT statements without escaping:
 
-### C3. Gift card payment ignores discount
-**File:** `webapp/js/pos.js:4505-4507`
+```bash
+run_sql "INSERT INTO schema_version (...) VALUES ($ver, '$desc', '$file', ...);"
+```
+
+If a migration filename contains a single quote, the SQL breaks. A crafted filename could execute arbitrary SQL.
+**Fix:** Escape single quotes or use parameterized queries.
+
+### NC3. Payroll calculation rounding error
+**File:** `webapp/js/calculations.js:241`
 
 ```javascript
-const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
-const tax = subtotal * (CONFIG.taxRate / 100);
-const total = subtotal + tax;  // discount is ignored
+const totalHours = totalMs / 3600000;
 ```
 
-### C4. Gift card payment creates duplicate tickets
-**File:** `webapp/js/pos.js:4520`
+Time-to-hours conversion has no rounding. A 30-minute shift = 0.5 hours, but intermediate calculations can produce artifacts like `0.4999999...` which, when multiplied by hourly rate and truncated, shorts employee pay.
+**Fix:** Round hours to 2 decimal places.
 
-Gift card payment pushes a **new** entry to `state.allTickets` instead of finding and updating the existing one. If the order was already sent to kitchen (which also pushes to `allTickets`), this creates a duplicate -- **double revenue recording**.
+### NC4. New XSS vectors in extracted modules
+**Files:**
+- `pos-extras.js:88-106` -- Waitlist name/phone injected via innerHTML
+- `pos-extras.js:457` -- Allergen key in onclick attribute (quote breakout)
+- `pos-kitchen.js:46` -- Modifier names in innerHTML
+- `pos-loyalty.js:170, 255` -- Member name in innerHTML
+- `pos-tables.js:398, 431` -- Table numbers and reservation names in innerHTML
 
-### C5. Floating-point currency arithmetic (throughout)
-All financial calculations use native floating-point without rounding. Tax calculations like `8.875% of 38.97` produce artifacts (`3.45858...`). While `formatCurrency` rounds for display, the **stored total is unrounded**, causing penny discrepancies in reports, batch settlement, and refund comparisons.
-
-**Recommendation:** Round all currency to 2 decimal places immediately after each arithmetic operation: `Math.round(value * 100) / 100`.
-
-### C6. Reports average ticket inflated by voided tickets
-**File:** `webapp/js/pos.js:3121-3139`
-
-`ticketCount` includes voided/refunded tickets, but their sales are excluded from `totalSales`. Average ticket = `totalSales / ticketCount` is artificially low.
+Every new module introduces user-controllable data into innerHTML without sanitization.
 
 ---
 
-## CRITICAL: Security Vulnerabilities
+## NEW HIGH ISSUES
 
-### C7. No authentication on ANY API endpoint
-**Files:** `webapp/api/server.js` (all endpoints), `WebApiServer.java` (all endpoints)
+### NH1. Audit trail spoofing -- voidedBy and processedBy from request body
+**File:** `webapp/api/server.js:188, 220`
 
-Every endpoint is completely unauthenticated. Any network-accessible client can:
-- Void tickets: `POST /api/tickets/:id/void`
-- Issue unlimited refunds: `POST /api/refunds`
-- Modify cash discount rates: `PUT /api/config/:section`
-- View all financial reports
-- Clock in/out as any employee
-
-### C8. Refund amount validation allows over-refunding
-**File:** `webapp/api/server.js:189-190`
+The void endpoint accepts `voidedBy` from `req.body` instead of using `req.user.name`. A server can void their own ticket and claim a manager did it. Same for `processedBy` on refunds.
 
 ```javascript
-if (amount <= 0 || amount > ticket.total) {
-    return res.status(400).json({ error: 'Invalid refund amount' });
-}
+voidedBy: req.body.voidedBy || req.user?.name  // attacker controls req.body.voidedBy
 ```
 
-Validates against `ticket.total`, not `ticket.total - previousRefunds`. Ten $50 partial refunds on a $50 ticket would all pass validation ($500 total refunded).
+**Fix:** Always use `req.user.name` from the authenticated token.
 
-### C9. Mass assignment via Object.assign on ticket PATCH
-**File:** `webapp/api/server.js:140-146`
+### NH2. Auto-gratuity uses table seat count, not actual party size
+**File:** `webapp/js/pos-extras.js:209-220`
+
+Party size detection falls back to `tbl.seats` (total capacity) instead of actual guest count. A 2-person table at a 6-seat table triggers the auto-gratuity threshold. Customers are charged gratuity they shouldn't owe.
+
+### NH3. Auto-gratuity calculated on pre-discount subtotal
+**File:** `webapp/js/pos-extras.js:185`
+
+Gratuity is calculated on the raw subtotal, not the after-discount amount. If a $100 order has a 50% discount, gratuity should be on $50, not $100.
+
+### NH4. Function monkey-patch conflicts between modules
+**Files:** `pos-extras.js`, `pos-loyalty.js`, `pos-kitchen.js`
+
+Multiple modules patch the same global functions (`openPayment`, `completePayment`, `addItemDirectly`, `populateKitchen`, `populateTicketsList`). The last-loaded module's patch overwrites previous patches. Script loading order in index.html determines which features work.
+
+Example: Both `pos-extras.js` and `pos-loyalty.js` patch `completePayment`. Only the last-loaded module's wrapper executes; the other is lost.
+
+### NH5. Offline queue not truly persistent
+**File:** `webapp/sw.js:71-76`
+
+The offline queue uses Cache API, which the browser can clear at any time. Payment operations queued offline could be silently lost. IndexedDB should be used for persistent financial data.
+
+### NH6. Service worker cache doesn't fall back on 5xx errors
+**File:** `webapp/sw.js:104-126`
+
+If the network returns a 500 error, the service worker returns the error to the user instead of serving the cached version. Users see a broken page when the server is down, defeating the purpose of offline support.
+
+### NH7. Drinks assigned to appetizer course in KDS
+**File:** `webapp/js/pos-kitchen.js:110`
 
 ```javascript
-Object.assign(ticket, req.body, { updatedAt: new Date().toISOString() });
+} else if (catName === 'drinks') {
+    item.course = 'appetizer';  // Should be 'expo' or separate drink course
 ```
 
-A client can send `{"status": "paid", "total": 0}` to mark a ticket as paid without processing payment.
+Drinks are routed to the appetizer course instead of the bar/expo station, causing incorrect kitchen fire sequencing.
 
-### C10. Wildcard CORS on both servers
-**Files:** `webapp/api/server.js:76`, `WebApiServer.java:96`
+---
 
-`Access-Control-Allow-Origin: *` allows any website to make cross-origin requests to the POS API. Combined with no auth, a malicious webpage could issue refunds silently.
+## NEW MEDIUM ISSUES
 
-### C11. Hardcoded staff PINs in client-side JavaScript
-**File:** `webapp/js/pos.js:193-201`
+### NM1. No input validation on ticket creation
+**File:** `webapp/api/server.js:127-153`
 
-All PINs, employee names, IDs, and hourly rates are in the JS source. Anyone who opens DevTools sees every PIN, including admin (`9999`).
+`req.body` is passed through without schema validation. A client can send negative prices, non-numeric quantities, or inject arbitrary fields.
 
-### C12. Plaintext PINs in database migration
-**File:** `database/migration-002-refunds-timeclock-held.sql:85-93`
-
-Column named `PIN_HASH` stores plaintext values. No hashing implementation exists.
-
-### C13. 60+ innerHTML XSS vectors
-**Files:** `webapp/js/pos.js`, `webapp/admin.html`, `webapp/customer-display.html`
-
-User-controllable data (item notes, customer names, delivery addresses, reservation notes) is injected via `innerHTML` template literals without sanitization. Example:
+### NM2. API response JSON-parsed before ok check
+**File:** `webapp/js/api-client.js:52`
 
 ```javascript
-// pos.js:4209 -- item.note could contain: " onload="alert(1)
-value="${item.note || ''}" placeholder="Add note...">
+const data = await res.json();
+if (!res.ok) { throw new APIError(...); }
 ```
 
-### C14. No Content Security Policy
-None of the HTML files include CSP headers or meta tags.
+If the server returns a 4xx/5xx with non-JSON body, `res.json()` throws an unhandled parse error before the status check runs.
 
-### C15. Admin page has no access control
-**File:** `webapp/admin.html`
+### NM3. No rate limiting on login endpoint
+**File:** `webapp/api/auth.js:91-133`
 
-Navigating directly to `admin.html` gives full access to terminal config (including API keys), tax settings, and menu management.
+PINs are 4 digits (10,000 combinations). Without rate limiting, all PINs can be brute-forced in seconds.
 
-### C16. Broken login in Java server -- authenticates by first name only
-**File:** `WebApiServer.java:299-305`
+### NM4. No token revocation mechanism
+**File:** `webapp/api/auth.js`
 
-Combined with `GET /api/users` (which lists all names unauthenticated), every account is compromised.
+Tokens cannot be invalidated before their 12-hour expiry. A fired employee retains API access until their token expires. No logout endpoint exists.
 
----
+### NM5. JWT secret regenerated on every server restart
+**File:** `webapp/api/auth.js:13`
 
-## HIGH: Data Integrity & Race Conditions
+```javascript
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+```
 
-### H1. Gift card double-spend race condition
-**File:** `webapp/js/pos.js:4509-4514`
+Without `JWT_SECRET` env var, every restart invalidates all existing tokens. In production, this would force all terminals to re-login on every deploy.
 
-Balance check and deduction are separate, non-atomic operations. Two tabs (BroadcastChannel is active) could both see sufficient balance and both deduct.
+### NM6. Missing CSS for new modal elements
+**File:** `webapp/css/pos.css`
 
-### H2. Ticket payment race condition (double-pay)
-**File:** `webapp/api/server.js:149-161`
+New HTML modals for waitlist, allergen filters, void approval, and auto-gratuity confirmation have no corresponding CSS rules. These modals display with incorrect dimensions.
 
-Check-then-set on `ticket.status` is non-atomic. Two concurrent pay requests could both pass the status check.
+### NM7. Duplicate course firing allowed
+**File:** `webapp/js/pos-kitchen.js:209-210`
 
-### H3. Voided tickets can be voided/paid without guards
-**File:** `webapp/api/server.js:164-174`
+```javascript
+o.firedCourses.push(course);  // No duplicate check
+```
 
-No status check before voiding -- can void an already-paid ticket to circumvent the refund audit trail.
+A course can be fired multiple times, sending duplicate tickets to kitchen stations.
 
-### H4. Filtered ticket list causes wrong button bindings
-**File:** `webapp/js/pos.js:4661-4673, 5098-5114`
+### NM8. Reservation seating doesn't create new ticket
+**File:** `webapp/js/pos-tables.js:468-482`
 
-Tip adjust and reprint buttons index into `state.allTickets` by DOM position, but when filters are active, DOM index 0 is not `allTickets[0]`. **Buttons target the wrong tickets.**
-
-### H5. No inventory rollback on void/refund
-**File:** `webapp/js/pos.js`
-
-`deductInventory()` runs on send-to-kitchen, but voiding/refunding never restores stock. Voided orders permanently reduce inventory.
-
-### H6. Batch settlement marks late-arriving tickets
-**File:** `webapp/js/pos.js:2260-2268`
-
-A 3.5-second `setTimeout` marks ALL unsettled card tickets. Transactions completed during the delay are marked settled without being included in the batch total.
-
-### H7. Customer tab tracks subtotal, not total with tax
-**File:** `webapp/js/pos.js:4363-4369`
-
-Tab limit enforcement uses pre-tax subtotal, but actual bills include tax. Tabs can exceed their dollar limit.
-
-### H8. `saveState()` not called after critical operations
-Voiding, refunding, tab operations, reservation changes, and gift card balance changes do not trigger persistence. A browser crash loses these changes.
-
-### H9. In-memory Express store -- all data lost on restart
-**File:** `webapp/api/server.js:27-71`
-
-All tickets, refunds, time clock entries are in-memory with no persistence layer.
-
-### H10. Duplicate event listeners throughout
-**File:** `webapp/js/pos.js` (multiple locations)
-
-`removeEventListener` with anonymous functions is a no-op. Tab buttons, KDS filters, ticket filters, split buttons, and print buttons all have 2-3 redundant click handlers, causing double execution.
-
-### H11. Java daily report aggregates all-time data, not today's
-**File:** `WebApiServer.java:366-411`
-
-Despite computing `today`, it iterates ALL closed tickets. Cash/card breakdown counters are never incremented (always zero).
+`seatReservation()` sets `state.ticket.table` but doesn't call `newTicket()`. If a previous ticket exists, it's reassigned to the reservation's table, mixing orders.
 
 ---
 
-## HIGH: Structural Issues
+## TEST SUITE ASSESSMENT
 
-### H12. Broken HTML nesting in index.html
-**File:** `webapp/index.html:279-282`
+Four test files were added (388 + 142 + 483 + 300 = 1,313 lines of tests). This is a significant improvement, but critical financial paths remain untested.
 
-A premature `</div>` closes `#pos-screen`, causing `#reports-view` to fall outside the screen container, breaking view management.
+### What's Covered Well
+- Authentication token creation and verification
+- Role-based permission matrix (all 6 roles)
+- Individual calculation functions (tax, discount, split check, rounding)
+- Currency rounding edge cases
+- Allergen data completeness
+- Basic CRUD on tickets, payments, refunds
 
-### H13. Function redefinition via monkey-patching chains
-`updateTicketDisplay` is wrapped 4 times, `populateTicketsList` 5 times, `populateKitchen` 3 times. Each call traverses the full chain. The index-based ticket matching in outer wrappers breaks when inner wrappers filter the list.
+### Critical Gaps -- Not Tested
 
-### H14. `recallTicket` defined twice with different behavior
-**File:** `webapp/js/pos.js:2895 vs 5128`
+| Scenario | Status | Risk |
+|----------|--------|------|
+| Payment with discount applied | **NOT TESTED** | Customers charged wrong amount (C1) |
+| Gift card payment creates duplicate ticket | **NOT TESTED** | Double revenue recording (C4) |
+| Cumulative refund exceeds total | **NOT TESTED** | Unlimited refund fraud (C8) |
+| Cash discount/surcharge at payment time | **NOT TESTED** | Wrong amount charged (C2) |
+| Auto-gratuity + discount interaction | **NOT TESTED** | Gratuity on wrong base (NH3) |
+| End-to-end: create ticket -> discount -> pay -> verify total | **NOT TESTED** | Integration gap |
+| Auth backdoor via role name login | **NOT TESTED** | Full auth bypass (NC1) |
+| Offline queue persistence and replay | **NOT TESTED** | Data loss risk (NH5) |
 
-First allows recalling any status; second restricts to `open` only. The second silently shadows the first.
-
----
-
-## MEDIUM: Database Issues
-
-### M1. No foreign keys on financial tables
-Across all three migrations: `REFUND.TICKET_ID`, `TIME_CLOCK.EMPLOYEE_ID`, `GIFT_CARD_TRANSACTION.CARD_NUMBER`, `TAB_TICKET.TAB_ID/TICKET_ID`, etc. have no FK constraints. Orphaned records can exist for all financial data.
-
-### M2. No CHECK constraints on monetary amounts
-`AMOUNT`, `BALANCE`, `TOTAL_AMOUNT`, `TIP_AMOUNT` columns allow negative values with no database-level protection.
-
-### M3. API key stored in plaintext
-**File:** `migration-cashdiscount-paybotx.sql:40`
-
-PaybotX terminal API key is plain VARCHAR.
-
-### M4. No migration runner or version tracking
-Three raw SQL files with no way to track which have been applied.
-
-### M5. Cross-database compatibility claims are false
-Comments claim MySQL 5.7+, PostgreSQL 9.5+, Derby 10.x support, but SQL uses MySQL-only syntax (`AUTO_INCREMENT`, `ON DUPLICATE KEY UPDATE`).
+### Test Anti-Patterns Found
+- **Allergen tests** parse source code with regex instead of importing the module -- fragile and won't catch runtime issues
+- **Waitlist tests** re-implement calculation logic instead of testing actual code -- tests prove the formula works, not that the code uses it
+- **Void reason tests** validate a hardcoded array, not the actual reasons from the API
+- **No integration tests** that exercise the full ticket lifecycle through the API
 
 ---
 
-## MEDIUM: Accessibility
-
-### M6. Zero ARIA attributes in HTML files
-No `role`, `aria-label`, `aria-selected`, `aria-modal`, `aria-live`, or `aria-hidden` attributes in `index.html`, `admin.html`, or `customer-display.html`. (Note: the latest commit message claims accessibility improvements were added, but they appear to be in `pos.js` only via JavaScript, not in the HTML source.)
-
-### M7. Global `outline: none` on all buttons
-**File:** `webapp/css/pos.css:94`
-
-Removes keyboard focus indicators globally. Later `:focus-visible` rules may partially restore them but the override creates inconsistency.
-
-### M8. `user-scalable=no` blocks zoom
-**Files:** `index.html:5`, `customer-display.html:5`
-
-Prevents low-vision users from enlarging content (WCAG 1.4.4 violation).
-
-### M9. No origin validation on postMessage listener
-**File:** `customer-display.html:648-653`
-
-Any cross-origin page can send data that gets rendered via innerHTML.
-
----
-
-## MEDIUM: Architecture
-
-### M10. No tests exist
-Zero unit, integration, or end-to-end tests for a financial system with complex business logic.
-
-### M11. Monolithic file sizes
-- `pos.js`: ~5,450 lines
-- `pos.css`: ~4,120 lines
-- `index.html`: ~1,010 lines
-
-All features in single files with no modularization.
-
-### M12. Frontend and backend are disconnected
-The frontend manages all data in JavaScript variables. The Express API exists but the frontend does not call it. They are two separate data stores.
-
-### M13. Service worker caches fail silently
-**File:** `webapp/sw.js:18-28`
-
-The install handler swallows caching failures. Offline mode will show a broken page. API calls have no offline queue despite `OFFLINE_PAYMENT_QUEUE` table existing in the database.
-
----
-
-## LOW: Dead Code
-
-| Location | Issue |
-|----------|-------|
-| `pos.js:3898-3908` | `addToOrderWith86Check` references non-existent `addToOrder` function |
-| `pos.js:3109` | `_origPopulateReports` stored but never used |
-| `pos.js:2883` | `_origTicketsForRefund` stored but never used |
-| `pos.js:4747` | `_origSendToKitchenInv` reads `.onclick` (always null, uses addEventListener) |
-| `pos.js:4184` | `activeNoteItemIndex` set but never read |
-| `pos.js:171-175` | `DELIVERY_CONFIG.distanceRates` defined but never used |
-| `pos.js:700-706` | `pendingModItem` nulled before use in toast message |
-
----
-
-## Recommended Priority Actions
+## UPDATED: Recommended Priority Actions
 
 ### Immediate (before any deployment)
-1. **Fix `processPayment()` to include discount and delivery fee** (C1, C2)
-2. **Fix gift card payment to use correct total and update existing ticket** (C3, C4)
-3. **Add authentication middleware to all API endpoints** (C7)
-4. **Fix refund validation to track cumulative refunds** (C8)
-5. **Sanitize all innerHTML with user-controlled data** (C13)
-6. **Remove hardcoded PINs from client-side code** (C11)
-7. **Fix filtered ticket index mismatch** (H4)
-8. **Round all currency calculations** (C5)
+1. **Remove auth backdoor** -- delete role-name login fallback in auth.js (NC1)
+2. **Fix `processPayment()` to include discount and delivery fee** (C1, C2) -- STILL OPEN
+3. **Fix gift card payment to use correct total and update existing ticket** (C3, C4) -- STILL OPEN
+4. **Fix audit trail spoofing** -- always use `req.user.name` for voidedBy/processedBy (NH1)
+5. **Fix refund validation to track cumulative refunds** (C8) -- STILL OPEN
+6. **Remove wildcard CORS** (C10) -- STILL OPEN
+7. **Sanitize all innerHTML** across all modules (C13, NC4) -- GETTING WORSE
+8. **Round all currency calculations** in pos.js (C5) -- STILL PARTIALLY OPEN
+9. **Fix auto-gratuity party size detection** (NH2)
+10. **Fix SQL injection in migrate.sh** (NC2)
 
 ### Short-term
-9. Add foreign key constraints to all financial tables (M1)
-10. Implement server-side authorization (C7, C15)
-11. Replace wildcard CORS with explicit origins (C10)
-12. Add basic test coverage for payment flows (M10)
-13. Fix broken HTML nesting in index.html (H12)
-14. Persist state after all critical operations (H8)
+11. Add integration tests for discount + payment, gift card, and refund flows
+12. Fix Object.assign mass assignment (C9) -- STILL OPEN
+13. Add input validation to ticket creation (NM1)
+14. Add rate limiting to login (NM3)
+15. Fix function monkey-patch conflicts between modules (NH4)
+16. Replace Cache API with IndexedDB for offline queue (NH5)
+17. Require JWT_SECRET env var, fail on startup if missing (NM5)
+18. Add token revocation / short expiry with refresh (NM4)
 
 ### Medium-term
-15. Modularize pos.js into feature modules (M11)
-16. Connect frontend to API backend (M12)
-17. Add database migration tooling (M4)
-18. Implement CSP headers (C14)
-19. Add ARIA attributes and fix accessibility (M6-M8)
-20. Remove dead code (Low section)
+19. Add foreign key constraints to all financial tables (M1)
+20. Implement CSP headers (C14)
+21. Continue pos.js modularization -- still ~4,300 lines (M11)
+22. Replace monkey-patching with event bus or middleware pattern (NH4, H13)
+23. Add ARIA attributes and fix accessibility (M6-M8)
+24. Remove dead code and unused variables (Low section)
+25. Remove hardcoded PINs from client code; use server-side auth only (C11)
