@@ -45,16 +45,6 @@ const ROLE_PERMISSIONS = {
     kitchen:   { tickets: false, void: false, refund: false, kitchen: true, config: false, reports: false, timeclock: true }
 };
 
-// GET endpoints that do NOT require authentication (public read-only)
-const PUBLIC_GET_PATHS = new Set([
-    '/health',
-    '/api/health',
-    '/kitchen',
-    '/api/kitchen',
-    '/tickets',
-    '/api/tickets'
-]);
-
 /**
  * Create a simple JWT-like token.
  * Uses HMAC-SHA256 for signing.

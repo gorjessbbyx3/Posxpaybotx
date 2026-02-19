@@ -172,7 +172,7 @@ Tests live in `webapp/tests/` and use the **Node.js native test runner** (no ext
 
 **Run tests:**
 ```bash
-cd webapp && npm test              # Runs calculations, auth, and api tests (385 tests)
+cd webapp && npm test              # Runs calculations, auth, and api tests (454 tests)
 node --test tests/extras.test.js   # Run extras tests separately
 ```
 
@@ -332,8 +332,20 @@ Express REST API with these endpoint groups:
 | Feature Toggles | `GET/PUT /api/feature-toggles` | Yes (config permission) |
 | Deploy | `GET /api/deploy/status`, `POST /api/deploy` | Yes (config permission) |
 | Dev Docs | `GET /api/developer/docs` | No |
-| Plugins | `GET/POST /api/plugins` | Yes (config permission) |
-| Menu | `GET /api/menu` | No |
+| Plugins | `GET/POST/PUT/DELETE /api/plugins` | Yes (config permission) |
+| Menu | `GET/PUT /api/menu` | No (GET), Yes (PUT config) |
+| Void Requests | `GET /api/void-requests`, `POST approve/reject` | Yes (void permission) |
+| Locations | `GET/POST/PUT/DELETE /api/locations` | Yes (reports/config) |
+| Vendors | `GET/POST/PUT/DELETE /api/vendors` | Yes (config permission) |
+| Recipes | `GET/POST/PUT/DELETE /api/recipes` | Yes (config permission) |
+| Merchants | `GET/POST/PUT/DELETE /api/merchants` | Yes (config permission) |
+| PO Workflow | `POST /api/purchase-orders/:id/approve\|order\|receive\|cancel` | Yes (config) |
+| QR Workflow | `POST /api/qr-orders/:id/accept\|reject\|complete` | Yes (tickets) |
+| Scheduled | `POST /api/scheduled-orders/:id/fulfill` | Yes (tickets) |
+| Reservations | `GET/POST/PUT/DELETE /api/reservations` | No (POST), Yes (PUT/DELETE) |
+| Delivery | `GET/POST/PUT /api/delivery-integrations`, `POST test` | Yes (config) |
+| KDS Displays | `GET/POST /api/hardware/kds-displays`, `POST heartbeat` | Yes (config), No (heartbeat) |
+| Encryption | `GET /api/security/encryption-status`, `PUT encryption`, `POST rotate-key` | Yes (config) |
 | Health | `GET /api/health` | No |
 
 ---
@@ -521,7 +533,7 @@ Volumes: `pos-data` (app data), `db-data` (MySQL persistence)
 
 ```bash
 cd webapp && npm install           # Install deps first (express required)
-npm test                           # Run core tests (385 tests) — must pass
+npm test                           # Run core tests (454 tests) — must pass
 npm run test:calculations          # Pricing/tax/discount math
 npm run test:auth                  # Auth and role-based access
 npm run test:api                   # API endpoints
