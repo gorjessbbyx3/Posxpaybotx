@@ -3707,3 +3707,64 @@ button {
     background: var(--accent);
     color: white;
 }
+
+/* ========== QUICK SERVICE / COUNTER MODE ========== */
+.quick-service-mode .top-bar-center .tab-btn[data-view="tables"],
+.quick-service-mode .top-bar-center .tab-btn[data-view="kitchen"] {
+    display: none;
+}
+
+.quick-service-mode .order-layout {
+    grid-template-columns: 1fr 350px;
+}
+
+.quick-service-mode .menu-grid {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+}
+
+.quick-service-mode .menu-item {
+    padding: 8px;
+    min-height: auto;
+}
+
+.quick-service-mode .menu-item-name {
+    font-size: 0.75rem;
+}
+
+.quick-service-mode .ticket-actions {
+    grid-template-columns: 1fr 1fr;
+}
+
+.quick-service-mode .btn-split,
+.quick-service-mode .btn-hold {
+    display: none;
+}
+
+.quick-service-mode .category-tabs {
+    font-size: 0.8rem;
+}
+
+.quick-service-mode .payment-buttons {
+    grid-template-columns: 1fr 1fr;
+}
+
+.quick-service-mode .pay-other {
+    display: none;
+}
+
+/* ========== INVENTORY LOW STOCK INDICATOR ========== */
+.menu-item-low-stock {
+    position: relative;
+}
+
+.menu-item-low-stock::before {
+    content: '';
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--warning);
+    z-index: 1;
+}

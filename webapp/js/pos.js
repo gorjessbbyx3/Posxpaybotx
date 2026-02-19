@@ -2186,23 +2186,133 @@ $('#btn-refresh-report').addEventListener('click', () => {
 });
 
 $('#btn-settle-batch').addEventListener('click', () => {
-    showToast('Batch settlement initiated - sending to terminal...', 'warning');
-    setTimeout(() => showToast('Batch settled successfully'), 2000);
+    settleBatch();
 });
 
+// Override print report to use thermal formatter (added later in file)
 $('#btn-print-report').addEventListener('click', () => {
-    window.print();
+    if (typeof printThermalReport === 'function') {
+        printThermalReport();
+    } else {
+        window.print();
+    }
 });
 
 $('#btn-eod').addEventListener('click', () => {
-    if (confirm('Close the day? This will settle the batch and generate the EOD report.')) {
-        state.allTickets.forEach(t => {
-            t.status = 'closed';
-        });
-        populateReports();
-        showToast('Day closed. EOD report generated.');
+    if (typeof openEOD === 'function') {
+        openEOD();
+    } else {
+        if (confirm('Close the day?')) {
+            state.allTickets.forEach(t => { t.status = 'closed'; });
+            populateReports();
+            showToast('Day closed.');
+        }
     }
 });
+
+// ==========================================
+// PaybotX Batch Settlement
+// ==========================================
+function settleBatch() {
+    const batchState = {
+        step: 'initializing',
+        batchNum: 'B-' + Date.now().toString(36).toUpperCase(),
+        startTime: new Date(),
+        transactions: [],
+        totalAmount: 0,
+        totalCount: 0
+    };
+
+    // Gather all unsettled card transactions
+    state.allTickets.forEach(t => {
+        if (t.paid && t.paymentMethod !== 'cash' && t.paymentMethod !== 'gift' && t.status !== 'voided') {
+            if (!t.batchSettled) {
+                batchState.transactions.push({
+                    ticketId: t.id,
+                    amount: t.total + (t.tip || 0),
+                    method: t.paymentMethod,
+                    tip: t.tip || 0
+                });
+                batchState.totalAmount += t.total + (t.tip || 0);
+                batchState.totalCount++;
+            }
+        }
+    });
+
+    if (batchState.totalCount === 0) {
+        showToast('No unsettled card transactions', 'warning');
+        return;
+    }
+
+    showToast(`Settling batch ${batchState.batchNum}: ${batchState.totalCount} txns, ${formatCurrency(batchState.totalAmount)}...`, 'warning');
+
+    // Simulate PaybotX batch settlement process
+    setTimeout(() => {
+        batchState.step = 'sending';
+        showToast('Sending to PaybotX terminal...', 'warning');
+    }, 800);
+
+    setTimeout(() => {
+        batchState.step = 'processing';
+        showToast('Terminal processing batch...', 'warning');
+    }, 2000);
+
+    setTimeout(() => {
+        // Mark all transactions as settled
+        state.allTickets.forEach(t => {
+            if (t.paid && t.paymentMethod !== 'cash' && t.paymentMethod !== 'gift' && !t.batchSettled) {
+                t.batchSettled = true;
+                t.batchNumber = batchState.batchNum;
+                t.settledAt = new Date().toISOString();
+            }
+        });
+
+        batchState.step = 'complete';
+        showToast(`Batch ${batchState.batchNum} settled: ${batchState.totalCount} transactions, ${formatCurrency(batchState.totalAmount)}`);
+
+        // Print batch report
+        printBatchReport(batchState);
+        saveState();
+    }, 3500);
+}
+
+function printBatchReport(batch) {
+    const now = new Date();
+    const dashes = '-'.repeat(32);
+
+    const report = `
+<div style="font-family:'Courier New',monospace;width:280px;padding:8px;font-size:12px;color:#000;background:#fff;">
+    <div style="text-align:center;font-weight:bold;font-size:14px;">BATCH SETTLEMENT REPORT</div>
+    <div style="text-align:center;font-size:11px;">PaybotX Terminal - ${CONFIG.terminal.model}</div>
+    <div style="text-align:center;font-size:11px;">${now.toLocaleDateString()} ${now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</div>
+    <pre style="margin:8px 0;font-size:11px;">
+${dashes}
+Batch #:           ${batch.batchNum}
+${dashes}
+Transactions:      ${String(batch.totalCount).padStart(10)}
+Total Amount:      ${formatCurrency(batch.totalAmount).padStart(10)}
+${dashes}
+${batch.transactions.map(t =>
+    `#${t.ticketId} ${t.method.padEnd(8)} ${formatCurrency(t.amount).padStart(10)}${t.tip ? ' (tip:'+formatCurrency(t.tip)+')' : ''}`
+).join('\n')}
+${dashes}
+Status: APPROVED
+${dashes}
+    </pre>
+    <div style="text-align:center;font-size:10px;color:#666;">--- End of Batch Report ---</div>
+</div>`;
+
+    const pw = window.open('', 'batch-report', 'width=320,height=500');
+    if (!pw) return;
+    pw.document.write(`<!DOCTYPE html><html><head><title>Batch Report</title>
+        <style>@page{size:80mm auto;margin:0;}body{margin:0;padding:4px;}</style>
+        </head><body>${report}
+        <div style="text-align:center;margin-top:12px;">
+            <button onclick="window.print()" style="padding:8px 20px;font-size:14px;cursor:pointer;">Print</button>
+            <button onclick="window.close()" style="padding:8px 20px;font-size:14px;cursor:pointer;margin-left:8px;">Close</button>
+        </div></body></html>`);
+    pw.document.close();
+}
 
 // ==========================================
 // View Navigation (updated for reports)
@@ -4579,6 +4689,206 @@ printKitchenTickets = function(order) {
     });
     _origPrintKitchenTickets(order);
 };
+
+// ==========================================
+// Inventory / Stock Tracking
+// ==========================================
+const inventory = {};
+
+// Initialize inventory from menu items
+Object.values(MENU).forEach(catItems => {
+    catItems.forEach(item => {
+        if (!inventory[item.id]) {
+            inventory[item.id] = {
+                name: item.name,
+                stock: 50,     // default starting stock
+                low: 5,        // low stock threshold
+                par: 20,       // par level for reorder
+                unit: 'each'
+            };
+        }
+    });
+});
+
+function checkInventory(itemId) {
+    const inv = inventory[itemId];
+    if (!inv) return true; // unknown items are always available
+    if (inv.stock <= 0) return false;
+    return true;
+}
+
+function deductInventory(itemId, qty) {
+    const inv = inventory[itemId];
+    if (!inv) return;
+    inv.stock = Math.max(0, inv.stock - qty);
+
+    if (inv.stock <= 0) {
+        eightySixed.add(itemId);
+        showToast(`${inv.name} is now 86'd (out of stock)`, 'warning');
+        populateMenu();
+    } else if (inv.stock <= inv.low) {
+        showToast(`Low stock: ${inv.name} (${inv.stock} remaining)`, 'warning');
+    }
+}
+
+function setStock(itemId, newStock) {
+    const inv = inventory[itemId];
+    if (!inv) return;
+    inv.stock = Math.max(0, newStock);
+    if (inv.stock > 0 && eightySixed.has(itemId)) {
+        eightySixed.delete(itemId);
+        showToast(`${inv.name} back in stock`);
+    }
+    populateMenu();
+}
+window.setStock = setStock;
+
+// Deduct inventory when sending to kitchen
+const _origSendToKitchenInv = document.getElementById('btn-send').onclick;
+document.getElementById('btn-send').addEventListener('click', () => {
+    state.ticket.items.forEach(item => {
+        deductInventory(item.id, item.qty);
+    });
+}, true); // use capture to run before the main handler
+
+// ==========================================
+// Multi-Language Support (i18n)
+// ==========================================
+const LANG = {
+    en: {
+        newOrder: 'New Order',
+        tables: 'Tables',
+        kitchen: 'Kitchen',
+        tickets: 'Tickets',
+        reports: 'Reports',
+        dineIn: 'Dine-In',
+        takeout: 'Takeout',
+        delivery: 'Delivery',
+        barTab: 'Bar Tab',
+        subtotal: 'Subtotal',
+        tax: 'Tax',
+        total: 'Total',
+        cash: 'Cash',
+        card: 'Card',
+        discount: 'Discount',
+        hold: 'Hold',
+        split: 'Split',
+        notes: 'Notes',
+        sendKitchen: 'Send to Kitchen',
+        clockIn: 'Clock In',
+        clockOut: 'Clock Out',
+        search: 'Search menu items...',
+        payment: 'Payment',
+        processPayment: 'Process Payment',
+        tipAdjust: 'Tip Adjustment',
+        noItems: 'Tap menu items to add to order',
+        settleDesc: 'Settle Batch',
+        printReport: 'Print Report',
+        closeDay: 'Close Day (EOD)',
+        fire: 'FIRE',
+        bump: 'BUMP',
+        rush: 'RUSH',
+        allergy: 'ALLERGY',
+        new_: 'NEW'
+    },
+    es: {
+        newOrder: 'Nuevo Pedido',
+        tables: 'Mesas',
+        kitchen: 'Cocina',
+        tickets: 'Tickets',
+        reports: 'Reportes',
+        dineIn: 'En Mesa',
+        takeout: 'Para Llevar',
+        delivery: 'Entrega',
+        barTab: 'Cuenta Barra',
+        subtotal: 'Subtotal',
+        tax: 'Impuesto',
+        total: 'Total',
+        cash: 'Efectivo',
+        card: 'Tarjeta',
+        discount: 'Descuento',
+        hold: 'Retener',
+        split: 'Dividir',
+        notes: 'Notas',
+        sendKitchen: 'Enviar a Cocina',
+        clockIn: 'Marcar Entrada',
+        clockOut: 'Marcar Salida',
+        search: 'Buscar artículos...',
+        payment: 'Pago',
+        processPayment: 'Procesar Pago',
+        tipAdjust: 'Ajuste de Propina',
+        noItems: 'Toque los artículos del menú para agregar',
+        settleDesc: 'Cerrar Lote',
+        printReport: 'Imprimir Reporte',
+        closeDay: 'Cierre del Día',
+        fire: 'FUEGO',
+        bump: 'LISTO',
+        rush: 'URGENTE',
+        allergy: 'ALERGIA',
+        new_: 'NUEVO'
+    }
+};
+
+let currentLang = 'en';
+
+function setLanguage(lang) {
+    if (!LANG[lang]) return;
+    currentLang = lang;
+    const t = LANG[lang];
+
+    // Update tab buttons
+    const tabLabels = { order: t.newOrder, tables: t.tables, kitchen: t.kitchen, tickets: t.tickets, reports: t.reports };
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        const view = btn.dataset.view;
+        if (tabLabels[view]) btn.textContent = tabLabels[view];
+    });
+
+    // Update action buttons
+    const btnMap = {
+        'btn-discount': t.discount,
+        'btn-hold': t.hold,
+        'btn-split': t.split,
+        'btn-notes': t.notes,
+        'btn-send': t.sendKitchen,
+        'btn-settle-batch': t.settleDesc,
+        'btn-print-report': t.printReport,
+        'btn-eod': t.closeDay,
+        'btn-process-payment': t.processPayment
+    };
+
+    Object.entries(btnMap).forEach(([id, label]) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = label;
+    });
+
+    // Update search placeholder
+    const searchEl = document.getElementById('menu-search');
+    if (searchEl) searchEl.placeholder = t.search;
+
+    // Update summary labels
+    const subEl = document.querySelector('.summary-row:first-child span');
+    if (subEl) subEl.textContent = t.subtotal;
+
+    showToast(`Language: ${lang === 'en' ? 'English' : 'Español'}`);
+}
+window.setLanguage = setLanguage;
+
+// ==========================================
+// Quick Service / Counter Mode
+// ==========================================
+let quickServiceMode = false;
+
+function toggleQuickService() {
+    quickServiceMode = !quickServiceMode;
+    document.body.classList.toggle('quick-service-mode', quickServiceMode);
+
+    if (quickServiceMode) {
+        showToast('Quick Service mode ON - streamlined for counter');
+    } else {
+        showToast('Quick Service mode OFF');
+    }
+}
+window.toggleQuickService = toggleQuickService;
 
 // ==========================================
 // Service Worker Registration
