@@ -88,10 +88,10 @@ function refreshWaitlist() {
         return `
             <div class="wl-entry ${statusClass}" data-id="${entry.id}">
                 <div class="wl-entry-info">
-                    <strong>${entry.name}</strong>
-                    <span class="wl-party">Party of ${entry.partySize}</span>
-                    ${entry.phone ? '<span class="wl-phone">' + entry.phone + '</span>' : ''}
-                    ${entry.notes ? '<span class="wl-note">' + entry.notes + '</span>' : ''}
+                    <strong>${escapeHtml(entry.name)}</strong>
+                    <span class="wl-party">Party of ${parseInt(entry.partySize) || 0}</span>
+                    ${entry.phone ? '<span class="wl-phone">' + escapeHtml(entry.phone) + '</span>' : ''}
+                    ${entry.notes ? '<span class="wl-note">' + escapeHtml(entry.notes) + '</span>' : ''}
                 </div>
                 <div class="wl-entry-time">
                     <span class="wl-elapsed ${isOverdue ? 'overdue' : ''}">${elapsed}m wait</span>
@@ -560,7 +560,7 @@ function showVoidApprovalModal(ticketId) {
 
     newBtn.addEventListener('click', () => {
         const pin = $('#void-approval-pin').value;
-        const staff = STAFF[pin];
+        const staff = lookupStaffByPin(pin);
 
         if (!staff) {
             $('#void-approval-error').textContent = 'Invalid PIN';

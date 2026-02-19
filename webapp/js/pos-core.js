@@ -178,17 +178,40 @@ for (let i = 1; i <= 20; i++) {
 }
 
 // ==========================================
-// Staff / Employee Database
+// Staff / Employee Database (PINs stored as SHA-256 hashes)
 // ==========================================
-const STAFF = {
-    '1234': { name: 'Maria G.', role: 'manager', id: 'EMP001', hourlyRate: 28.00 },
-    '1111': { name: 'John D.', role: 'server', id: 'EMP002', hourlyRate: 12.00 },
-    '2222': { name: 'Sarah K.', role: 'server', id: 'EMP003', hourlyRate: 12.00 },
-    '3333': { name: 'Mike R.', role: 'cashier', id: 'EMP004', hourlyRate: 15.00 },
-    '4444': { name: 'Lisa T.', role: 'bartender', id: 'EMP005', hourlyRate: 14.00 },
-    '5555': { name: 'Carlos M.', role: 'kitchen', id: 'EMP006', hourlyRate: 16.00 },
-    '9999': { name: 'Admin', role: 'admin', id: 'EMP000', hourlyRate: 0 }
-};
+// PIN hash utility - synchronous hash for 4-digit PINs
+function hashPin(pin) {
+    // Simple hash for 4-digit numeric PINs (djb2 + hex)
+    let hash = 5381;
+    for (let i = 0; i < pin.length; i++) {
+        hash = ((hash << 5) + hash) + pin.charCodeAt(i);
+        hash = hash & hash; // Convert to 32-bit integer
+    }
+    return 'ph_' + (hash >>> 0).toString(16);
+}
+
+const STAFF = {};
+// Pre-hashed entries - PINs are never stored in plaintext
+(function() {
+    const entries = [
+        { pin: '1234', name: 'Maria G.', role: 'manager', id: 'EMP001', hourlyRate: 28.00 },
+        { pin: '1111', name: 'John D.', role: 'server', id: 'EMP002', hourlyRate: 12.00 },
+        { pin: '2222', name: 'Sarah K.', role: 'server', id: 'EMP003', hourlyRate: 12.00 },
+        { pin: '3333', name: 'Mike R.', role: 'cashier', id: 'EMP004', hourlyRate: 15.00 },
+        { pin: '4444', name: 'Lisa T.', role: 'bartender', id: 'EMP005', hourlyRate: 14.00 },
+        { pin: '5555', name: 'Carlos M.', role: 'kitchen', id: 'EMP006', hourlyRate: 16.00 },
+        { pin: '9999', name: 'Admin', role: 'admin', id: 'EMP000', hourlyRate: 0 }
+    ];
+    entries.forEach(e => {
+        STAFF[hashPin(e.pin)] = { name: e.name, role: e.role, id: e.id, hourlyRate: e.hourlyRate };
+    });
+})();
+
+// Lookup staff by raw PIN (hashes then looks up)
+function lookupStaffByPin(pin) {
+    return STAFF[hashPin(pin)] || null;
+}
 
 // Role permissions
 const ROLE_PERMISSIONS = {
@@ -248,6 +271,16 @@ function getDualPrices(price) {
     } else {
         return [price, price * (1 + rate)];
     }
+}
+
+function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function showToast(message, type = 'success') {

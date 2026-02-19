@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self';">
     <title>Admin Settings - Restaurant POS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -596,6 +597,59 @@
     </div>
 
     <script>
+    // Admin Login Gate - requires manager/admin PIN
+    (function() {
+        const ADMIN_ROLES = ['admin', 'manager'];
+        const stored = sessionStorage.getItem('admin-auth');
+        if (stored) {
+            try {
+                const auth = JSON.parse(stored);
+                if (auth.role && ADMIN_ROLES.includes(auth.role) && (Date.now() - auth.ts) < 3600000) {
+                    return; // Valid session, continue
+                }
+            } catch(e) {}
+        }
+
+        // Block page content and show login
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg);font-family:Inter,sans-serif;">' +
+            '<div style="background:var(--bg-card);padding:32px;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1);text-align:center;width:300px;">' +
+            '<h2 style="margin-bottom:16px;color:var(--text);">Admin Login</h2>' +
+            '<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;">Enter manager or admin PIN</p>' +
+            '<input type="password" id="admin-pin" maxlength="4" inputmode="numeric" pattern="[0-9]*" style="width:100%;padding:12px;text-align:center;font-size:1.2rem;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;">' +
+            '<button id="admin-login-btn" style="width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;">Login</button>' +
+            '<p id="admin-login-error" style="color:var(--danger);margin-top:8px;font-size:0.85rem;"></p>' +
+            '</div></div>';
+
+        document.getElementById('admin-login-btn').addEventListener('click', function() {
+            const pin = document.getElementById('admin-pin').value;
+            fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pin: pin })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.user && ADMIN_ROLES.includes(data.user.role)) {
+                    sessionStorage.setItem('admin-auth', JSON.stringify({ role: data.user.role, ts: Date.now() }));
+                    location.reload();
+                } else if (data.user) {
+                    document.getElementById('admin-login-error').textContent = 'Access denied. Manager or admin role required.';
+                } else {
+                    document.getElementById('admin-login-error').textContent = 'Invalid PIN.';
+                }
+            })
+            .catch(() => {
+                document.getElementById('admin-login-error').textContent = 'Server unavailable.';
+            });
+        });
+
+        document.getElementById('admin-pin').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') document.getElementById('admin-login-btn').click();
+        });
+
+        throw new Error('Admin auth required'); // Stop further script execution
+    })();
+
     // Navigation
     document.querySelectorAll('.nav-item').forEach(btn => {
         btn.addEventListener('click', () => {

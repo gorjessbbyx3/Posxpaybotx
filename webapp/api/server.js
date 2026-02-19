@@ -10,21 +10,40 @@
  * - Reporting endpoints
  *
  * Now with JWT-based authentication and role-based authorization.
- * Data stored in-memory by default; swap store for DB in production.
+ * Data persisted to JSON file; falls back to in-memory if filesystem unavailable.
  */
 
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const { loginHandler, authenticate, authorize } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const DATA_FILE = path.join(__dirname, '..', 'data', 'store.json');
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || '').split(',').filter(Boolean);
 
 app.use(express.json());
+
+// CSP headers on all HTML responses
+app.use((req, res, next) => {
+    if (req.path.endsWith('.html') || req.path === '/' || !req.path.includes('.')) {
+        res.setHeader('Content-Security-Policy',
+            "default-src 'self'; " +
+            "script-src 'self'; " +
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+            "font-src 'self' https://fonts.gstatic.com; " +
+            "img-src 'self' data:; " +
+            "connect-src 'self';"
+        );
+    }
+    next();
+});
+
 app.use(express.static(path.join(__dirname, '..')));
 
 // ==========================================
-// In-Memory Data Store
+// Data Store with File Persistence
 // ==========================================
 const store = {
     tickets: [],
@@ -72,13 +91,81 @@ const store = {
     nextTicketId: 1001
 };
 
+// Load persisted data on startup
+function loadStore() {
+    try {
+        if (fs.existsSync(DATA_FILE)) {
+            const raw = fs.readFileSync(DATA_FILE, 'utf8');
+            const data = JSON.parse(raw);
+            if (data.tickets) store.tickets = data.tickets;
+            if (data.kitchenOrders) store.kitchenOrders = data.kitchenOrders;
+            if (data.heldOrders) store.heldOrders = data.heldOrders;
+            if (data.refunds) store.refunds = data.refunds;
+            if (data.timeClock) store.timeClock = data.timeClock;
+            if (data.nextTicketId) store.nextTicketId = data.nextTicketId;
+            if (data.config) {
+                Object.keys(data.config).forEach(k => {
+                    if (store.config[k]) Object.assign(store.config[k], data.config[k]);
+                });
+            }
+        }
+    } catch (e) {
+        // Corrupted data file - start fresh
+    }
+}
+
+function saveStore() {
+    try {
+        const dir = path.dirname(DATA_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(DATA_FILE, JSON.stringify({
+            tickets: store.tickets,
+            kitchenOrders: store.kitchenOrders,
+            heldOrders: store.heldOrders,
+            refunds: store.refunds,
+            timeClock: store.timeClock,
+            nextTicketId: store.nextTicketId,
+            config: store.config,
+            savedAt: new Date().toISOString()
+        }, null, 2));
+    } catch (e) {
+        // Filesystem unavailable - data stays in-memory only
+    }
+}
+
+// Auto-save periodically
+let _saveTimer = null;
+function scheduleSave() {
+    if (_saveTimer) return;
+    _saveTimer = setTimeout(() => {
+        _saveTimer = null;
+        saveStore();
+    }, 1000);
+}
+
+loadStore();
+
 // ==========================================
-// CORS Middleware
+// CORS Middleware (restrict to configured origins)
 // ==========================================
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
+    const origin = req.headers.origin;
+    if (ALLOWED_ORIGINS.length > 0 && origin && ALLOWED_ORIGINS.includes(origin)) {
+        res.header('Access-Control-Allow-Origin', origin);
+    } else if (ALLOWED_ORIGINS.length === 0) {
+        // In development with no configured origins, allow same-origin only
+        // (no Access-Control-Allow-Origin header means browser blocks cross-origin)
+        if (origin) {
+            // Only allow if origin matches the server itself
+            const serverOrigin = `${req.protocol}://${req.headers.host}`;
+            if (origin === serverOrigin) {
+                res.header('Access-Control-Allow-Origin', origin);
+            }
+        }
+    }
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Credentials', 'true');
     if (req.method === 'OPTIONS') return res.sendStatus(200);
     next();
 });
@@ -96,6 +183,10 @@ app.post('/api/auth/login', loginHandler);
 // ==========================================
 // Ticket Endpoints
 // ==========================================
+
+// Whitelist of fields allowed on ticket PATCH
+const TICKET_PATCH_FIELDS = ['table', 'server', 'type', 'items', 'discount', 'deliveryFee', 'deliveryAddress', 'note'];
+
 app.get('/api/tickets', (req, res) => {
     let tickets = store.tickets;
     const { status, server, search } = req.query;
@@ -125,9 +216,18 @@ app.get('/api/tickets/:id', (req, res) => {
 });
 
 app.post('/api/tickets', authorize('tickets'), (req, res) => {
+    const { items, type, server: serverName, table, discount, deliveryFee: reqDeliveryFee, deliveryAddress, note } = req.body;
+
     const ticket = {
         id: store.nextTicketId++,
-        ...req.body,
+        items: Array.isArray(items) ? items : [],
+        type: type || 'dine-in',
+        server: serverName || (req.user ? req.user.name : 'unknown'),
+        table: table || null,
+        discount: discount || null,
+        deliveryFee: parseFloat(reqDeliveryFee) || 0,
+        deliveryAddress: deliveryAddress || '',
+        note: note || null,
         status: 'open',
         paid: false,
         time: new Date().toISOString(),
@@ -136,19 +236,20 @@ app.post('/api/tickets', authorize('tickets'), (req, res) => {
     };
 
     // Calculate totals
-    if (ticket.items && Array.isArray(ticket.items)) {
-        const subtotal = ticket.items.reduce((s, i) => s + (parseFloat(i.price) || 0) * (parseInt(i.qty, 10) || 0), 0);
+    if (ticket.items.length > 0) {
+        const subtotal = ticket.items.reduce((s, i) => s + Math.round((parseFloat(i.price) || 0) * (parseInt(i.qty, 10) || 0) * 100) / 100, 0);
         const discountAmt = ticket.discount ? (parseFloat(ticket.discount.amount) || 0) : 0;
-        const afterDiscount = subtotal - discountAmt;
-        const tax = afterDiscount * (store.config.tax.rate / 100);
-        const deliveryFee = parseFloat(ticket.deliveryFee) || 0;
+        const afterDiscount = Math.round(Math.max(0, subtotal - discountAmt) * 100) / 100;
+        const tax = Math.round(afterDiscount * (store.config.tax.rate / 100) * 100) / 100;
+        const dFee = parseFloat(ticket.deliveryFee) || 0;
 
         ticket.subtotal = Math.round(subtotal * 100) / 100;
-        ticket.tax = Math.round(tax * 100) / 100;
-        ticket.total = Math.round((afterDiscount + tax + deliveryFee) * 100) / 100;
+        ticket.tax = tax;
+        ticket.total = Math.round((afterDiscount + tax + dFee) * 100) / 100;
     }
 
     store.tickets.push(ticket);
+    scheduleSave();
     res.status(201).json(ticket);
 });
 
@@ -156,10 +257,16 @@ app.patch('/api/tickets/:id', authorize('tickets'), (req, res) => {
     const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
-    Object.assign(ticket, req.body, {
-        updatedAt: new Date().toISOString(),
-        updatedBy: req.user ? req.user.name : 'unknown'
+    // Whitelist allowed fields to prevent mass assignment
+    TICKET_PATCH_FIELDS.forEach(field => {
+        if (req.body[field] !== undefined) {
+            ticket[field] = req.body[field];
+        }
     });
+    ticket.updatedAt = new Date().toISOString();
+    ticket.updatedBy = req.user ? req.user.name : 'unknown';
+
+    scheduleSave();
     res.json(ticket);
 });
 
@@ -172,10 +279,11 @@ app.post('/api/tickets/:id/pay', authorize('tickets'), (req, res) => {
     ticket.status = 'paid';
     ticket.paid = true;
     ticket.paymentMethod = req.body.method || 'cash';
-    ticket.tip = parseFloat(req.body.tip) || 0;
+    ticket.tip = Math.round((parseFloat(req.body.tip) || 0) * 100) / 100;
     ticket.paidAt = new Date().toISOString();
     ticket.paidBy = req.user ? req.user.name : 'unknown';
 
+    scheduleSave();
     res.json(ticket);
 });
 
@@ -189,6 +297,7 @@ app.post('/api/tickets/:id/void', authorize('void'), (req, res) => {
     ticket.voidedAt = new Date().toISOString();
     ticket.voidReason = req.body.reason || '';
 
+    scheduleSave();
     res.json(ticket);
 });
 
@@ -205,15 +314,25 @@ app.post('/api/refunds', authorize('refund'), (req, res) => {
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
     if (ticket.status !== 'paid') return res.status(400).json({ error: 'Can only refund paid tickets' });
 
-    const refundAmount = parseFloat(amount);
-    if (isNaN(refundAmount) || refundAmount <= 0 || refundAmount > ticket.total) {
-        return res.status(400).json({ error: 'Invalid refund amount' });
+    const refundAmount = Math.round((parseFloat(amount) || 0) * 100) / 100;
+    const previousRefunds = ticket.refundedAmount || 0;
+    const remainingBalance = Math.round((ticket.total - previousRefunds) * 100) / 100;
+
+    if (refundAmount <= 0) {
+        return res.status(400).json({ error: 'Refund amount must be positive' });
+    }
+    if (refundAmount > remainingBalance) {
+        return res.status(400).json({
+            error: 'Refund amount exceeds remaining balance',
+            remainingBalance,
+            previousRefunds
+        });
     }
 
     const refund = {
         id: store.refunds.length + 1,
         ticketId: parseInt(ticketId),
-        amount: Math.round(refundAmount * 100) / 100,
+        amount: refundAmount,
         reason: reason || 'No reason provided',
         type: type || 'full',
         method: ticket.paymentMethod,
@@ -223,11 +342,12 @@ app.post('/api/refunds', authorize('refund'), (req, res) => {
 
     store.refunds.push(refund);
 
-    if (type === 'full') {
+    ticket.refundedAmount = Math.round((previousRefunds + refundAmount) * 100) / 100;
+    if (type === 'full' || ticket.refundedAmount >= ticket.total) {
         ticket.status = 'refunded';
     }
-    ticket.refundedAmount = (ticket.refundedAmount || 0) + refund.amount;
 
+    scheduleSave();
     res.status(201).json(refund);
 });
 
@@ -256,6 +376,7 @@ app.post('/api/kitchen', authorize('kitchen'), (req, res) => {
         time: new Date().toISOString()
     };
     store.kitchenOrders.push(order);
+    scheduleSave();
     res.status(201).json(order);
 });
 
@@ -266,6 +387,7 @@ app.post('/api/kitchen/:id/bump', authorize('kitchen'), (req, res) => {
     order.status = 'bumped';
     order.bumpedAt = new Date().toISOString();
     order.bumpedBy = req.user ? req.user.name : 'unknown';
+    scheduleSave();
     res.json(order);
 });
 
@@ -277,12 +399,19 @@ app.get('/api/held-orders', (req, res) => {
 });
 
 app.post('/api/held-orders', authorize('tickets'), (req, res) => {
+    const { items, type, server: serverName, table, discount, note } = req.body;
     const held = {
-        ...req.body,
+        items: items || [],
+        type: type || 'dine-in',
+        server: serverName || (req.user ? req.user.name : 'unknown'),
+        table: table || null,
+        discount: discount || null,
+        note: note || '',
         heldAt: new Date().toISOString(),
         heldBy: req.user ? req.user.name : 'unknown'
     };
     store.heldOrders.push(held);
+    scheduleSave();
     res.status(201).json(held);
 });
 
@@ -292,6 +421,7 @@ app.delete('/api/held-orders/:index', authorize('tickets'), (req, res) => {
         return res.status(404).json({ error: 'Held order not found' });
     }
     const removed = store.heldOrders.splice(idx, 1)[0];
+    scheduleSave();
     res.json(removed);
 });
 
@@ -329,6 +459,7 @@ app.post('/api/timeclock/clock-in', authorize('timeclock'), (req, res) => {
         clockOut: null
     };
     store.timeClock.push(record);
+    scheduleSave();
     res.status(201).json(record);
 });
 
@@ -343,12 +474,20 @@ app.post('/api/timeclock/clock-out', authorize('timeclock'), (req, res) => {
     const hours = (new Date(record.clockOut) - new Date(record.clockIn)) / 3600000;
     record.hoursWorked = Math.round(hours * 100) / 100;
 
+    scheduleSave();
     res.json(record);
 });
 
 // ==========================================
 // Configuration Endpoints (requires config permission)
 // ==========================================
+const CONFIG_ALLOWED_FIELDS = {
+    cashDiscount: ['enabled', 'mode', 'rate', 'cashLabel', 'surchargeLabel', 'showDualPricing', 'exemptDebit', 'applyBeforeTax', 'minCardAmount'],
+    tax: ['rate', 'inclusive', 'alcoholSeparate', 'alcoholRate'],
+    restaurant: ['name', 'address1', 'address2', 'city', 'state', 'zip', 'phone', 'email'],
+    receipt: ['customerCopy', 'merchantCopy', 'showDualPrices', 'showTipLine', 'footer', 'cdNotice']
+};
+
 app.get('/api/config', (req, res) => {
     res.json(store.config);
 });
@@ -360,11 +499,19 @@ app.get('/api/config/:section', (req, res) => {
 });
 
 app.put('/api/config/:section', authorize('config'), (req, res) => {
-    if (!store.config[req.params.section]) {
+    const sectionName = req.params.section;
+    if (!store.config[sectionName]) {
         return res.status(404).json({ error: 'Config section not found' });
     }
-    Object.assign(store.config[req.params.section], req.body);
-    res.json(store.config[req.params.section]);
+    // Whitelist allowed fields per section
+    const allowedFields = CONFIG_ALLOWED_FIELDS[sectionName] || [];
+    allowedFields.forEach(field => {
+        if (req.body[field] !== undefined) {
+            store.config[sectionName][field] = req.body[field];
+        }
+    });
+    scheduleSave();
+    res.json(store.config[sectionName]);
 });
 
 // ==========================================
@@ -424,7 +571,7 @@ app.get('/api/reports/item-mix', authorize('reports'), (req, res) => {
             const key = item.name;
             if (!itemMap[key]) itemMap[key] = { name: item.name, qty: 0, revenue: 0 };
             itemMap[key].qty += item.qty;
-            itemMap[key].revenue += item.price * item.qty;
+            itemMap[key].revenue += Math.round(item.price * item.qty * 100) / 100;
         });
     });
 
@@ -432,7 +579,7 @@ app.get('/api/reports/item-mix', authorize('reports'), (req, res) => {
     const totalRev = sorted.reduce((s, i) => s + i.revenue, 0);
     sorted.forEach(i => { i.pctOfSales = totalRev > 0 ? Math.round(i.revenue / totalRev * 1000) / 10 : 0; });
 
-    res.json({ items: sorted, totalRevenue: totalRev });
+    res.json({ items: sorted, totalRevenue: Math.round(totalRev * 100) / 100 });
 });
 
 app.get('/api/reports/labor', authorize('reports'), (req, res) => {
