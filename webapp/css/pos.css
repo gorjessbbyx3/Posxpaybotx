@@ -3098,3 +3098,612 @@ button {
     letter-spacing: 0.5px;
     pointer-events: none;
 }
+
+/* ========== TIP ADJUSTMENT MODAL ========== */
+.tip-adjust-modal-content {
+    max-width: 440px;
+}
+
+.tip-adjust-body {
+    padding: 16px;
+}
+
+.tip-ticket-info {
+    padding: 12px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+}
+
+.tip-info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    font-size: 0.85rem;
+}
+
+.tip-input-section {
+    margin-bottom: 16px;
+}
+
+.tip-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: block;
+    margin-bottom: 6px;
+}
+
+.tip-input-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 12px;
+}
+
+.tip-currency {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.tip-amount-input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: 1.25rem;
+    font-weight: 600;
+    text-align: right;
+    font-family: inherit;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.tip-amount-input:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.tip-presets {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.tip-preset-btn {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.tip-preset-btn:hover {
+    background: var(--bg-hover);
+}
+
+.tip-preset-btn.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.tip-new-total {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: var(--accent-light);
+    border-radius: var(--radius-sm);
+    font-size: 0.95rem;
+}
+
+.tip-adjust-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+/* ========== ORDER NOTES MODAL ========== */
+.notes-modal-content {
+    max-width: 500px;
+}
+
+.notes-body {
+    padding: 16px;
+}
+
+.notes-section {
+    margin-bottom: 14px;
+}
+
+.notes-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: block;
+    margin-bottom: 6px;
+}
+
+.notes-textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 0.85rem;
+    resize: vertical;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    box-sizing: border-box;
+}
+
+.notes-textarea:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.notes-item-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.notes-item-name {
+    min-width: 120px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.notes-item-input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    font-family: inherit;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.notes-item-input:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.notes-empty {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 12px;
+    font-size: 0.85rem;
+}
+
+.notes-quick-tags h4 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.quick-tag-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.quick-tag {
+    padding: 5px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.quick-tag:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.notes-footer {
+    display: flex;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+.btn-notes {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--border-color);
+}
+
+/* Notes in ticket display */
+.ticket-item-note {
+    font-size: 0.7rem;
+    color: var(--warning);
+    font-style: italic;
+    padding-top: 2px;
+}
+
+.ticket-note-bar {
+    background: var(--warning-bg);
+    color: var(--warning);
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    border-radius: var(--radius-sm);
+    margin-bottom: 4px;
+    font-weight: 500;
+}
+
+/* ========== CUSTOMER TAB MODAL ========== */
+.tab-modal-content {
+    max-width: 520px;
+}
+
+.tab-body {
+    padding: 16px;
+}
+
+.tab-search-section {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.tab-search-input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 0.85rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.tab-search-input:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.tab-new-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.tab-new-btn:hover {
+    filter: brightness(1.1);
+}
+
+.tab-list {
+    max-height: 300px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+}
+
+.tab-card {
+    padding: 12px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+    margin-bottom: 8px;
+}
+
+.tab-card-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.tab-card-info strong {
+    font-size: 0.95rem;
+}
+
+.tab-card-phone {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.tab-card-balance {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 6px 0;
+}
+
+.tab-running {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.tab-limit-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.tab-card-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.tab-card-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.tab-btn-sm {
+    padding: 5px 12px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.tab-btn-sm:hover {
+    filter: brightness(1.1);
+}
+
+.tab-btn-close {
+    background: var(--danger);
+}
+
+.tab-empty {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 20px;
+    font-size: 0.85rem;
+}
+
+.tab-form-grid {
+    display: grid;
+    grid-template-columns: 60px 1fr;
+    gap: 8px 12px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.tab-form-grid label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-align: right;
+}
+
+.tab-form-input {
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 0.85rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.tab-form-input:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.tab-form-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* ========== GIFT CARD MODAL ========== */
+.giftcard-modal-content {
+    max-width: 480px;
+}
+
+.giftcard-body {
+    padding: 16px;
+}
+
+.gc-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: block;
+    margin-bottom: 6px;
+}
+
+.gc-input-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.gc-input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 0.85rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.gc-input:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.gc-lookup-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.gc-lookup-btn:hover {
+    filter: brightness(1.1);
+}
+
+.gc-balance-display {
+    text-align: center;
+    padding: 16px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+    margin-bottom: 12px;
+}
+
+.gc-balance-label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.gc-balance-amount {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--success);
+    display: block;
+}
+
+.gc-balance-amount.gc-zero {
+    color: var(--danger);
+}
+
+.gc-history {
+    margin-bottom: 12px;
+}
+
+.gc-history-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 0.8rem;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.gc-debit {
+    color: var(--danger);
+}
+
+.gc-credit {
+    color: var(--success);
+}
+
+.gc-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.gc-action-btn {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.gc-action-btn:hover {
+    filter: brightness(1.1);
+}
+
+.gc-pay-btn {
+    background: var(--success);
+}
+
+.gc-new-section {
+    border-top: 1px solid var(--border-color);
+    padding-top: 12px;
+}
+
+.gc-new-section h4 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.gc-new-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.gc-amount-btn {
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.gc-amount-btn:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.gc-custom-amount {
+    display: flex;
+    gap: 8px;
+}
+
+/* ========== TICKET TIP ADJUST ROW ========== */
+.ticket-card-tip {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    margin-top: 4px;
+    border-top: 1px solid var(--border-light);
+    font-size: 0.8rem;
+}
+
+.tip-adjust-btn {
+    padding: 3px 10px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--accent);
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.tip-adjust-btn:hover {
+    background: var(--accent);
+    color: white;
+}

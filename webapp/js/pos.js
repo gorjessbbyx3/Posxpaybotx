@@ -3978,6 +3978,609 @@ populateMenu = function() {
 };
 
 // ==========================================
+// Tip Adjustment
+// ==========================================
+const tipAdjustModal = document.getElementById('tip-adjust-modal');
+let tipAdjustTicketId = null;
+
+document.getElementById('close-tip-adjust').addEventListener('click', () => {
+    tipAdjustModal.classList.remove('active');
+});
+
+document.getElementById('tip-adjust-cancel').addEventListener('click', () => {
+    tipAdjustModal.classList.remove('active');
+});
+
+function openTipAdjust(ticketId) {
+    const ticket = state.allTickets.find(t => t.id === ticketId);
+    if (!ticket) { showToast('Ticket not found', 'error'); return; }
+    if (!ticket.paid) { showToast('Can only adjust tips on paid tickets', 'error'); return; }
+
+    tipAdjustTicketId = ticketId;
+
+    const infoEl = document.getElementById('tip-ticket-info');
+    infoEl.innerHTML = `
+        <div class="tip-info-row"><span>Ticket</span><strong>#${ticket.id}</strong></div>
+        <div class="tip-info-row"><span>Total</span><strong>${formatCurrency(ticket.total)}</strong></div>
+        <div class="tip-info-row"><span>Payment</span><strong>${ticket.paymentMethod || 'N/A'}</strong></div>
+        <div class="tip-info-row"><span>Current Tip</span><strong>${formatCurrency(ticket.tip || 0)}</strong></div>
+    `;
+
+    document.getElementById('tip-amount-input').value = (ticket.tip || 0).toFixed(2);
+    updateTipNewTotal(ticket);
+
+    tipAdjustModal.classList.add('active');
+}
+window.openTipAdjust = openTipAdjust;
+
+function updateTipNewTotal(ticket) {
+    const tipVal = parseFloat(document.getElementById('tip-amount-input').value) || 0;
+    document.getElementById('tip-new-total').textContent = formatCurrency(ticket.total + tipVal);
+}
+
+// Tip preset buttons
+document.querySelectorAll('.tip-preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const ticket = state.allTickets.find(t => t.id === tipAdjustTicketId);
+        if (!ticket) return;
+
+        const pct = btn.dataset.pct;
+        if (pct === 'custom') {
+            document.getElementById('tip-amount-input').focus();
+            document.getElementById('tip-amount-input').select();
+            return;
+        }
+
+        const tipAmount = ticket.total * (parseInt(pct) / 100);
+        document.getElementById('tip-amount-input').value = tipAmount.toFixed(2);
+        updateTipNewTotal(ticket);
+
+        document.querySelectorAll('.tip-preset-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    });
+});
+
+document.getElementById('tip-amount-input').addEventListener('input', () => {
+    const ticket = state.allTickets.find(t => t.id === tipAdjustTicketId);
+    if (ticket) updateTipNewTotal(ticket);
+    document.querySelectorAll('.tip-preset-btn').forEach(b => b.classList.remove('active'));
+});
+
+document.getElementById('tip-adjust-save').addEventListener('click', () => {
+    const ticket = state.allTickets.find(t => t.id === tipAdjustTicketId);
+    if (!ticket) return;
+
+    const newTip = parseFloat(document.getElementById('tip-amount-input').value) || 0;
+    if (newTip < 0) {
+        showToast('Tip cannot be negative', 'error');
+        return;
+    }
+
+    const oldTip = ticket.tip || 0;
+    ticket.tip = Math.round(newTip * 100) / 100;
+    ticket.tipAdjustedAt = new Date().toISOString();
+    ticket.tipAdjustedBy = state.currentUser;
+
+    tipAdjustModal.classList.remove('active');
+    showToast(`Tip adjusted: ${formatCurrency(oldTip)} → ${formatCurrency(ticket.tip)}`);
+    populateTicketsList();
+    saveState();
+});
+
+// ==========================================
+// Order Notes & Special Instructions
+// ==========================================
+const notesModal = document.getElementById('notes-modal');
+let activeNoteItemIndex = -1;
+
+document.getElementById('btn-notes').addEventListener('click', () => {
+    openNotesModal();
+});
+
+document.getElementById('close-notes').addEventListener('click', () => {
+    notesModal.classList.remove('active');
+});
+
+document.getElementById('notes-cancel').addEventListener('click', () => {
+    notesModal.classList.remove('active');
+});
+
+function openNotesModal() {
+    notesModal.classList.add('active');
+
+    // Populate ticket note
+    document.getElementById('ticket-note-input').value = state.ticket.note || '';
+
+    // Populate item notes
+    const listEl = document.getElementById('notes-item-list');
+    if (state.ticket.items.length === 0) {
+        listEl.innerHTML = '<p class="notes-empty">No items in order</p>';
+    } else {
+        listEl.innerHTML = state.ticket.items.map((item, idx) => `
+            <div class="notes-item-row">
+                <span class="notes-item-name">${item.qty}x ${item.name}</span>
+                <input type="text" class="notes-item-input" data-index="${idx}"
+                    value="${item.note || ''}" placeholder="Add note...">
+            </div>
+        `).join('');
+    }
+
+    activeNoteItemIndex = -1;
+}
+
+// Quick tags - append to the focused note input
+document.querySelectorAll('.quick-tag').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const tag = btn.dataset.tag;
+
+        // Try to find the focused item note input
+        const focusedInput = notesModal.querySelector('.notes-item-input:focus');
+        if (focusedInput) {
+            focusedInput.value = focusedInput.value ? focusedInput.value + ', ' + tag : tag;
+            return;
+        }
+
+        // Otherwise append to ticket note
+        const ticketNote = document.getElementById('ticket-note-input');
+        ticketNote.value = ticketNote.value ? ticketNote.value + ', ' + tag : tag;
+    });
+});
+
+document.getElementById('notes-save').addEventListener('click', () => {
+    // Save ticket note
+    state.ticket.note = document.getElementById('ticket-note-input').value.trim() || null;
+
+    // Save item notes
+    notesModal.querySelectorAll('.notes-item-input').forEach(input => {
+        const idx = parseInt(input.dataset.index);
+        if (state.ticket.items[idx]) {
+            state.ticket.items[idx].note = input.value.trim() || null;
+        }
+    });
+
+    notesModal.classList.remove('active');
+    updateTicketDisplay();
+    showToast('Notes saved');
+});
+
+// ==========================================
+// Customer Tab Management
+// ==========================================
+const tabModal = document.getElementById('tab-modal');
+const customerTabs = [];
+
+document.getElementById('close-tab').addEventListener('click', () => {
+    tabModal.classList.remove('active');
+});
+
+document.getElementById('menu-customer-tabs').addEventListener('click', () => {
+    openTabModal();
+    $('#side-menu').classList.remove('open');
+    const overlay = document.querySelector('.side-menu-overlay');
+    if (overlay) overlay.classList.remove('active');
+});
+
+function openTabModal() {
+    tabModal.classList.add('active');
+    document.getElementById('tab-new-form').style.display = 'none';
+    refreshTabList();
+}
+
+function refreshTabList() {
+    const listEl = document.getElementById('tab-list');
+    const query = (document.getElementById('tab-search').value || '').toLowerCase();
+
+    let tabs = customerTabs.filter(t => t.status === 'open');
+    if (query) {
+        tabs = tabs.filter(t =>
+            t.name.toLowerCase().includes(query) ||
+            (t.phone || '').includes(query)
+        );
+    }
+
+    if (tabs.length === 0) {
+        listEl.innerHTML = '<p class="tab-empty">No open tabs</p>';
+    } else {
+        listEl.innerHTML = tabs.map((tab, idx) => `
+            <div class="tab-card">
+                <div class="tab-card-info">
+                    <strong>${tab.name}</strong>
+                    <span class="tab-card-phone">${tab.phone || 'No phone'}</span>
+                </div>
+                <div class="tab-card-balance">
+                    <span class="tab-running">${formatCurrency(tab.runningTotal)}</span>
+                    <span class="tab-limit-label">of ${formatCurrency(tab.limit)} limit</span>
+                </div>
+                <div class="tab-card-meta">
+                    <span>${tab.tickets.length} ticket(s)</span>
+                    <span>Opened ${new Date(tab.openedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                <div class="tab-card-actions">
+                    <button class="tab-btn-sm" onclick="addToTab(${idx})">Add Current</button>
+                    <button class="tab-btn-sm tab-btn-close" onclick="closeTab(${idx})">Close Tab</button>
+                </div>
+            </div>
+        `).join('');
+    }
+}
+
+document.getElementById('tab-search').addEventListener('input', () => {
+    refreshTabList();
+});
+
+document.getElementById('tab-new-btn').addEventListener('click', () => {
+    document.getElementById('tab-new-form').style.display = 'block';
+    document.getElementById('tab-name').focus();
+});
+
+document.getElementById('tab-form-cancel').addEventListener('click', () => {
+    document.getElementById('tab-new-form').style.display = 'none';
+});
+
+document.getElementById('tab-form-save').addEventListener('click', () => {
+    const name = document.getElementById('tab-name').value.trim();
+    if (!name) { showToast('Name is required', 'error'); return; }
+
+    const tab = {
+        name,
+        phone: document.getElementById('tab-phone').value.trim(),
+        limit: parseFloat(document.getElementById('tab-limit').value) || 100,
+        runningTotal: 0,
+        tickets: [],
+        status: 'open',
+        openedAt: new Date().toISOString(),
+        openedBy: state.currentUser
+    };
+
+    customerTabs.push(tab);
+    document.getElementById('tab-new-form').style.display = 'none';
+    document.getElementById('tab-name').value = '';
+    document.getElementById('tab-phone').value = '';
+    document.getElementById('tab-limit').value = '100';
+    refreshTabList();
+    showToast(`Tab opened for ${name}`);
+});
+
+function addToTab(tabIndex) {
+    const tab = customerTabs[tabIndex];
+    if (!tab || tab.status !== 'open') return;
+
+    if (state.ticket.items.length === 0) {
+        showToast('No items to add', 'warning');
+        return;
+    }
+
+    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+    if (tab.runningTotal + subtotal > tab.limit) {
+        showToast(`Exceeds tab limit (${formatCurrency(tab.limit)})`, 'error');
+        return;
+    }
+
+    tab.runningTotal += subtotal;
+    tab.tickets.push({
+        id: state.ticket.id,
+        items: [...state.ticket.items],
+        subtotal,
+        time: new Date().toISOString()
+    });
+
+    refreshTabList();
+    showToast(`${formatCurrency(subtotal)} added to ${tab.name}'s tab`);
+}
+window.addToTab = addToTab;
+
+function closeTab(tabIndex) {
+    const tab = customerTabs[tabIndex];
+    if (!tab) return;
+
+    tab.status = 'closed';
+    tab.closedAt = new Date().toISOString();
+
+    refreshTabList();
+    showToast(`Tab closed for ${tab.name} - Total: ${formatCurrency(tab.runningTotal)}`);
+}
+window.closeTab = closeTab;
+
+// ==========================================
+// Gift Card Management
+// ==========================================
+const giftCardModal = document.getElementById('giftcard-modal');
+const giftCards = {};
+
+document.getElementById('close-giftcard').addEventListener('click', () => {
+    giftCardModal.classList.remove('active');
+});
+
+document.getElementById('menu-gift-cards').addEventListener('click', () => {
+    giftCardModal.classList.add('active');
+    document.getElementById('gc-result').style.display = 'none';
+    document.getElementById('gc-card-number').value = '';
+    $('#side-menu').classList.remove('open');
+    const overlay = document.querySelector('.side-menu-overlay');
+    if (overlay) overlay.classList.remove('active');
+});
+
+document.getElementById('gc-lookup-btn').addEventListener('click', () => {
+    const cardNum = document.getElementById('gc-card-number').value.trim();
+    if (!cardNum) { showToast('Enter a card number', 'error'); return; }
+
+    const card = giftCards[cardNum];
+    if (!card) {
+        showToast('Card not found', 'error');
+        document.getElementById('gc-result').style.display = 'none';
+        return;
+    }
+
+    showGiftCardResult(card);
+});
+
+function showGiftCardResult(card) {
+    document.getElementById('gc-result').style.display = 'block';
+    document.getElementById('gc-balance').textContent = formatCurrency(card.balance);
+    document.getElementById('gc-balance').className = 'gc-balance-amount' + (card.balance <= 0 ? ' gc-zero' : '');
+
+    const histEl = document.getElementById('gc-history');
+    if (card.history.length === 0) {
+        histEl.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:8px">No transactions</p>';
+    } else {
+        histEl.innerHTML = card.history.slice(-5).reverse().map(h => `
+            <div class="gc-history-row">
+                <span>${new Date(h.time).toLocaleDateString()}</span>
+                <span>${h.type}</span>
+                <span class="${h.type === 'charge' ? 'gc-debit' : 'gc-credit'}">${h.type === 'charge' ? '-' : '+'}${formatCurrency(h.amount)}</span>
+            </div>
+        `).join('');
+    }
+}
+
+// Sell new gift card
+document.querySelectorAll('.gc-amount-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const amount = parseFloat(btn.dataset.amount);
+        activateGiftCard(amount);
+    });
+});
+
+document.getElementById('gc-sell-btn').addEventListener('click', () => {
+    const amount = parseFloat(document.getElementById('gc-custom-amount').value);
+    if (!amount || amount < 5) { showToast('Minimum $5', 'error'); return; }
+    activateGiftCard(amount);
+});
+
+function activateGiftCard(amount) {
+    const cardNum = 'GC-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+
+    giftCards[cardNum] = {
+        number: cardNum,
+        balance: amount,
+        originalAmount: amount,
+        activatedAt: new Date().toISOString(),
+        activatedBy: state.currentUser,
+        history: [
+            { type: 'activation', amount, time: new Date().toISOString() }
+        ]
+    };
+
+    document.getElementById('gc-card-number').value = cardNum;
+    showGiftCardResult(giftCards[cardNum]);
+    showToast(`Gift card activated: ${cardNum} for ${formatCurrency(amount)}`);
+}
+
+// Reload card
+document.getElementById('gc-reload-btn').addEventListener('click', () => {
+    const cardNum = document.getElementById('gc-card-number').value.trim();
+    const card = giftCards[cardNum];
+    if (!card) return;
+
+    const reloadAmount = parseFloat(prompt('Reload amount:'));
+    if (!reloadAmount || reloadAmount <= 0) return;
+
+    card.balance += reloadAmount;
+    card.history.push({ type: 'reload', amount: reloadAmount, time: new Date().toISOString() });
+    showGiftCardResult(card);
+    showToast(`Reloaded ${formatCurrency(reloadAmount)} to ${cardNum}`);
+});
+
+// Pay with gift card
+document.getElementById('gc-pay-btn').addEventListener('click', () => {
+    const cardNum = document.getElementById('gc-card-number').value.trim();
+    const card = giftCards[cardNum];
+    if (!card) return;
+
+    if (state.ticket.items.length === 0) {
+        showToast('No items in current order', 'warning');
+        return;
+    }
+
+    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+    const tax = subtotal * (CONFIG.taxRate / 100);
+    const total = subtotal + tax;
+
+    if (card.balance < total) {
+        showToast(`Insufficient balance. Card: ${formatCurrency(card.balance)}, Total: ${formatCurrency(total)}`, 'error');
+        return;
+    }
+
+    card.balance -= total;
+    card.history.push({ type: 'charge', amount: total, time: new Date().toISOString(), ticketId: state.ticket.id });
+    showGiftCardResult(card);
+
+    // Complete the payment
+    state.ticket.table = state.ticket.table;
+    state.allTickets.push({
+        ...state.ticket,
+        id: state.ticket.id,
+        status: 'paid',
+        paid: true,
+        paymentMethod: 'gift',
+        giftCardNumber: cardNum,
+        total,
+        subtotal,
+        tax,
+        time: new Date(),
+        paidAt: new Date().toISOString()
+    });
+
+    giftCardModal.classList.remove('active');
+    showToast(`Paid ${formatCurrency(total)} with gift card ${cardNum}. Remaining: ${formatCurrency(card.balance)}`);
+    newTicket();
+    saveState();
+});
+
+// ==========================================
+// Thermal Report Printing
+// ==========================================
+function printThermalReport() {
+    let totalSales = 0, cashSales = 0, cardSales = 0, ticketCount = 0;
+    let totalTips = 0, totalDiscounts = 0, voidCount = 0, refundTotal = 0;
+
+    state.allTickets.forEach(t => {
+        if (t.status === 'voided') { voidCount++; return; }
+        if (t.paid) {
+            ticketCount++;
+            totalSales += t.total || 0;
+            if (t.tip) totalTips += t.tip;
+            if (t.discount) totalDiscounts += t.discount.amount || 0;
+            if (t.paymentMethod === 'cash') cashSales += t.total || 0;
+            else cardSales += t.total || 0;
+        }
+    });
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString();
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+    const receiptWidth = 280;
+    const dashes = '-'.repeat(32);
+    const stars = '*'.repeat(32);
+
+    const report = `
+<div style="font-family:'Courier New',monospace;width:${receiptWidth}px;padding:8px;font-size:12px;color:#000;background:#fff;">
+    <div style="text-align:center;font-weight:bold;font-size:14px;">DAILY SALES REPORT</div>
+    <div style="text-align:center;font-size:11px;">${CONFIG.restaurant ? CONFIG.restaurant.name || 'Restaurant POS' : 'Restaurant POS'}</div>
+    <div style="text-align:center;font-size:11px;">${dateStr} ${timeStr}</div>
+    <div style="text-align:center;font-size:11px;">Printed by: ${state.currentUser}</div>
+    <pre style="margin:8px 0;font-size:11px;">${stars}
+SALES SUMMARY
+${dashes}
+Tickets:           ${String(ticketCount).padStart(10)}
+Total Sales:       ${formatCurrency(totalSales).padStart(10)}
+Cash Sales:        ${formatCurrency(cashSales).padStart(10)}
+Card Sales:        ${formatCurrency(cardSales).padStart(10)}
+${dashes}
+DEDUCTIONS
+${dashes}
+Discounts:         ${formatCurrency(totalDiscounts).padStart(10)}
+Refunds:           ${formatCurrency(refundTotal).padStart(10)}
+Voids:             ${String(voidCount).padStart(10)}
+${dashes}
+EXTRAS
+${dashes}
+Tips:              ${formatCurrency(totalTips).padStart(10)}
+${dashes}
+NET SALES:         ${formatCurrency(totalSales - refundTotal).padStart(10)}
+Avg Ticket:        ${formatCurrency(ticketCount > 0 ? totalSales / ticketCount : 0).padStart(10)}
+${stars}
+</pre>
+    <div style="text-align:center;font-size:10px;color:#666;">--- End of Report ---</div>
+</div>`;
+
+    const printWindow = window.open('', 'report-print', 'width=320,height=600');
+    if (!printWindow) { showToast('Pop-up blocked', 'error'); return; }
+
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>Sales Report</title>
+        <style>@page{size:80mm auto;margin:0;}body{margin:0;padding:4px;}</style>
+        </head><body>${report}
+        <div style="text-align:center;margin-top:12px;">
+            <button onclick="window.print()" style="padding:8px 20px;font-size:14px;cursor:pointer;">Print</button>
+            <button onclick="window.close()" style="padding:8px 20px;font-size:14px;cursor:pointer;margin-left:8px;">Close</button>
+        </div>
+        </body></html>`);
+    printWindow.document.close();
+    showToast('Report ready to print');
+}
+
+// Wire up the Print Report button
+const printReportBtn = document.getElementById('btn-print-report');
+if (printReportBtn) {
+    printReportBtn.addEventListener('click', printThermalReport);
+}
+
+// ==========================================
+// Patch Ticket Display to Show Notes
+// ==========================================
+const _origUpdateTicketDisplayNotes = updateTicketDisplay;
+updateTicketDisplay = function() {
+    _origUpdateTicketDisplayNotes();
+
+    // Add note indicators to items
+    const container = document.getElementById('ticket-items');
+    if (!container) return;
+
+    const items = container.querySelectorAll('.ticket-item');
+    items.forEach((el, idx) => {
+        const item = state.ticket.items[idx];
+        if (item && item.note) {
+            const noteEl = document.createElement('div');
+            noteEl.className = 'ticket-item-note';
+            noteEl.textContent = item.note;
+            const details = el.querySelector('.ticket-item-details');
+            if (details) details.appendChild(noteEl);
+        }
+    });
+
+    // Show ticket-level note
+    if (state.ticket.note) {
+        const noteBar = document.createElement('div');
+        noteBar.className = 'ticket-note-bar';
+        noteBar.textContent = state.ticket.note;
+        container.prepend(noteBar);
+    }
+};
+
+// ==========================================
+// Patch Tickets List for Tip Adjust Button
+// ==========================================
+const _origPopulateTicketsListTip = populateTicketsList;
+populateTicketsList = function() {
+    _origPopulateTicketsListTip();
+
+    const container = document.getElementById('tickets-list');
+    if (!container) return;
+
+    container.querySelectorAll('.ticket-card').forEach((el, idx) => {
+        const ticket = state.allTickets[idx];
+        if (!ticket || !ticket.paid) return;
+
+        // Add tip info and adjust button
+        const tipRow = document.createElement('div');
+        tipRow.className = 'ticket-card-tip';
+        tipRow.innerHTML = `
+            <span>Tip: ${formatCurrency(ticket.tip || 0)}</span>
+            <button class="tip-adjust-btn" onclick="openTipAdjust(${ticket.id})">Adjust Tip</button>
+        `;
+        el.appendChild(tipRow);
+    });
+};
+
+// ==========================================
+// Patch Kitchen Ticket for Notes Display
+// ==========================================
+const _origPrintKitchenTickets = printKitchenTickets;
+printKitchenTickets = function(order) {
+    // Inject item notes into station-routed tickets
+    order.items.forEach(item => {
+        if (!item.notes) {
+            const ticketItem = state.ticket.items.find(i => i.id === item.id && i.name === item.name);
+            if (ticketItem && ticketItem.note) {
+                item.notes = ticketItem.note;
+            }
+        }
+    });
+    _origPrintKitchenTickets(order);
+};
+
+// ==========================================
 // Service Worker Registration
 // ==========================================
 if ('serviceWorker' in navigator) {

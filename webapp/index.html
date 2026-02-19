@@ -184,6 +184,7 @@
                         <button class="action-btn btn-discount" id="btn-discount">Discount</button>
                         <button class="action-btn btn-hold" id="btn-hold">Hold</button>
                         <button class="action-btn btn-split" id="btn-split">Split</button>
+                        <button class="action-btn btn-notes" id="btn-notes">Notes</button>
                         <button class="action-btn btn-send" id="btn-send">Send to Kitchen</button>
                     </div>
                     <div class="payment-buttons">
@@ -552,6 +553,23 @@
                 Compliance Signage
             </a>
             <div class="side-menu-divider"></div>
+            <div class="side-menu-link" id="menu-customer-tabs">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                Customer Tabs
+            </div>
+            <div class="side-menu-link" id="menu-gift-cards">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="8" width="18" height="13" rx="2"></rect>
+                    <path d="M12 8V3"></path>
+                    <path d="M7.5 3C9 3 12 5 12 8"></path>
+                    <path d="M16.5 3C15 3 12 5 12 8"></path>
+                </svg>
+                Gift Cards
+            </div>
+            <div class="side-menu-divider"></div>
             <div class="side-menu-link" id="menu-clock-in">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="10"></circle>
@@ -770,6 +788,163 @@
                     <div class="shortcut-row"><kbd>4</kbd><span>Sides</span></div>
                     <div class="shortcut-row"><kbd>5</kbd><span>Drinks</span></div>
                     <div class="shortcut-row"><kbd>6</kbd><span>Desserts</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tip Adjustment Modal -->
+    <div id="tip-adjust-modal" class="modal">
+        <div class="modal-content tip-adjust-modal-content">
+            <div class="modal-header">
+                <h3>Tip Adjustment</h3>
+                <button class="modal-close" id="close-tip-adjust">&times;</button>
+            </div>
+            <div class="tip-adjust-body">
+                <div class="tip-ticket-info" id="tip-ticket-info">
+                    <!-- Populated by JS -->
+                </div>
+                <div class="tip-input-section">
+                    <label class="tip-label">Tip Amount</label>
+                    <div class="tip-input-row">
+                        <span class="tip-currency">$</span>
+                        <input type="text" id="tip-amount-input" class="tip-amount-input" value="0.00" autocomplete="off">
+                    </div>
+                    <div class="tip-presets">
+                        <button class="tip-preset-btn" data-pct="15">15%</button>
+                        <button class="tip-preset-btn" data-pct="18">18%</button>
+                        <button class="tip-preset-btn" data-pct="20">20%</button>
+                        <button class="tip-preset-btn" data-pct="25">25%</button>
+                        <button class="tip-preset-btn" data-pct="custom">Custom</button>
+                    </div>
+                    <div class="tip-new-total">
+                        <span>New Total (with tip):</span>
+                        <strong id="tip-new-total">$0.00</strong>
+                    </div>
+                </div>
+                <div class="tip-adjust-actions">
+                    <button class="btn-cancel" id="tip-adjust-cancel">Cancel</button>
+                    <button class="btn-confirm" id="tip-adjust-save">Save Tip</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Order Notes Modal -->
+    <div id="notes-modal" class="modal">
+        <div class="modal-content notes-modal-content">
+            <div class="modal-header">
+                <h3>Order Notes</h3>
+                <button class="modal-close" id="close-notes">&times;</button>
+            </div>
+            <div class="notes-body">
+                <div class="notes-section">
+                    <label class="notes-label">Ticket Note</label>
+                    <textarea id="ticket-note-input" class="notes-textarea" placeholder="Special instructions for the whole order..." rows="2"></textarea>
+                </div>
+                <div class="notes-section">
+                    <label class="notes-label">Item Notes</label>
+                    <div class="notes-item-list" id="notes-item-list">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+                <div class="notes-quick-tags">
+                    <h4>Quick Tags</h4>
+                    <div class="quick-tag-grid">
+                        <button class="quick-tag" data-tag="No salt">No salt</button>
+                        <button class="quick-tag" data-tag="Extra sauce">Extra sauce</button>
+                        <button class="quick-tag" data-tag="On the side">On the side</button>
+                        <button class="quick-tag" data-tag="Well done">Well done</button>
+                        <button class="quick-tag" data-tag="No onions">No onions</button>
+                        <button class="quick-tag" data-tag="Gluten free">Gluten free</button>
+                        <button class="quick-tag" data-tag="Allergy">Allergy</button>
+                        <button class="quick-tag" data-tag="Rush">Rush</button>
+                        <button class="quick-tag" data-tag="VIP">VIP</button>
+                        <button class="quick-tag" data-tag="Birthday">Birthday</button>
+                    </div>
+                </div>
+            </div>
+            <div class="notes-footer">
+                <button class="btn-cancel" id="notes-cancel">Cancel</button>
+                <button class="btn-confirm" id="notes-save">Save Notes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Customer Tab Modal -->
+    <div id="tab-modal" class="modal">
+        <div class="modal-content tab-modal-content">
+            <div class="modal-header">
+                <h3>Customer Tabs</h3>
+                <button class="modal-close" id="close-tab">&times;</button>
+            </div>
+            <div class="tab-body">
+                <div class="tab-search-section">
+                    <input type="text" id="tab-search" class="tab-search-input" placeholder="Search by name or phone..." autocomplete="off">
+                    <button class="tab-new-btn" id="tab-new-btn">+ New Tab</button>
+                </div>
+                <div class="tab-list" id="tab-list">
+                    <!-- Populated by JS -->
+                </div>
+                <div class="tab-new-form" id="tab-new-form" style="display:none">
+                    <h4>Open New Tab</h4>
+                    <div class="tab-form-grid">
+                        <label>Name</label>
+                        <input type="text" id="tab-name" class="tab-form-input" placeholder="Customer name" autocomplete="off">
+                        <label>Phone</label>
+                        <input type="tel" id="tab-phone" class="tab-form-input" placeholder="Phone number" autocomplete="off">
+                        <label>Limit</label>
+                        <input type="number" id="tab-limit" class="tab-form-input" placeholder="Tab limit ($)" value="100">
+                    </div>
+                    <div class="tab-form-actions">
+                        <button class="btn-cancel" id="tab-form-cancel">Cancel</button>
+                        <button class="btn-confirm" id="tab-form-save">Open Tab</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gift Card Modal -->
+    <div id="giftcard-modal" class="modal">
+        <div class="modal-content giftcard-modal-content">
+            <div class="modal-header">
+                <h3>Gift Cards</h3>
+                <button class="modal-close" id="close-giftcard">&times;</button>
+            </div>
+            <div class="giftcard-body">
+                <div class="gc-lookup-section">
+                    <label class="gc-label">Card Number</label>
+                    <div class="gc-input-row">
+                        <input type="text" id="gc-card-number" class="gc-input" placeholder="Enter or scan card number" autocomplete="off">
+                        <button class="gc-lookup-btn" id="gc-lookup-btn">Look Up</button>
+                    </div>
+                </div>
+                <div class="gc-result" id="gc-result" style="display:none">
+                    <div class="gc-balance-display">
+                        <span class="gc-balance-label">Balance</span>
+                        <span class="gc-balance-amount" id="gc-balance">$0.00</span>
+                    </div>
+                    <div class="gc-history" id="gc-history">
+                        <!-- Populated by JS -->
+                    </div>
+                    <div class="gc-actions">
+                        <button class="gc-action-btn" id="gc-reload-btn">Reload Card</button>
+                        <button class="gc-action-btn gc-pay-btn" id="gc-pay-btn">Pay with Card</button>
+                    </div>
+                </div>
+                <div class="gc-new-section">
+                    <h4>Sell New Gift Card</h4>
+                    <div class="gc-new-grid">
+                        <button class="gc-amount-btn" data-amount="25">$25</button>
+                        <button class="gc-amount-btn" data-amount="50">$50</button>
+                        <button class="gc-amount-btn" data-amount="75">$75</button>
+                        <button class="gc-amount-btn" data-amount="100">$100</button>
+                    </div>
+                    <div class="gc-custom-amount">
+                        <input type="number" id="gc-custom-amount" class="gc-input" placeholder="Custom amount" min="5" step="5">
+                        <button class="gc-action-btn" id="gc-sell-btn">Activate Card</button>
+                    </div>
                 </div>
             </div>
         </div>
