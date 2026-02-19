@@ -9,12 +9,14 @@
  * - Configuration management
  * - Reporting endpoints
  *
- * Designed to run alongside the static webapp.
+ * Now with JWT-based authentication and role-based authorization.
  * Data stored in-memory by default; swap store for DB in production.
  */
 
 const express = require('express');
 const path = require('path');
+const { loginHandler, authenticate, authorize } = require('./auth');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -71,15 +73,25 @@ const store = {
 };
 
 // ==========================================
-// Middleware
+// CORS Middleware
 // ==========================================
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     if (req.method === 'OPTIONS') return res.sendStatus(200);
     next();
 });
+
+// ==========================================
+// Authentication (applied to all /api routes)
+// ==========================================
+app.use('/api', authenticate);
+
+// ==========================================
+// Auth Endpoints
+// ==========================================
+app.post('/api/auth/login', loginHandler);
 
 // ==========================================
 // Ticket Endpoints
@@ -112,41 +124,47 @@ app.get('/api/tickets/:id', (req, res) => {
     res.json(ticket);
 });
 
-app.post('/api/tickets', (req, res) => {
+app.post('/api/tickets', authorize('tickets'), (req, res) => {
     const ticket = {
         id: store.nextTicketId++,
         ...req.body,
         status: 'open',
         paid: false,
         time: new Date().toISOString(),
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        createdBy: req.user ? req.user.name : 'unknown'
     };
 
     // Calculate totals
-    const subtotal = ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
-    const discountAmt = ticket.discount ? ticket.discount.amount : 0;
-    const afterDiscount = subtotal - discountAmt;
-    const tax = afterDiscount * (store.config.tax.rate / 100);
-    const deliveryFee = ticket.deliveryFee || 0;
+    if (ticket.items && Array.isArray(ticket.items)) {
+        const subtotal = ticket.items.reduce((s, i) => s + (parseFloat(i.price) || 0) * (parseInt(i.qty, 10) || 0), 0);
+        const discountAmt = ticket.discount ? (parseFloat(ticket.discount.amount) || 0) : 0;
+        const afterDiscount = subtotal - discountAmt;
+        const tax = afterDiscount * (store.config.tax.rate / 100);
+        const deliveryFee = parseFloat(ticket.deliveryFee) || 0;
 
-    ticket.subtotal = Math.round(subtotal * 100) / 100;
-    ticket.tax = Math.round(tax * 100) / 100;
-    ticket.total = Math.round((afterDiscount + tax + deliveryFee) * 100) / 100;
+        ticket.subtotal = Math.round(subtotal * 100) / 100;
+        ticket.tax = Math.round(tax * 100) / 100;
+        ticket.total = Math.round((afterDiscount + tax + deliveryFee) * 100) / 100;
+    }
 
     store.tickets.push(ticket);
     res.status(201).json(ticket);
 });
 
-app.patch('/api/tickets/:id', (req, res) => {
+app.patch('/api/tickets/:id', authorize('tickets'), (req, res) => {
     const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
-    Object.assign(ticket, req.body, { updatedAt: new Date().toISOString() });
+    Object.assign(ticket, req.body, {
+        updatedAt: new Date().toISOString(),
+        updatedBy: req.user ? req.user.name : 'unknown'
+    });
     res.json(ticket);
 });
 
 // Pay a ticket
-app.post('/api/tickets/:id/pay', (req, res) => {
+app.post('/api/tickets/:id/pay', authorize('tickets'), (req, res) => {
     const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
     if (ticket.status === 'paid') return res.status(400).json({ error: 'Already paid' });
@@ -154,19 +172,20 @@ app.post('/api/tickets/:id/pay', (req, res) => {
     ticket.status = 'paid';
     ticket.paid = true;
     ticket.paymentMethod = req.body.method || 'cash';
-    ticket.tip = req.body.tip || 0;
+    ticket.tip = parseFloat(req.body.tip) || 0;
     ticket.paidAt = new Date().toISOString();
+    ticket.paidBy = req.user ? req.user.name : 'unknown';
 
     res.json(ticket);
 });
 
-// Void a ticket
-app.post('/api/tickets/:id/void', (req, res) => {
+// Void a ticket (requires void permission)
+app.post('/api/tickets/:id/void', authorize('void'), (req, res) => {
     const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
     ticket.status = 'voided';
-    ticket.voidedBy = req.body.user || 'unknown';
+    ticket.voidedBy = req.user ? req.user.name : (req.body.user || 'unknown');
     ticket.voidedAt = new Date().toISOString();
     ticket.voidReason = req.body.reason || '';
 
@@ -174,30 +193,31 @@ app.post('/api/tickets/:id/void', (req, res) => {
 });
 
 // ==========================================
-// Refund Endpoints
+// Refund Endpoints (requires refund permission)
 // ==========================================
 app.get('/api/refunds', (req, res) => {
     res.json({ refunds: store.refunds, total: store.refunds.length });
 });
 
-app.post('/api/refunds', (req, res) => {
+app.post('/api/refunds', authorize('refund'), (req, res) => {
     const { ticketId, amount, reason, type } = req.body;
-    const ticket = store.tickets.find(t => t.id === ticketId);
+    const ticket = store.tickets.find(t => t.id === parseInt(ticketId));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
     if (ticket.status !== 'paid') return res.status(400).json({ error: 'Can only refund paid tickets' });
 
-    if (amount <= 0 || amount > ticket.total) {
+    const refundAmount = parseFloat(amount);
+    if (isNaN(refundAmount) || refundAmount <= 0 || refundAmount > ticket.total) {
         return res.status(400).json({ error: 'Invalid refund amount' });
     }
 
     const refund = {
         id: store.refunds.length + 1,
-        ticketId,
-        amount: Math.round(amount * 100) / 100,
+        ticketId: parseInt(ticketId),
+        amount: Math.round(refundAmount * 100) / 100,
         reason: reason || 'No reason provided',
         type: type || 'full',
         method: ticket.paymentMethod,
-        processedBy: req.body.processedBy || 'unknown',
+        processedBy: req.user ? req.user.name : (req.body.processedBy || 'unknown'),
         time: new Date().toISOString()
     };
 
@@ -225,12 +245,12 @@ app.get('/api/kitchen', (req, res) => {
     res.json({ orders, active: orders.length });
 });
 
-app.post('/api/kitchen', (req, res) => {
+app.post('/api/kitchen', authorize('kitchen'), (req, res) => {
     const order = {
         id: req.body.ticketId,
         items: req.body.items || [],
         type: req.body.type || 'dine-in',
-        server: req.body.server || 'Unknown',
+        server: req.body.server || (req.user ? req.user.name : 'Unknown'),
         table: req.body.table || null,
         status: 'new',
         time: new Date().toISOString()
@@ -239,12 +259,13 @@ app.post('/api/kitchen', (req, res) => {
     res.status(201).json(order);
 });
 
-app.post('/api/kitchen/:id/bump', (req, res) => {
+app.post('/api/kitchen/:id/bump', authorize('kitchen'), (req, res) => {
     const order = store.kitchenOrders.find(o => o.id === parseInt(req.params.id));
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
     order.status = 'bumped';
     order.bumpedAt = new Date().toISOString();
+    order.bumpedBy = req.user ? req.user.name : 'unknown';
     res.json(order);
 });
 
@@ -255,16 +276,17 @@ app.get('/api/held-orders', (req, res) => {
     res.json({ orders: store.heldOrders, total: store.heldOrders.length });
 });
 
-app.post('/api/held-orders', (req, res) => {
+app.post('/api/held-orders', authorize('tickets'), (req, res) => {
     const held = {
         ...req.body,
-        heldAt: new Date().toISOString()
+        heldAt: new Date().toISOString(),
+        heldBy: req.user ? req.user.name : 'unknown'
     };
     store.heldOrders.push(held);
     res.status(201).json(held);
 });
 
-app.delete('/api/held-orders/:index', (req, res) => {
+app.delete('/api/held-orders/:index', authorize('tickets'), (req, res) => {
     const idx = parseInt(req.params.index);
     if (idx < 0 || idx >= store.heldOrders.length) {
         return res.status(404).json({ error: 'Held order not found' });
@@ -290,7 +312,7 @@ app.get('/api/timeclock', (req, res) => {
     res.json({ records, total: records.length });
 });
 
-app.post('/api/timeclock/clock-in', (req, res) => {
+app.post('/api/timeclock/clock-in', authorize('timeclock'), (req, res) => {
     const { empId, empName, role } = req.body;
     if (!empId) return res.status(400).json({ error: 'Employee ID required' });
 
@@ -301,8 +323,8 @@ app.post('/api/timeclock/clock-in', (req, res) => {
     const record = {
         id: store.timeClock.length + 1,
         empId,
-        empName: empName || 'Unknown',
-        role: role || 'server',
+        empName: empName || (req.user ? req.user.name : 'Unknown'),
+        role: role || (req.user ? req.user.role : 'server'),
         clockIn: new Date().toISOString(),
         clockOut: null
     };
@@ -310,7 +332,7 @@ app.post('/api/timeclock/clock-in', (req, res) => {
     res.status(201).json(record);
 });
 
-app.post('/api/timeclock/clock-out', (req, res) => {
+app.post('/api/timeclock/clock-out', authorize('timeclock'), (req, res) => {
     const { empId } = req.body;
     if (!empId) return res.status(400).json({ error: 'Employee ID required' });
 
@@ -325,7 +347,7 @@ app.post('/api/timeclock/clock-out', (req, res) => {
 });
 
 // ==========================================
-// Configuration Endpoints
+// Configuration Endpoints (requires config permission)
 // ==========================================
 app.get('/api/config', (req, res) => {
     res.json(store.config);
@@ -337,7 +359,7 @@ app.get('/api/config/:section', (req, res) => {
     res.json(section);
 });
 
-app.put('/api/config/:section', (req, res) => {
+app.put('/api/config/:section', authorize('config'), (req, res) => {
     if (!store.config[req.params.section]) {
         return res.status(404).json({ error: 'Config section not found' });
     }
@@ -346,9 +368,9 @@ app.put('/api/config/:section', (req, res) => {
 });
 
 // ==========================================
-// Reports Endpoints
+// Reports Endpoints (requires reports permission)
 // ==========================================
-app.get('/api/reports/summary', (req, res) => {
+app.get('/api/reports/summary', authorize('reports'), (req, res) => {
     let totalSales = 0, totalTax = 0, totalTips = 0, totalDiscounts = 0;
     let cashSales = 0, cardSales = 0, ticketCount = 0;
     let totalRefunds = store.refunds.reduce((s, r) => s + r.amount, 0);
@@ -378,7 +400,7 @@ app.get('/api/reports/summary', (req, res) => {
     });
 });
 
-app.get('/api/reports/hourly', (req, res) => {
+app.get('/api/reports/hourly', authorize('reports'), (req, res) => {
     const hourlyData = {};
     for (let h = 6; h <= 23; h++) hourlyData[h] = { sales: 0, tickets: 0 };
 
@@ -394,11 +416,11 @@ app.get('/api/reports/hourly', (req, res) => {
     res.json(hourlyData);
 });
 
-app.get('/api/reports/item-mix', (req, res) => {
+app.get('/api/reports/item-mix', authorize('reports'), (req, res) => {
     const itemMap = {};
     store.tickets.forEach(t => {
         if (t.status === 'voided') return;
-        t.items.forEach(item => {
+        (t.items || []).forEach(item => {
             const key = item.name;
             if (!itemMap[key]) itemMap[key] = { name: item.name, qty: 0, revenue: 0 };
             itemMap[key].qty += item.qty;
@@ -413,7 +435,7 @@ app.get('/api/reports/item-mix', (req, res) => {
     res.json({ items: sorted, totalRevenue: totalRev });
 });
 
-app.get('/api/reports/labor', (req, res) => {
+app.get('/api/reports/labor', authorize('reports'), (req, res) => {
     const laborMap = {};
 
     store.timeClock.forEach(r => {
@@ -444,7 +466,7 @@ app.get('/api/reports/labor', (req, res) => {
 });
 
 // ==========================================
-// Health check
+// Health check (no auth required)
 // ==========================================
 app.get('/api/health', (req, res) => {
     res.json({
@@ -465,12 +487,15 @@ app.get('*', (req, res) => {
 // ==========================================
 // Start server
 // ==========================================
-app.listen(PORT, () => {
-    console.log(`Restaurant POS API running on port ${PORT}`);
-    console.log(`  POS:     http://localhost:${PORT}`);
-    console.log(`  Admin:   http://localhost:${PORT}/admin.html`);
-    console.log(`  Display: http://localhost:${PORT}/customer-display.html`);
-    console.log(`  API:     http://localhost:${PORT}/api/health`);
-});
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`Restaurant POS API running on port ${PORT}`);
+        console.log(`  POS:     http://localhost:${PORT}`);
+        console.log(`  Admin:   http://localhost:${PORT}/admin.html`);
+        console.log(`  Display: http://localhost:${PORT}/customer-display.html`);
+        console.log(`  API:     http://localhost:${PORT}/api/health`);
+        console.log('  Auth:    JWT-based (POST /api/auth/login)');
+    });
+}
 
-module.exports = app;
+module.exports = { app, store };

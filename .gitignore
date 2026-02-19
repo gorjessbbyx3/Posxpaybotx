@@ -40,6 +40,10 @@ offline-payments.queue
 *.log
 logs/
 
+# Node.js
+node_modules/
+package-lock.json
+
 # Sensitive
 *.env
 credentials.json

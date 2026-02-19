@@ -1,0 +1,483 @@
+/**
+ * Unit Tests - Business Logic Calculations
+ *
+ * Tests all pure calculation functions that handle
+ * money, tax, discounts, tips, inventory, and labor.
+ *
+ * Uses Node.js built-in test runner (node --test).
+ * Zero dependencies.
+ */
+
+const { describe, it } = require('node:test');
+const assert = require('node:assert/strict');
+const Calc = require('../js/calculations');
+
+// ==========================================
+// Subtotal
+// ==========================================
+describe('subtotal', () => {
+    it('sums price * qty for all items', () => {
+        const items = [
+            { price: 12.99, qty: 2 },
+            { price: 5.99, qty: 1 }
+        ];
+        assert.equal(Calc.subtotal(items), 31.97);
+    });
+
+    it('returns 0 for empty array', () => {
+        assert.equal(Calc.subtotal([]), 0);
+    });
+
+    it('returns 0 for null/undefined', () => {
+        assert.equal(Calc.subtotal(null), 0);
+        assert.equal(Calc.subtotal(undefined), 0);
+    });
+
+    it('handles items with 0 qty', () => {
+        assert.equal(Calc.subtotal([{ price: 10, qty: 0 }]), 0);
+    });
+
+    it('handles items with 0 price (water)', () => {
+        assert.equal(Calc.subtotal([{ price: 0, qty: 3 }]), 0);
+    });
+
+    it('handles string prices and quantities', () => {
+        const items = [{ price: '12.99', qty: '2' }];
+        assert.equal(Calc.subtotal(items), 25.98);
+    });
+});
+
+// ==========================================
+// Discount
+// ==========================================
+describe('discountAmount', () => {
+    it('calculates percentage discount', () => {
+        assert.equal(Calc.discountAmount(100, { type: 'percent', value: 10 }), 10);
+    });
+
+    it('calculates dollar discount', () => {
+        assert.equal(Calc.discountAmount(100, { type: 'dollar', value: 15 }), 15);
+    });
+
+    it('caps dollar discount at subtotal', () => {
+        assert.equal(Calc.discountAmount(10, { type: 'dollar', value: 15 }), 10);
+    });
+
+    it('handles fixed amount field', () => {
+        assert.equal(Calc.discountAmount(100, { amount: 7.50 }), 7.50);
+    });
+
+    it('returns 0 for null discount', () => {
+        assert.equal(Calc.discountAmount(100, null), 0);
+    });
+
+    it('returns 0 for zero subtotal', () => {
+        assert.equal(Calc.discountAmount(0, { type: 'percent', value: 10 }), 0);
+    });
+});
+
+// ==========================================
+// Tax
+// ==========================================
+describe('tax', () => {
+    it('calculates standard tax rate', () => {
+        const result = Calc.tax(100, 8.875);
+        assert.equal(result, 8.88); // rounded
+    });
+
+    it('returns 0 for zero taxable amount', () => {
+        assert.equal(Calc.tax(0, 8.875), 0);
+    });
+
+    it('returns 0 for zero tax rate', () => {
+        assert.equal(Calc.tax(100, 0), 0);
+    });
+
+    it('returns 0 for negative taxable amount', () => {
+        assert.equal(Calc.tax(-50, 8.875), 0);
+    });
+
+    it('handles fractional cents correctly', () => {
+        // 33.33 * 8.875% = 2.9580375 -> should round to 2.96
+        assert.equal(Calc.tax(33.33, 8.875), 2.96);
+    });
+});
+
+// ==========================================
+// Delivery Fee
+// ==========================================
+describe('deliveryFee', () => {
+    const schedule = [
+        { threshold: 0, fee: 5.99 },
+        { threshold: 25, fee: 3.99 },
+        { threshold: 50, fee: 0 }
+    ];
+
+    it('returns highest applicable fee tier', () => {
+        assert.equal(Calc.deliveryFee(10, schedule), 5.99);
+        assert.equal(Calc.deliveryFee(30, schedule), 3.99);
+        assert.equal(Calc.deliveryFee(75, schedule), 0);
+    });
+
+    it('returns 0 for empty schedule', () => {
+        assert.equal(Calc.deliveryFee(100, []), 0);
+    });
+
+    it('returns 0 for null schedule', () => {
+        assert.equal(Calc.deliveryFee(100, null), 0);
+    });
+});
+
+// ==========================================
+// Full Ticket Total
+// ==========================================
+describe('ticketTotal', () => {
+    it('calculates complete ticket with all components', () => {
+        const result = Calc.ticketTotal({
+            items: [
+                { price: 12.99, qty: 1 },
+                { price: 8.99, qty: 2 }
+            ],
+            discount: { type: 'percent', value: 10 },
+            taxRate: 8.875,
+            deliveryFee: 3.99,
+            tip: 5.00
+        });
+
+        assert.equal(result.subtotal, 30.97);
+        assert.equal(result.discount, 3.10);   // 10% of 30.97
+        assert.equal(result.afterDiscount, 27.87);
+        assert.equal(result.tax, 2.47);        // 8.875% of 27.87
+        assert.equal(result.deliveryFee, 3.99);
+        assert.equal(result.tip, 5.00);
+        assert.equal(result.total, 34.33);     // 27.87 + 2.47 + 3.99
+        assert.equal(result.grandTotal, 39.33); // 34.33 + 5.00
+    });
+
+    it('handles ticket with no discount', () => {
+        const result = Calc.ticketTotal({
+            items: [{ price: 10, qty: 1 }],
+            discount: null,
+            taxRate: 10
+        });
+
+        assert.equal(result.subtotal, 10);
+        assert.equal(result.discount, 0);
+        assert.equal(result.tax, 1);
+        assert.equal(result.total, 11);
+    });
+
+    it('handles empty ticket', () => {
+        const result = Calc.ticketTotal({
+            items: [],
+            discount: null,
+            taxRate: 8.875
+        });
+
+        assert.equal(result.subtotal, 0);
+        assert.equal(result.total, 0);
+    });
+});
+
+// ==========================================
+// Dual Pricing (Cash Discount / Card Surcharge)
+// ==========================================
+describe('dualPricing', () => {
+    it('calculates cash discount mode', () => {
+        const result = Calc.dualPricing(100, {
+            enabled: true,
+            mode: 'CASH_DISCOUNT',
+            rate: 4.0
+        });
+
+        assert.equal(result.cashPrice, 96);
+        assert.equal(result.cardPrice, 100);
+        assert.equal(result.savings, 4);
+    });
+
+    it('calculates card surcharge mode', () => {
+        const result = Calc.dualPricing(100, {
+            enabled: true,
+            mode: 'CARD_SURCHARGE',
+            rate: 4.0
+        });
+
+        assert.equal(result.cashPrice, 100);
+        assert.equal(result.cardPrice, 104);
+        assert.equal(result.savings, 4);
+    });
+
+    it('returns same prices when disabled', () => {
+        const result = Calc.dualPricing(100, { enabled: false });
+        assert.equal(result.cashPrice, 100);
+        assert.equal(result.cardPrice, 100);
+        assert.equal(result.savings, 0);
+    });
+
+    it('returns same prices for null config', () => {
+        const result = Calc.dualPricing(100, null);
+        assert.equal(result.cashPrice, 100);
+        assert.equal(result.cardPrice, 100);
+    });
+});
+
+// ==========================================
+// Auto Gratuity
+// ==========================================
+describe('autoGratuity', () => {
+    const config = { enabled: true, minPartySize: 6, percentage: 18 };
+
+    it('applies gratuity for large party', () => {
+        assert.equal(Calc.autoGratuity(100, 8, config), 18);
+    });
+
+    it('applies at exact threshold', () => {
+        assert.equal(Calc.autoGratuity(100, 6, config), 18);
+    });
+
+    it('does not apply below threshold', () => {
+        assert.equal(Calc.autoGratuity(100, 4, config), 0);
+    });
+
+    it('returns 0 when disabled', () => {
+        assert.equal(Calc.autoGratuity(100, 8, { enabled: false, minPartySize: 6, percentage: 18 }), 0);
+    });
+
+    it('handles fractional amounts correctly', () => {
+        // 78.50 * 18% = 14.13
+        assert.equal(Calc.autoGratuity(78.50, 6, config), 14.13);
+    });
+});
+
+// ==========================================
+// Loyalty Points
+// ==========================================
+describe('loyaltyPointsEarned', () => {
+    it('calculates standard points', () => {
+        assert.equal(Calc.loyaltyPointsEarned(50, 1), 50);
+    });
+
+    it('applies multiplier', () => {
+        assert.equal(Calc.loyaltyPointsEarned(50, 1, 1.5), 75);
+    });
+
+    it('floors fractional points', () => {
+        assert.equal(Calc.loyaltyPointsEarned(33.33, 1, 1), 33);
+    });
+
+    it('handles 2x multiplier for birthday', () => {
+        assert.equal(Calc.loyaltyPointsEarned(25, 1, 2), 50);
+    });
+});
+
+describe('loyaltyRedemption', () => {
+    it('calculates single redemption', () => {
+        const result = Calc.loyaltyRedemption(150, 100, 5);
+        assert.equal(result.redeemSets, 1);
+        assert.equal(result.dollarValue, 5);
+        assert.equal(result.pointsUsed, 100);
+    });
+
+    it('calculates multiple redemptions', () => {
+        const result = Calc.loyaltyRedemption(350, 100, 5);
+        assert.equal(result.redeemSets, 3);
+        assert.equal(result.dollarValue, 15);
+        assert.equal(result.pointsUsed, 300);
+    });
+
+    it('returns 0 when below threshold', () => {
+        const result = Calc.loyaltyRedemption(50, 100, 5);
+        assert.equal(result.redeemSets, 0);
+        assert.equal(result.dollarValue, 0);
+    });
+});
+
+// ==========================================
+// Gift Card
+// ==========================================
+describe('giftCardTransaction', () => {
+    it('charges against balance', () => {
+        const result = Calc.giftCardTransaction(50, 30);
+        assert.equal(result.newBalance, 20);
+        assert.equal(result.approved, true);
+        assert.equal(result.chargedAmount, 30);
+    });
+
+    it('partially charges when balance insufficient', () => {
+        const result = Calc.giftCardTransaction(20, 50);
+        assert.equal(result.newBalance, 0);
+        assert.equal(result.approved, true);
+        assert.equal(result.chargedAmount, 20);
+    });
+
+    it('rejects when balance is 0', () => {
+        const result = Calc.giftCardTransaction(0, 30);
+        assert.equal(result.approved, false);
+        assert.equal(result.chargedAmount, 0);
+    });
+
+    it('handles reload (negative amount)', () => {
+        const result = Calc.giftCardTransaction(20, -50);
+        assert.equal(result.newBalance, 70);
+        assert.equal(result.approved, true);
+    });
+});
+
+// ==========================================
+// Inventory Deduction
+// ==========================================
+describe('inventoryDeduction', () => {
+    const inventory = {
+        1: { stock: 10, lowThreshold: 3 },
+        2: { stock: 2, lowThreshold: 5 },
+        3: { stock: 1, lowThreshold: 1 }
+    };
+
+    it('deducts correctly', () => {
+        const result = Calc.inventoryDeduction(
+            [{ id: 1, qty: 2 }],
+            inventory
+        );
+        assert.equal(result.deductions[0].newQty, 8);
+        assert.equal(result.lowStockWarnings.length, 0);
+        assert.equal(result.outOfStock.length, 0);
+    });
+
+    it('flags low stock warnings', () => {
+        const result = Calc.inventoryDeduction(
+            [{ id: 2, qty: 1 }],
+            inventory
+        );
+        assert.equal(result.lowStockWarnings.length, 1);
+        assert.equal(result.lowStockWarnings[0].remaining, 1);
+    });
+
+    it('flags out of stock', () => {
+        const result = Calc.inventoryDeduction(
+            [{ id: 3, qty: 2 }],
+            inventory
+        );
+        assert.equal(result.outOfStock.length, 1);
+        assert.equal(result.outOfStock[0], 3);
+    });
+
+    it('skips items not in inventory', () => {
+        const result = Calc.inventoryDeduction(
+            [{ id: 999, qty: 1 }],
+            inventory
+        );
+        assert.equal(result.deductions.length, 0);
+    });
+});
+
+// ==========================================
+// Split Check
+// ==========================================
+describe('splitCheck', () => {
+    it('splits evenly', () => {
+        const result = Calc.splitCheck(100, 4);
+        assert.equal(result.length, 4);
+        assert.equal(result.reduce((s, a) => s + a, 0), 100);
+    });
+
+    it('handles uneven split (rounding)', () => {
+        const result = Calc.splitCheck(100, 3);
+        assert.equal(result.length, 3);
+        // 33.33 + 33.33 + 33.34 = 100
+        assert.equal(result[0], 33.33);
+        assert.equal(result[1], 33.33);
+        assert.equal(result[2], 33.34);
+    });
+
+    it('returns single amount for ways=1', () => {
+        const result = Calc.splitCheck(50, 1);
+        assert.deepEqual(result, [50]);
+    });
+
+    it('handles 0 ways', () => {
+        const result = Calc.splitCheck(50, 0);
+        assert.deepEqual(result, [50]);
+    });
+
+    it('preserves total across all splits', () => {
+        const total = 78.53;
+        for (let ways = 2; ways <= 10; ways++) {
+            const result = Calc.splitCheck(total, ways);
+            const sum = Calc.round(result.reduce((s, a) => s + a, 0));
+            assert.equal(sum, total, `Split ${ways} ways should sum to ${total}, got ${sum}`);
+        }
+    });
+});
+
+// ==========================================
+// Labor Cost
+// ==========================================
+describe('laborCost', () => {
+    it('calculates hours and cost', () => {
+        const clockIn = '2026-02-19T09:00:00.000Z';
+        const clockOut = '2026-02-19T17:00:00.000Z'; // 8 hours
+        const result = Calc.laborCost(clockIn, clockOut, 15);
+
+        assert.equal(result.hoursWorked, 8);
+        assert.equal(result.netHours, 8);
+        assert.equal(result.laborCost, 120);
+    });
+
+    it('deducts break time', () => {
+        const clockIn = '2026-02-19T09:00:00.000Z';
+        const clockOut = '2026-02-19T17:00:00.000Z';
+        const result = Calc.laborCost(clockIn, clockOut, 15, 30);
+
+        assert.equal(result.hoursWorked, 8);
+        assert.equal(result.netHours, 7.5);
+        assert.equal(result.laborCost, 112.5);
+    });
+
+    it('handles null clockOut (still working)', () => {
+        const clockIn = new Date(Date.now() - 3600000).toISOString(); // 1 hour ago
+        const result = Calc.laborCost(clockIn, null, 12);
+
+        assert(result.hoursWorked >= 0.99 && result.hoursWorked <= 1.01);
+    });
+});
+
+// ==========================================
+// Currency Formatting
+// ==========================================
+describe('formatCurrency', () => {
+    it('formats positive amounts', () => {
+        assert.equal(Calc.formatCurrency(12.5), '$12.50');
+    });
+
+    it('formats zero', () => {
+        assert.equal(Calc.formatCurrency(0), '$0.00');
+    });
+
+    it('handles string input', () => {
+        assert.equal(Calc.formatCurrency('8.9'), '$8.90');
+    });
+
+    it('handles NaN', () => {
+        assert.equal(Calc.formatCurrency(NaN), '$0.00');
+    });
+});
+
+// ==========================================
+// Rounding
+// ==========================================
+describe('round', () => {
+    it('rounds to 2 decimal places', () => {
+        assert.equal(Calc.round(1.005), 1.01);
+        assert.equal(Calc.round(1.004), 1);
+        assert.equal(Calc.round(2.345), 2.35);
+    });
+
+    it('handles negative numbers', () => {
+        assert.equal(Calc.round(-1.005), -1);
+    });
+
+    it('preserves exact values', () => {
+        assert.equal(Calc.round(10.00), 10);
+        assert.equal(Calc.round(0), 0);
+    });
+});

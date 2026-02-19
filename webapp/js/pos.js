@@ -1,305 +1,20 @@
 /**
- * Restaurant POS - Modern Web Frontend
+ * POS Main - Core POS Operations
  *
- * Touch-optimized, role-based POS interface with:
- * - Cash discount / dual pricing display
- * - PaybotX terminal integration
- * - Kitchen display system
- * - Table management
- * - Real-time order status
+ * This is the main POS module containing login, menu, ticket management,
+ * payment, discounts, delivery, reports, and other core features.
+ *
+ * Dependencies (must be loaded before this file):
+ *   - pos-core.js (CONFIG, MENU, state, utilities)
+ *   - calculations.js (pure business logic)
+ *   - api-client.js (API bridge)
+ *
+ * Loaded after this file:
+ *   - pos-kitchen.js (KDS, course firing, kitchen printing)
+ *   - pos-tables.js (table management, reservations, merge/transfer)
+ *   - pos-loyalty.js (loyalty program, combos, training, audit log)
  */
 
-// ==========================================
-// Configuration
-// ==========================================
-const CONFIG = {
-    apiBaseUrl: '/api',
-    cashDiscount: {
-        enabled: true,
-        mode: 'CASH_DISCOUNT', // 'CASH_DISCOUNT' or 'CARD_SURCHARGE'
-        rate: 4.0,             // percentage
-        cashLabel: 'Cash Discount',
-        surchargeLabel: 'Non-Cash Adjustment',
-        showDualPricing: true,
-        exemptDebit: true,
-        minCardAmount: 0,
-    },
-    taxRate: 8.875,
-    terminal: {
-        connected: false,
-        model: 'VP8800',
-        status: 'Ready'
-    }
-};
-
-// ==========================================
-// Sample Menu Data
-// ==========================================
-const MENU = {
-    popular: [
-        { id: 1, name: 'Cheeseburger', price: 12.99, station: 'grill' },
-        { id: 2, name: 'Caesar Salad', price: 10.99, station: 'salad' },
-        { id: 3, name: 'Grilled Chicken', price: 14.99, station: 'grill' },
-        { id: 4, name: 'Fish & Chips', price: 15.99, station: 'fry' },
-        { id: 5, name: 'Margherita Pizza', price: 13.99, station: 'grill' },
-        { id: 6, name: 'Club Sandwich', price: 11.99, station: 'salad' },
-        { id: 7, name: 'Steak Frites', price: 24.99, station: 'grill' },
-        { id: 8, name: 'Pasta Alfredo', price: 13.49, station: 'salad' },
-    ],
-    appetizers: [
-        { id: 10, name: 'Mozzarella Sticks', price: 8.99, station: 'fry' },
-        { id: 11, name: 'Wings (12pc)', price: 13.99, station: 'fry' },
-        { id: 12, name: 'Nachos Supreme', price: 11.99, station: 'grill' },
-        { id: 13, name: 'Soup of the Day', price: 6.99, station: 'salad' },
-        { id: 14, name: 'Bruschetta', price: 9.99, station: 'salad' },
-        { id: 15, name: 'Calamari', price: 11.99, station: 'fry' },
-        { id: 16, name: 'Spring Rolls', price: 8.49, station: 'fry' },
-        { id: 17, name: 'Garlic Bread', price: 5.99, station: 'grill' },
-    ],
-    entrees: [
-        { id: 20, name: 'NY Strip Steak', price: 28.99, station: 'grill' },
-        { id: 21, name: 'Grilled Salmon', price: 22.99, station: 'grill' },
-        { id: 22, name: 'Chicken Parmesan', price: 17.99, station: 'fry' },
-        { id: 23, name: 'BBQ Ribs', price: 23.99, station: 'grill' },
-        { id: 24, name: 'Lobster Tail', price: 34.99, station: 'grill' },
-        { id: 25, name: 'Lamb Chops', price: 29.99, station: 'grill' },
-        { id: 26, name: 'Pork Tenderloin', price: 19.99, station: 'grill' },
-        { id: 27, name: 'Seafood Platter', price: 32.99, station: 'fry' },
-    ],
-    sides: [
-        { id: 30, name: 'French Fries', price: 4.99, station: 'fry' },
-        { id: 31, name: 'Coleslaw', price: 3.99, station: 'salad' },
-        { id: 32, name: 'Mac & Cheese', price: 5.99, station: 'grill' },
-        { id: 33, name: 'Side Salad', price: 4.49, station: 'salad' },
-        { id: 34, name: 'Onion Rings', price: 5.49, station: 'fry' },
-        { id: 35, name: 'Baked Potato', price: 4.99, station: 'grill' },
-        { id: 36, name: 'Rice Pilaf', price: 3.99, station: 'salad' },
-        { id: 37, name: 'Steamed Veggies', price: 4.49, station: 'salad' },
-    ],
-    drinks: [
-        { id: 40, name: 'Soda', price: 2.99, station: 'expo' },
-        { id: 41, name: 'Iced Tea', price: 2.99, station: 'expo' },
-        { id: 42, name: 'Coffee', price: 3.49, station: 'expo' },
-        { id: 43, name: 'Fresh Juice', price: 4.99, station: 'expo' },
-        { id: 44, name: 'Lemonade', price: 3.49, station: 'expo' },
-        { id: 45, name: 'Beer (Draft)', price: 6.99, station: 'expo' },
-        { id: 46, name: 'House Wine', price: 8.99, station: 'expo' },
-        { id: 47, name: 'Water', price: 0.00, station: 'expo' },
-    ],
-    desserts: [
-        { id: 50, name: 'Cheesecake', price: 8.99, station: 'expo' },
-        { id: 51, name: 'Chocolate Cake', price: 7.99, station: 'expo' },
-        { id: 52, name: 'Ice Cream', price: 5.99, station: 'expo' },
-        { id: 53, name: 'Apple Pie', price: 7.49, station: 'expo' },
-        { id: 54, name: 'Tiramisu', price: 8.99, station: 'expo' },
-        { id: 55, name: 'Creme Brulee', price: 9.49, station: 'expo' },
-    ]
-};
-
-// ==========================================
-// Menu Modifier Groups
-// ==========================================
-const MODIFIERS = {
-    temperature: { label: 'Temperature', required: false, max: 1, options: [
-        { name: 'Rare', price: 0 }, { name: 'Medium Rare', price: 0 },
-        { name: 'Medium', price: 0 }, { name: 'Medium Well', price: 0 }, { name: 'Well Done', price: 0 }
-    ]},
-    protein: { label: 'Add Protein', required: false, max: 1, options: [
-        { name: 'Add Chicken', price: 4.99 }, { name: 'Add Shrimp', price: 6.99 },
-        { name: 'Add Steak', price: 7.99 }, { name: 'Add Salmon', price: 6.99 }
-    ]},
-    sides: { label: 'Side Choice', required: false, max: 2, options: [
-        { name: 'Fries', price: 0 }, { name: 'Coleslaw', price: 0 },
-        { name: 'Side Salad', price: 0 }, { name: 'Onion Rings', price: 1.50 },
-        { name: 'Sweet Potato Fries', price: 1.50 }, { name: 'Mac & Cheese', price: 2.00 }
-    ]},
-    extras: { label: 'Extras', required: false, max: 5, options: [
-        { name: 'Extra Cheese', price: 1.50 }, { name: 'Bacon', price: 2.00 },
-        { name: 'Avocado', price: 2.50 }, { name: 'Fried Egg', price: 1.50 },
-        { name: 'Jalapenos', price: 0.75 }, { name: 'Mushrooms', price: 1.00 }
-    ]},
-    sauce: { label: 'Sauce', required: false, max: 2, options: [
-        { name: 'Ranch', price: 0 }, { name: 'BBQ', price: 0 },
-        { name: 'Honey Mustard', price: 0 }, { name: 'Buffalo', price: 0 },
-        { name: 'Garlic Aioli', price: 0.50 }, { name: 'Truffle Mayo', price: 1.00 }
-    ]},
-    allergy: { label: 'Allergy / Special', required: false, max: 5, options: [
-        { name: 'No Gluten', price: 0 }, { name: 'No Dairy', price: 0 },
-        { name: 'No Nuts', price: 0 }, { name: 'No Onion', price: 0 },
-        { name: 'Extra Spicy', price: 0 }, { name: 'Mild', price: 0 }
-    ]}
-};
-
-// Map items to their available modifier groups
-const ITEM_MODIFIERS = {
-    // Burgers / sandwiches
-    1: ['temperature', 'extras', 'sides', 'sauce'],    // Cheeseburger
-    6: ['extras', 'sides', 'sauce'],                     // Club Sandwich
-    // Salads
-    2: ['protein', 'allergy'],                            // Caesar Salad
-    // Steaks
-    7: ['temperature', 'sides', 'sauce'],                // Steak Frites
-    20: ['temperature', 'sides', 'sauce'],               // NY Strip
-    25: ['temperature', 'sides', 'sauce'],               // Lamb Chops
-    // Chicken
-    3: ['sides', 'sauce', 'allergy'],                    // Grilled Chicken
-    22: ['sides', 'sauce'],                              // Chicken Parmesan
-    // Fish
-    4: ['sides', 'sauce', 'allergy'],                    // Fish & Chips
-    21: ['sides', 'sauce', 'allergy'],                   // Grilled Salmon
-    // Wings
-    11: ['sauce', 'extras'],                             // Wings
-    // Default for everything else
-    _default: ['allergy']
-};
-
-// ==========================================
-// Discount / Promo System
-// ==========================================
-const PROMO_CODES = {
-    'WELCOME10': { type: 'percent', value: 10, description: '10% off your order', minAmount: 0, oneTime: true },
-    'LUNCH5': { type: 'fixed', value: 5, description: '$5 off lunch', minAmount: 20 },
-    'HAPPY25': { type: 'percent', value: 25, description: '25% Happy Hour', minAmount: 0 },
-    'FREESHIP': { type: 'delivery', value: 0, description: 'Free delivery', minAmount: 15 },
-    'BOGO50': { type: 'percent', value: 50, description: '50% off (BOGO)', minAmount: 0 }
-};
-
-// Delivery fee schedule
-const DELIVERY_CONFIG = {
-    baseFee: 5.99,
-    freeDeliveryMin: 50.00,
-    distanceRates: [
-        { maxMiles: 3, fee: 0 },
-        { maxMiles: 5, fee: 2.00 },
-        { maxMiles: 10, fee: 5.00 }
-    ]
-};
-
-// Table data
-const TABLES = [];
-for (let i = 1; i <= 20; i++) {
-    const statuses = ['available', 'occupied', 'available', 'available', 'reserved', 'available', 'dirty', 'available'];
-    TABLES.push({
-        number: i,
-        seats: Math.floor(Math.random() * 6) + 2,
-        status: statuses[i % statuses.length],
-        amount: statuses[i % statuses.length] === 'occupied' ? (Math.random() * 80 + 20).toFixed(2) : null
-    });
-}
-
-// ==========================================
-// Staff / Employee Database
-// ==========================================
-const STAFF = {
-    '1234': { name: 'Maria G.', role: 'manager', id: 'EMP001', hourlyRate: 28.00 },
-    '1111': { name: 'John D.', role: 'server', id: 'EMP002', hourlyRate: 12.00 },
-    '2222': { name: 'Sarah K.', role: 'server', id: 'EMP003', hourlyRate: 12.00 },
-    '3333': { name: 'Mike R.', role: 'cashier', id: 'EMP004', hourlyRate: 15.00 },
-    '4444': { name: 'Lisa T.', role: 'bartender', id: 'EMP005', hourlyRate: 14.00 },
-    '5555': { name: 'Carlos M.', role: 'kitchen', id: 'EMP006', hourlyRate: 16.00 },
-    '9999': { name: 'Admin', role: 'admin', id: 'EMP000', hourlyRate: 0 }
-};
-
-// Role permissions
-const ROLE_PERMISSIONS = {
-    admin:     { pos: true, kitchen: true, tables: true, tickets: true, reports: true, voidTicket: true, discount: true, settings: true, refund: true, editMenu: true },
-    manager:   { pos: true, kitchen: true, tables: true, tickets: true, reports: true, voidTicket: true, discount: true, settings: true, refund: true, editMenu: true },
-    server:    { pos: true, kitchen: false, tables: true, tickets: true, reports: false, voidTicket: false, discount: false, settings: false, refund: false, editMenu: false },
-    cashier:   { pos: true, kitchen: false, tables: false, tickets: true, reports: false, voidTicket: false, discount: true, settings: false, refund: false, editMenu: false },
-    bartender: { pos: true, kitchen: false, tables: false, tickets: true, reports: false, voidTicket: false, discount: false, settings: false, refund: false, editMenu: false },
-    kitchen:   { pos: false, kitchen: true, tables: false, tickets: false, reports: false, voidTicket: false, discount: false, settings: false, refund: false, editMenu: false }
-};
-
-// Time clock records
-const timeClock = [];
-
-// ==========================================
-// Application State
-// ==========================================
-const state = {
-    currentUser: null,
-    currentRole: 'server',
-    currentStaff: null,
-    pin: '',
-    currentCategory: 'popular',
-    currentView: 'order',
-    ticket: {
-        id: null,
-        type: 'dine-in',
-        items: [],
-        table: null,
-        server: null,
-        discount: null
-    },
-    ticketCounter: 1001,
-    kitchenOrders: [],
-    paymentMethod: 'cash',
-    tenderedAmount: '',
-    allTickets: [],
-    clockedIn: false,
-    menuSearchQuery: ''
-};
-
-// ==========================================
-// Utility Functions
-// ==========================================
-function $(sel) { return document.querySelector(sel); }
-function $$(sel) { return document.querySelectorAll(sel); }
-
-function formatCurrency(amount) {
-    return '$' + parseFloat(amount).toFixed(2);
-}
-
-function getDualPrices(price) {
-    if (!CONFIG.cashDiscount.enabled) return [price, price];
-    const rate = CONFIG.cashDiscount.rate / 100;
-    if (CONFIG.cashDiscount.mode === 'CASH_DISCOUNT') {
-        return [price * (1 - rate), price];
-    } else {
-        return [price, price * (1 + rate)];
-    }
-}
-
-function showToast(message, type = 'success') {
-    const container = $('#toast-container');
-    const toast = document.createElement('div');
-    toast.className = 'toast ' + type;
-    toast.textContent = message;
-    container.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
-}
-
-// ==========================================
-// Clock
-// ==========================================
-function updateClock() {
-    const now = new Date();
-    const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    const clockEl = $('#clock');
-    if (clockEl) clockEl.textContent = time;
-}
-setInterval(updateClock, 1000);
-updateClock();
-
-// ==========================================
-// Theme Toggle
-// ==========================================
-$('#btn-theme').addEventListener('click', () => {
-    const html = document.documentElement;
-    const current = html.getAttribute('data-theme');
-    html.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
-});
-
-// ==========================================
-// Fullscreen
-// ==========================================
-$('#btn-fullscreen').addEventListener('click', () => {
-    if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen().catch(() => {});
-    } else {
-        document.exitFullscreen().catch(() => {});
-    }
-});
 
 // ==========================================
 // Login System
@@ -356,6 +71,15 @@ function doLogin(pin) {
         state.currentStaff = null;
     }
 
+    // Authenticate with API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.login(pin).then(res => {
+            if (res && res.token) APIClient.setToken(res.token);
+        }).catch(() => {
+            // API unavailable - continue with local-only mode
+        });
+    }
+
     // Update UI with user info
     $('#current-user').textContent = state.currentUser;
     const roleEl = document.getElementById('current-role');
@@ -369,8 +93,8 @@ function doLogin(pin) {
     newTicket();
     showToast('Welcome, ' + state.currentUser + '!');
     populateMenu();
-    populateTables();
-    populateKitchen();
+    if (typeof populateTables === 'function') populateTables();
+    if (typeof populateKitchen === 'function') populateKitchen();
 
     // Auto clock-in prompt
     if (state.currentStaff && !isAlreadyClockedIn(state.currentStaff.id)) {
@@ -429,6 +153,12 @@ function clockIn() {
     };
     timeClock.push(record);
     state.clockedIn = true;
+
+    // Sync to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.clockIn(state.currentStaff.id, state.currentUser, state.currentRole).catch(() => {});
+    }
+
     showToast('Clocked in at ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
 }
 
@@ -439,6 +169,12 @@ function clockOut() {
         record.clockOut = new Date();
         const hours = ((record.clockOut - record.clockIn) / 3600000).toFixed(2);
         state.clockedIn = false;
+
+        // Sync to API backend
+        if (typeof APIClient !== 'undefined') {
+            APIClient.clockOut(state.currentStaff.id).catch(() => {});
+        }
+
         showToast('Clocked out. Shift: ' + hours + ' hours');
     }
 }
@@ -459,22 +195,6 @@ $('#btn-logout').addEventListener('click', () => {
     $('#login-screen').classList.add('active');
 });
 
-// ==========================================
-// View Navigation
-// ==========================================
-$$('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        $$('.tab-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const view = btn.dataset.view;
-        $$('.main-view').forEach(v => v.classList.remove('active'));
-        $(`#${view === 'order' ? 'order' : view}-view`).classList.add('active');
-        state.currentView = view;
-
-        if (view === 'kitchen') populateKitchen();
-        if (view === 'tickets') populateTicketsList();
-    });
-});
 
 // ==========================================
 // Menu System
@@ -944,105 +664,19 @@ $('#btn-send').addEventListener('click', () => {
     });
 
     // Print kitchen tickets routed by station
-    printKitchenTickets(kitchenOrder);
+    if (typeof printKitchenTickets === 'function') printKitchenTickets(kitchenOrder);
+
+    // Sync to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.createTicket(state.allTickets[state.allTickets.length - 1]).catch(() => {});
+        APIClient.sendToKitchen(kitchenOrder.id, kitchenOrder.items).catch(() => {});
+    }
 
     showToast('Order #' + state.ticket.id + ' sent to kitchen');
     newTicket();
-    populateKitchen();
+    if (typeof populateKitchen === 'function') populateKitchen();
 });
 
-// ==========================================
-// Kitchen Ticket Printing (Station Routing)
-// ==========================================
-function printKitchenTickets(order) {
-    // Group items by station
-    const stationGroups = {};
-    order.items.forEach(item => {
-        const station = item.station || 'expo';
-        if (!stationGroups[station]) stationGroups[station] = [];
-        stationGroups[station].push(item);
-    });
-
-    // Generate a kitchen ticket per station
-    Object.entries(stationGroups).forEach(([station, items]) => {
-        const ticketHtml = generateKitchenTicketHtml(order, station, items);
-        // In production, this would route to the station's printer
-        // For now, log it and show a single combined preview
-        console.log(`Kitchen ticket for ${station.toUpperCase()}:`, items.map(i => i.name).join(', '));
-    });
-}
-
-function generateKitchenTicketHtml(order, station, items) {
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
-    return `
-<div style="font-family: 'Courier New', monospace; width: 280px; padding: 8px;">
-    <div style="text-align: center; font-weight: bold; font-size: 16px; border-bottom: 2px solid #000; padding-bottom: 4px;">
-        ** ${station.toUpperCase()} **
-    </div>
-    <div style="display: flex; justify-content: space-between; margin: 6px 0; font-size: 14px;">
-        <span>#${order.id}</span>
-        <span>${order.type.toUpperCase()}</span>
-        <span>${timeStr}</span>
-    </div>
-    <div style="font-size: 12px; margin-bottom: 6px;">
-        Server: ${order.server || 'N/A'}
-        ${order.table ? ' | Table: ' + order.table : ''}
-    </div>
-    <div style="border-top: 1px dashed #000; padding-top: 6px;">
-        ${items.map(item => `
-            <div style="font-size: 16px; font-weight: bold; padding: 4px 0; border-bottom: 1px dotted #ccc;">
-                ${item.qty > 1 ? '(' + item.qty + ') ' : ''}${item.name}
-                ${item.mods && item.mods.length ? '<div style="font-size: 12px; font-weight: normal; padding-left: 12px; color: #666;">  >> ' + item.mods.join(', ') + '</div>' : ''}
-            </div>
-        `).join('')}
-    </div>
-    <div style="text-align: center; margin-top: 8px; font-size: 10px; color: #999;">
-        ${items.length} item${items.length !== 1 ? 's' : ''} for ${station}
-    </div>
-</div>`;
-}
-
-// Print kitchen ticket to a new window (for reprint / manual print)
-function printKitchenOrder(orderId) {
-    const order = state.kitchenOrders.find(o => o.id === orderId);
-    if (!order) {
-        showToast('Kitchen order not found', 'error');
-        return;
-    }
-
-    const stationGroups = {};
-    order.items.forEach(item => {
-        const station = item.station || 'expo';
-        if (!stationGroups[station]) stationGroups[station] = [];
-        stationGroups[station].push(item);
-    });
-
-    const printWindow = window.open('', 'kitchen-ticket', 'width=320,height=500');
-    if (!printWindow) {
-        showToast('Pop-up blocked', 'error');
-        return;
-    }
-
-    let allTickets = '';
-    Object.entries(stationGroups).forEach(([station, items]) => {
-        allTickets += generateKitchenTicketHtml(order, station, items);
-        allTickets += '<div style="border-bottom: 3px dashed #000; margin: 12px 0;"></div>';
-    });
-
-    printWindow.document.write(`<!DOCTYPE html><html><head><title>Kitchen Ticket</title>
-        <style>@page { size: 80mm auto; margin: 0; } body { margin: 0; padding: 4px; }</style>
-        </head><body>${allTickets}
-        <div style="text-align:center; margin-top:12px;">
-            <button onclick="window.print()" style="padding:8px 20px; font-size:14px; cursor:pointer;">Print</button>
-            <button onclick="window.close()" style="padding:8px 20px; font-size:14px; cursor:pointer; margin-left:8px;">Close</button>
-        </div>
-        </body></html>`);
-    printWindow.document.close();
-    showToast('Kitchen ticket ready');
-}
-window.printKitchenOrder = printKitchenOrder;
 
 // ==========================================
 // Hold / Park Order System
@@ -1393,6 +1027,11 @@ function completePayment(total, method) {
         t.deliveryAddress = deliveryAddress || '';
         t.discount = state.ticket.discount || null;
 
+        // Sync payment to API backend
+        if (typeof APIClient !== 'undefined') {
+            APIClient.payTicket(t.id, method, t.tip || 0).catch(() => {});
+        }
+
         // Auto-print receipt
         printReceipt(t);
     }
@@ -1411,307 +1050,6 @@ function completePayment(total, method) {
     newTicket();
 }
 
-// ==========================================
-// Table Management (Enhanced Visual Layout)
-// ==========================================
-const TABLE_LAYOUT = {
-    'Main Floor': [
-        { number: 1, seats: 2, x: 5, y: 10, shape: 'round' },
-        { number: 2, seats: 2, x: 22, y: 10, shape: 'round' },
-        { number: 3, seats: 4, x: 40, y: 8, shape: 'rect' },
-        { number: 4, seats: 4, x: 60, y: 8, shape: 'rect' },
-        { number: 5, seats: 6, x: 80, y: 8, shape: 'rect-lg' },
-        { number: 6, seats: 4, x: 5, y: 38, shape: 'rect' },
-        { number: 7, seats: 4, x: 25, y: 38, shape: 'rect' },
-        { number: 8, seats: 8, x: 48, y: 35, shape: 'rect-xl' },
-        { number: 9, seats: 2, x: 75, y: 38, shape: 'round' },
-        { number: 10, seats: 2, x: 88, y: 38, shape: 'round' },
-        { number: 11, seats: 4, x: 5, y: 65, shape: 'rect' },
-        { number: 12, seats: 4, x: 25, y: 65, shape: 'rect' },
-        { number: 13, seats: 6, x: 48, y: 62, shape: 'rect-lg' },
-        { number: 14, seats: 4, x: 73, y: 65, shape: 'rect' },
-    ],
-    'Patio': [
-        { number: 15, seats: 4, x: 10, y: 15, shape: 'round' },
-        { number: 16, seats: 4, x: 35, y: 15, shape: 'round' },
-        { number: 17, seats: 6, x: 60, y: 15, shape: 'round' },
-        { number: 18, seats: 2, x: 10, y: 50, shape: 'round' },
-        { number: 19, seats: 2, x: 35, y: 50, shape: 'round' },
-        { number: 20, seats: 2, x: 60, y: 50, shape: 'round' },
-    ],
-    'Bar': [
-        { number: 'B1', seats: 1, x: 10, y: 30, shape: 'stool' },
-        { number: 'B2', seats: 1, x: 20, y: 30, shape: 'stool' },
-        { number: 'B3', seats: 1, x: 30, y: 30, shape: 'stool' },
-        { number: 'B4', seats: 1, x: 40, y: 30, shape: 'stool' },
-        { number: 'B5', seats: 1, x: 50, y: 30, shape: 'stool' },
-        { number: 'B6', seats: 1, x: 60, y: 30, shape: 'stool' },
-        { number: 'B7', seats: 1, x: 70, y: 30, shape: 'stool' },
-        { number: 'B8', seats: 1, x: 80, y: 30, shape: 'stool' },
-    ],
-    'Private': [
-        { number: 'P1', seats: 10, x: 30, y: 25, shape: 'rect-xl' },
-        { number: 'P2', seats: 12, x: 30, y: 60, shape: 'rect-xl' },
-    ]
-};
-
-let activeFloor = 'Main Floor';
-
-function getTableData(num) {
-    return TABLES.find(t => t.number === num) || { number: num, seats: 2, status: 'available', amount: null, server: null, startTime: null };
-}
-
-function populateTables() {
-    const grid = $('#table-grid');
-    grid.innerHTML = '';
-
-    // Floor plan visual layout
-    const layout = TABLE_LAYOUT[activeFloor] || [];
-
-    layout.forEach(tbl => {
-        const data = getTableData(tbl.number);
-
-        const el = document.createElement('button');
-        el.className = 'table-visual ' + (data.status || 'available') + ' shape-' + tbl.shape;
-        el.style.left = tbl.x + '%';
-        el.style.top = tbl.y + '%';
-
-        let timeStr = '';
-        if (data.startTime) {
-            const elapsed = Math.floor((Date.now() - new Date(data.startTime).getTime()) / 60000);
-            timeStr = elapsed + 'm';
-        }
-
-        el.innerHTML = `
-            <span class="table-vis-number">${tbl.number}</span>
-            <span class="table-vis-seats">${tbl.seats} <small>seats</small></span>
-            ${data.amount ? '<span class="table-vis-amount">' + formatCurrency(data.amount) + '</span>' : ''}
-            ${data.server ? '<span class="table-vis-server">' + data.server + '</span>' : ''}
-            ${timeStr ? '<span class="table-vis-time">' + timeStr + '</span>' : ''}
-        `;
-
-        el.addEventListener('click', () => handleTableClick(tbl, data));
-        grid.appendChild(el);
-    });
-
-    // Also show a quick summary
-    updateTableSummary();
-}
-
-function handleTableClick(tbl, data) {
-    if (data.status === 'available') {
-        // Assign table to current ticket
-        data.status = 'occupied';
-        data.server = state.currentUser;
-        data.startTime = new Date().toISOString();
-        state.ticket.table = tbl.number;
-
-        // Update TABLES array
-        const existing = TABLES.find(t => t.number === tbl.number);
-        if (existing) {
-            existing.status = 'occupied';
-            existing.server = state.currentUser;
-            existing.startTime = data.startTime;
-        } else {
-            TABLES.push({ ...tbl, status: 'occupied', server: state.currentUser, startTime: data.startTime, amount: null });
-        }
-
-        showToast('Table ' + tbl.number + ' assigned to ' + state.currentUser);
-        populateTables();
-
-    } else if (data.status === 'occupied') {
-        // Show table details modal
-        openTableDetailModal(tbl, data);
-
-    } else if (data.status === 'dirty') {
-        if (confirm('Mark table ' + tbl.number + ' as clean?')) {
-            const existing = TABLES.find(t => t.number === tbl.number);
-            if (existing) {
-                existing.status = 'available';
-                existing.server = null;
-                existing.startTime = null;
-                existing.amount = null;
-            }
-            showToast('Table ' + tbl.number + ' cleared');
-            populateTables();
-        }
-
-    } else if (data.status === 'reserved') {
-        showToast('Table ' + tbl.number + ' is reserved', 'warning');
-    }
-}
-
-function openTableDetailModal(tbl, data) {
-    // Create a quick info modal for occupied tables
-    let modal = document.getElementById('table-detail-modal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'table-detail-modal';
-        modal.className = 'modal';
-        modal.innerHTML = `
-            <div class="modal-content" style="width: min(380px, 90vw);">
-                <div class="modal-header">
-                    <h3 id="table-detail-title">Table Details</h3>
-                    <button class="modal-close" id="close-table-detail">&times;</button>
-                </div>
-                <div id="table-detail-body" style="padding: 16px;"></div>
-                <div style="padding: 12px 16px; display: flex; gap: 8px; border-top: 1px solid var(--border-light);">
-                    <button class="btn-confirm" id="table-detail-transfer" style="flex:1">Transfer</button>
-                    <button class="btn-cancel" id="table-detail-close" style="flex:1">Close</button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modal);
-
-        document.getElementById('close-table-detail').addEventListener('click', () => modal.classList.remove('active'));
-        document.getElementById('table-detail-close').addEventListener('click', () => modal.classList.remove('active'));
-        document.getElementById('table-detail-transfer').addEventListener('click', () => {
-            showToast('Transfer initiated - select destination table', 'warning');
-            modal.classList.remove('active');
-        });
-    }
-
-    const elapsed = data.startTime
-        ? Math.floor((Date.now() - new Date(data.startTime).getTime()) / 60000)
-        : 0;
-
-    document.getElementById('table-detail-title').textContent = 'Table ' + tbl.number;
-    document.getElementById('table-detail-body').innerHTML = `
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-            <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
-                <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Status</div>
-                <div style="font-weight: 700; color: var(--warning);">Occupied</div>
-            </div>
-            <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
-                <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Elapsed</div>
-                <div style="font-weight: 700;">${elapsed} min</div>
-            </div>
-            <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
-                <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Server</div>
-                <div style="font-weight: 600;">${data.server || 'Unassigned'}</div>
-            </div>
-            <div style="padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
-                <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase;">Amount</div>
-                <div style="font-weight: 700;">${data.amount ? formatCurrency(data.amount) : 'N/A'}</div>
-            </div>
-        </div>
-        <div style="margin-top: 12px; padding: 8px; font-size: 0.85rem; color: var(--text-secondary);">
-            Seats: ${tbl.seats} &bull; Section: ${activeFloor}
-        </div>
-    `;
-
-    modal.classList.add('active');
-}
-
-function updateTableSummary() {
-    const layout = TABLE_LAYOUT[activeFloor] || [];
-    let available = 0, occupied = 0, reserved = 0, dirty = 0;
-
-    layout.forEach(tbl => {
-        const data = getTableData(tbl.number);
-        switch (data.status) {
-            case 'available': available++; break;
-            case 'occupied': occupied++; break;
-            case 'reserved': reserved++; break;
-            case 'dirty': dirty++; break;
-        }
-    });
-
-    // Update legend counts if elements exist
-    const legend = document.querySelector('.table-legend');
-    if (legend) {
-        legend.innerHTML = `
-            <span class="legend-item"><span class="legend-dot available"></span> Available (${available})</span>
-            <span class="legend-item"><span class="legend-dot occupied"></span> Occupied (${occupied})</span>
-            <span class="legend-item"><span class="legend-dot reserved"></span> Reserved (${reserved})</span>
-            <span class="legend-item"><span class="legend-dot dirty"></span> Dirty (${dirty})</span>
-        `;
-    }
-}
-
-// Floor tab switching
-$$('.floor-tab').forEach((tab, idx) => {
-    tab.addEventListener('click', () => {
-        $$('.floor-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        const floors = ['Main Floor', 'Patio', 'Bar', 'Private'];
-        activeFloor = floors[idx] || 'Main Floor';
-        populateTables();
-    });
-});
-
-// ==========================================
-// Kitchen Display System
-// ==========================================
-function populateKitchen() {
-    const container = $('#kds-tickets');
-    container.innerHTML = '';
-
-    let activeCount = 0;
-    let totalTime = 0;
-
-    state.kitchenOrders.forEach(order => {
-        const elapsed = Math.floor((new Date() - order.time) / 1000);
-        const minutes = Math.floor(elapsed / 60);
-        const seconds = elapsed % 60;
-        const timeStr = minutes + ':' + String(seconds).padStart(2, '0');
-
-        let timeClass = 'green';
-        if (minutes >= 10) timeClass = 'red';
-        else if (minutes >= 5) timeClass = 'yellow';
-
-        const isUrgent = minutes >= 10;
-        activeCount++;
-        totalTime += elapsed;
-
-        const el = document.createElement('div');
-        el.className = 'kds-ticket' + (isUrgent ? ' urgent' : '');
-        el.innerHTML = `
-            <div class="kds-ticket-header">
-                <span>#${order.id} - ${order.type}</span>
-                <span class="kds-ticket-time ${timeClass}">${timeStr}</span>
-            </div>
-            <div class="kds-ticket-items">
-                ${order.items.map(item => `
-                    <div class="kds-item">
-                        <span class="kds-item-name">${item.name}</span>
-                        <span class="kds-item-qty">x${item.qty}</span>
-                    </div>
-                `).join('')}
-            </div>
-            <div class="kds-ticket-footer">
-                <button class="kds-bump-btn" data-order-id="${order.id}">BUMP</button>
-            </div>
-        `;
-
-        el.querySelector('.kds-bump-btn').addEventListener('click', () => {
-            state.kitchenOrders = state.kitchenOrders.filter(o => o.id !== order.id);
-            showToast('Order #' + order.id + ' bumped');
-            populateKitchen();
-        });
-
-        container.appendChild(el);
-    });
-
-    $('#kds-active').textContent = activeCount;
-    const avgSeconds = activeCount > 0 ? Math.floor(totalTime / activeCount) : 0;
-    $('#kds-avg-time').textContent = Math.floor(avgSeconds / 60) + ':' + String(avgSeconds % 60).padStart(2, '0');
-}
-
-// Refresh KDS every 5 seconds
-setInterval(() => {
-    if (state.currentView === 'kitchen') populateKitchen();
-}, 5000);
-
-// KDS station filters
-$$('.kds-filter').forEach(btn => {
-    btn.addEventListener('click', () => {
-        $$('.kds-filter').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        // Filter by station would filter kitchenOrders
-        populateKitchen();
-    });
-});
 
 // ==========================================
 // Tickets List View
@@ -2344,22 +1682,6 @@ $$('.tab-btn').forEach(btn => {
     });
 });
 
-// ==========================================
-// Customer Display Broadcast
-// ==========================================
-let customerChannel = null;
-try {
-    customerChannel = new BroadcastChannel('pos-customer-display');
-} catch (e) {
-    // BroadcastChannel not supported - silent fallback
-}
-
-function broadcastToCustomerDisplay(type, data) {
-    if (!customerChannel) return;
-    try {
-        customerChannel.postMessage({ type, ...data });
-    } catch (e) {}
-}
 
 // Hook into ticket updates to broadcast to customer display
 const _origUpdateTicketDisplay = updateTicketDisplay;
@@ -2488,88 +1810,6 @@ completePayment = function(total, method) {
     broadcastToCustomerDisplay('payment-complete', {});
 };
 
-// ==========================================
-// Enhanced KDS with Station Filtering
-// ==========================================
-let activeStation = 'all';
-
-const _origPopulateKitchen = populateKitchen;
-populateKitchen = function() {
-    const container = $('#kds-tickets');
-    container.innerHTML = '';
-
-    let activeCount = 0;
-    let totalTime = 0;
-
-    const filteredOrders = activeStation === 'all'
-        ? state.kitchenOrders
-        : state.kitchenOrders.filter(order =>
-            order.items.some(item => item.station === activeStation)
-        );
-
-    filteredOrders.forEach(order => {
-        const elapsed = Math.floor((new Date() - order.time) / 1000);
-        const minutes = Math.floor(elapsed / 60);
-        const seconds = elapsed % 60;
-        const timeStr = minutes + ':' + String(seconds).padStart(2, '0');
-
-        let timeClass = 'green';
-        if (minutes >= 10) timeClass = 'red';
-        else if (minutes >= 5) timeClass = 'yellow';
-
-        const isUrgent = minutes >= 10;
-        activeCount++;
-        totalTime += elapsed;
-
-        // Filter items by station if a station is selected
-        const displayItems = activeStation === 'all'
-            ? order.items
-            : order.items.filter(item => item.station === activeStation);
-
-        const el = document.createElement('div');
-        el.className = 'kds-ticket' + (isUrgent ? ' urgent' : '');
-        el.innerHTML = `
-            <div class="kds-ticket-header">
-                <span>#${order.id} - ${order.type}</span>
-                <span class="kds-ticket-time ${timeClass}">${timeStr}</span>
-            </div>
-            <div class="kds-ticket-server">Server: ${order.server || 'Unknown'}</div>
-            <div class="kds-ticket-items">
-                ${displayItems.map(item => `
-                    <div class="kds-item ${item.done ? 'done' : ''}">
-                        <span class="kds-item-name">${item.name}</span>
-                        <span class="kds-item-qty">x${item.qty}</span>
-                    </div>
-                `).join('')}
-            </div>
-            <div class="kds-ticket-footer">
-                <button class="kds-bump-btn" data-order-id="${order.id}">BUMP</button>
-            </div>
-        `;
-
-        el.querySelector('.kds-bump-btn').addEventListener('click', () => {
-            state.kitchenOrders = state.kitchenOrders.filter(o => o.id !== order.id);
-            showToast('Order #' + order.id + ' bumped');
-            populateKitchen();
-        });
-
-        container.appendChild(el);
-    });
-
-    $('#kds-active').textContent = activeCount;
-    const avgSeconds = activeCount > 0 ? Math.floor(totalTime / activeCount) : 0;
-    $('#kds-avg-time').textContent = Math.floor(avgSeconds / 60) + ':' + String(avgSeconds % 60).padStart(2, '0');
-};
-
-// Station filter with actual filtering
-$$('.kds-filter').forEach(btn => {
-    btn.addEventListener('click', () => {
-        $$('.kds-filter').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        activeStation = btn.dataset.station;
-        populateKitchen();
-    });
-});
 
 // ==========================================
 // Enhanced Ticket Filters with Search
@@ -2723,6 +1963,12 @@ function voidTicket(ticketId) {
     const idx = state.allTickets.findIndex(t => t.id === ticketId);
     if (idx >= 0) {
         state.allTickets[idx].status = 'voided';
+
+        // Sync void to API backend
+        if (typeof APIClient !== 'undefined') {
+            APIClient.voidTicket(ticketId, state.currentUser, 'User void').catch(() => {});
+        }
+
         showToast('Ticket #' + ticketId + ' voided');
         populateTicketsList();
     }
@@ -2869,6 +2115,11 @@ function openRefundModal(ticket) {
             ticket.status = 'refunded';
         } else {
             ticket.refundedAmount = (ticket.refundedAmount || 0) + refundAmount;
+        }
+
+        // Sync refund to API backend
+        if (typeof APIClient !== 'undefined') {
+            APIClient.createRefund(ticket.id, refundAmount, reason, isPartial ? 'partial' : 'full', state.currentUser).catch(() => {});
         }
 
         modal.classList.remove('active');
@@ -4890,6 +4141,7 @@ function toggleQuickService() {
 }
 window.toggleQuickService = toggleQuickService;
 
+
 // ==========================================
 // Happy Hour / Scheduled Pricing
 // ==========================================
@@ -4946,386 +4198,6 @@ function updateHappyHourBanner() {
 // Check happy hour status every minute
 setInterval(updateHappyHourBanner, 60000);
 
-// ==========================================
-// Course Firing for Kitchen
-// ==========================================
-const COURSES = ['appetizer', 'main', 'dessert'];
-
-function assignCourses(items) {
-    return items.map(item => {
-        if (item.course) return item;
-        // Auto-assign course based on category
-        const catName = findItemCategory(item.id);
-        if (catName === 'appetizers' || catName === 'sides') {
-            item.course = 'appetizer';
-        } else if (catName === 'desserts') {
-            item.course = 'dessert';
-        } else if (catName === 'drinks') {
-            item.course = 'appetizer'; // drinks go with first course
-        } else {
-            item.course = 'main';
-        }
-        return item;
-    });
-}
-
-function findItemCategory(itemId) {
-    for (const [cat, items] of Object.entries(MENU)) {
-        if (items.find(i => i.id === itemId)) return cat;
-    }
-    return 'entrees';
-}
-
-// Patch kitchen to show courses with fire buttons
-const _origPopulateKitchenCourse = populateKitchen;
-populateKitchen = function() {
-    const container = $('#kds-tickets');
-    container.innerHTML = '';
-
-    let activeCount = 0;
-    let totalTime = 0;
-
-    state.kitchenOrders.forEach(order => {
-        const elapsed = Math.floor((new Date() - order.time) / 1000);
-        const minutes = Math.floor(elapsed / 60);
-        const seconds = elapsed % 60;
-        const timeStr = minutes + ':' + String(seconds).padStart(2, '0');
-
-        let timeClass = 'green';
-        if (minutes >= 10) timeClass = 'red';
-        else if (minutes >= 5) timeClass = 'yellow';
-
-        const isUrgent = minutes >= 10;
-        activeCount++;
-        totalTime += elapsed;
-
-        // Group items by course
-        const items = assignCourses([...order.items]);
-        const courseGroups = {};
-        items.forEach(item => {
-            const c = item.course || 'main';
-            if (!courseGroups[c]) courseGroups[c] = [];
-            courseGroups[c].push(item);
-        });
-
-        const el = document.createElement('div');
-        el.className = 'kds-ticket' + (isUrgent ? ' urgent' : '');
-
-        let coursesHtml = '';
-        COURSES.forEach(course => {
-            if (!courseGroups[course]) return;
-            const fired = order.firedCourses && order.firedCourses.includes(course);
-            coursesHtml += `
-                <div class="kds-course ${fired ? 'kds-course-fired' : ''}">
-                    <div class="kds-course-header">
-                        <span class="kds-course-name">${course.toUpperCase()}</span>
-                        ${!fired ? `<button class="kds-fire-btn" data-order-id="${order.id}" data-course="${course}">FIRE</button>` : '<span class="kds-fired-label">FIRED</span>'}
-                    </div>
-                    ${courseGroups[course].map(item => `
-                        <div class="kds-item">
-                            <span class="kds-item-name">${item.name}</span>
-                            <span class="kds-item-qty">x${item.qty}</span>
-                            ${item.note ? '<div class="kds-item-note">' + item.note + '</div>' : ''}
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        });
-
-        el.innerHTML = `
-            <div class="kds-ticket-header">
-                <span>#${order.id} - ${order.type}</span>
-                <span class="kds-ticket-time ${timeClass}">${timeStr}</span>
-            </div>
-            ${order.server ? '<div class="kds-ticket-server">Server: ' + order.server + (order.table ? ' | T' + order.table : '') + '</div>' : ''}
-            <div class="kds-ticket-courses">${coursesHtml}</div>
-            <div class="kds-ticket-footer">
-                <button class="kds-reprint-btn" data-order-id="${order.id}">REPRINT</button>
-                <button class="kds-bump-btn" data-order-id="${order.id}">BUMP ALL</button>
-            </div>
-        `;
-
-        // Fire course buttons
-        el.querySelectorAll('.kds-fire-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const orderId = parseInt(btn.dataset.orderId);
-                const course = btn.dataset.course;
-                const o = state.kitchenOrders.find(ko => ko.id === orderId);
-                if (o) {
-                    if (!o.firedCourses) o.firedCourses = [];
-                    o.firedCourses.push(course);
-                    showToast(`Course "${course}" fired for #${orderId}`);
-                    populateKitchen();
-                }
-            });
-        });
-
-        // Reprint button
-        const reprintBtn = el.querySelector('.kds-reprint-btn');
-        if (reprintBtn) {
-            reprintBtn.addEventListener('click', () => {
-                if (typeof printKitchenOrder === 'function') {
-                    printKitchenOrder(parseInt(reprintBtn.dataset.orderId));
-                }
-            });
-        }
-
-        // Bump button
-        el.querySelector('.kds-bump-btn').addEventListener('click', () => {
-            state.kitchenOrders = state.kitchenOrders.filter(o => o.id !== order.id);
-            showToast('Order #' + order.id + ' bumped');
-            populateKitchen();
-        });
-
-        container.appendChild(el);
-    });
-
-    $('#kds-active').textContent = activeCount;
-    const avgSeconds = activeCount > 0 ? Math.floor(totalTime / activeCount) : 0;
-    $('#kds-avg-time').textContent = Math.floor(avgSeconds / 60) + ':' + String(avgSeconds % 60).padStart(2, '0');
-};
-
-// ==========================================
-// Receipt Reprint from Ticket History
-// ==========================================
-const _origPopulateTicketsReprint = populateTicketsList;
-populateTicketsList = function() {
-    _origPopulateTicketsReprint();
-
-    const container = document.getElementById('tickets-list');
-    if (!container) return;
-
-    container.querySelectorAll('.ticket-card').forEach((el, idx) => {
-        const ticket = state.allTickets[idx];
-        if (!ticket) return;
-
-        // Add action buttons row
-        const actionsRow = document.createElement('div');
-        actionsRow.className = 'ticket-card-actions-row';
-
-        if (ticket.paid) {
-            actionsRow.innerHTML += `<button class="ticket-action-sm" onclick="reprintReceipt(${ticket.id})">Reprint</button>`;
-        }
-        if (ticket.status === 'open') {
-            actionsRow.innerHTML += `<button class="ticket-action-sm ticket-action-recall" onclick="recallTicket(${ticket.id})">Recall</button>`;
-        }
-
-        el.appendChild(actionsRow);
-    });
-};
-
-function reprintReceipt(ticketId) {
-    const ticket = state.allTickets.find(t => t.id === ticketId);
-    if (!ticket) {
-        showToast('Ticket not found', 'error');
-        return;
-    }
-    printReceipt(ticket);
-    showToast('Receipt reprinted for #' + ticketId);
-}
-window.reprintReceipt = reprintReceipt;
-
-function recallTicket(ticketId) {
-    const ticket = state.allTickets.find(t => t.id === ticketId);
-    if (!ticket || ticket.status !== 'open') {
-        showToast('Cannot recall this ticket', 'error');
-        return;
-    }
-    // Load it into the current ticket
-    state.ticket = {
-        id: ticket.id,
-        type: ticket.type,
-        items: [...ticket.items],
-        table: ticket.table,
-        server: ticket.server,
-        discount: ticket.discount,
-        note: ticket.note
-    };
-    updateTicketDisplay();
-    switchToView('order');
-    showToast('Ticket #' + ticketId + ' recalled');
-}
-window.recallTicket = recallTicket;
-
-// ==========================================
-// Table Reservation System
-// ==========================================
-const reservations = [];
-const reservationModal = document.getElementById('reservation-modal');
-
-document.getElementById('close-reservation').addEventListener('click', () => {
-    reservationModal.classList.remove('active');
-});
-
-document.getElementById('btn-reservations').addEventListener('click', () => {
-    openReservationModal();
-});
-
-function openReservationModal() {
-    reservationModal.classList.add('active');
-
-    // Set default date to today
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('res-date').value = today;
-
-    // Populate table dropdown
-    const tableSelect = document.getElementById('res-table');
-    tableSelect.innerHTML = '<option value="">Auto-assign</option>';
-    TABLES.forEach(t => {
-        tableSelect.innerHTML += `<option value="${t.number}">Table ${t.number} (${t.seats} seats)</option>`;
-    });
-
-    refreshReservationList();
-}
-
-function refreshReservationList() {
-    const today = new Date().toDateString();
-    const todayRes = reservations.filter(r => new Date(r.date + 'T' + r.time).toDateString() === today && r.status !== 'cancelled');
-    const upcoming = reservations.filter(r => {
-        const d = new Date(r.date + 'T' + r.time);
-        return d > new Date() && d.toDateString() !== today && r.status !== 'cancelled';
-    });
-
-    // Today's list
-    const listEl = document.getElementById('res-list');
-    if (todayRes.length === 0) {
-        listEl.innerHTML = '<p class="res-empty">No reservations today</p>';
-    } else {
-        listEl.innerHTML = todayRes.sort((a, b) => a.time.localeCompare(b.time)).map((r, idx) => {
-            const timeStr = formatResTime(r.time);
-            return `
-                <div class="res-card ${r.status}">
-                    <div class="res-card-header">
-                        <strong>${r.name}</strong>
-                        <span class="res-time">${timeStr}</span>
-                    </div>
-                    <div class="res-card-details">
-                        <span>Party of ${r.partySize}</span>
-                        ${r.table ? '<span>Table ' + r.table + '</span>' : ''}
-                        ${r.phone ? '<span>' + r.phone + '</span>' : ''}
-                    </div>
-                    ${r.notes ? '<div class="res-card-notes">' + r.notes + '</div>' : ''}
-                    <div class="res-card-actions">
-                        <button class="res-btn-sm" onclick="seatReservation(${reservations.indexOf(r)})">Seat</button>
-                        <button class="res-btn-sm res-btn-noshow" onclick="noShowReservation(${reservations.indexOf(r)})">No Show</button>
-                        <button class="res-btn-sm res-btn-cancel" onclick="cancelReservation(${reservations.indexOf(r)})">Cancel</button>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    // Upcoming list
-    const upEl = document.getElementById('res-upcoming');
-    if (upcoming.length === 0) {
-        upEl.innerHTML = '<p class="res-empty">No upcoming reservations</p>';
-    } else {
-        upEl.innerHTML = upcoming.slice(0, 10).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).map(r => {
-            const dateStr = new Date(r.date + 'T12:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-            return `
-                <div class="res-upcoming-row">
-                    <span>${dateStr} ${formatResTime(r.time)}</span>
-                    <span>${r.name} (${r.partySize})</span>
-                </div>
-            `;
-        }).join('');
-    }
-}
-
-function formatResTime(time) {
-    const [h, m] = time.split(':').map(Number);
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + ' ' + ampm;
-}
-
-document.getElementById('res-save-btn').addEventListener('click', () => {
-    const name = document.getElementById('res-name').value.trim();
-    if (!name) { showToast('Name is required', 'error'); return; }
-
-    const res = {
-        name,
-        partySize: parseInt(document.getElementById('res-party-size').value) || 2,
-        date: document.getElementById('res-date').value,
-        time: document.getElementById('res-time').value,
-        phone: document.getElementById('res-phone').value.trim(),
-        table: document.getElementById('res-table').value || null,
-        notes: document.getElementById('res-notes').value.trim(),
-        status: 'confirmed',
-        createdAt: new Date().toISOString(),
-        createdBy: state.currentUser
-    };
-
-    reservations.push(res);
-
-    // If table assigned, mark it as reserved
-    if (res.table) {
-        const tbl = TABLES.find(t => t.number === parseInt(res.table));
-        if (tbl) tbl.status = 'reserved';
-        populateTables();
-    }
-
-    // Clear form
-    document.getElementById('res-name').value = '';
-    document.getElementById('res-phone').value = '';
-    document.getElementById('res-notes').value = '';
-    document.getElementById('res-party-size').value = '2';
-    document.getElementById('res-table').value = '';
-
-    refreshReservationList();
-    showToast(`Reservation for ${name} at ${formatResTime(res.time)}`);
-});
-
-function seatReservation(idx) {
-    const res = reservations[idx];
-    if (!res) return;
-    res.status = 'seated';
-
-    // Find a table
-    let table = res.table ? TABLES.find(t => t.number === parseInt(res.table)) : null;
-    if (!table) {
-        table = TABLES.find(t => t.status === 'available' && t.seats >= res.partySize);
-    }
-
-    if (table) {
-        table.status = 'occupied';
-        table.server = state.currentUser;
-        table.startTime = new Date().toISOString();
-        state.ticket.table = table.number;
-        populateTables();
-    }
-
-    refreshReservationList();
-    showToast(`${res.name} seated${table ? ' at Table ' + table.number : ''}`);
-}
-window.seatReservation = seatReservation;
-
-function noShowReservation(idx) {
-    const res = reservations[idx];
-    if (!res) return;
-    res.status = 'noshow';
-    if (res.table) {
-        const tbl = TABLES.find(t => t.number === parseInt(res.table));
-        if (tbl && tbl.status === 'reserved') tbl.status = 'available';
-        populateTables();
-    }
-    refreshReservationList();
-    showToast(`${res.name} marked as no-show`);
-}
-window.noShowReservation = noShowReservation;
-
-function cancelReservation(idx) {
-    const res = reservations[idx];
-    if (!res) return;
-    res.status = 'cancelled';
-    if (res.table) {
-        const tbl = TABLES.find(t => t.number === parseInt(res.table));
-        if (tbl && tbl.status === 'reserved') tbl.status = 'available';
-        populateTables();
-    }
-    refreshReservationList();
-    showToast(`Reservation for ${res.name} cancelled`);
-}
-window.cancelReservation = cancelReservation;
 
 // ==========================================
 // Accessibility (ARIA)

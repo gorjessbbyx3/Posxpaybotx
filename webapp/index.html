@@ -218,6 +218,7 @@
                     </div>
                     <div class="floor-actions">
                         <button class="floor-action-btn" id="btn-reservations">Reservations</button>
+                        <button class="floor-action-btn" id="btn-waitlist">Waitlist</button>
                     </div>
                 </div>
                 <div class="table-grid" id="table-grid">
@@ -999,6 +1000,83 @@
         </div>
     </div>
 
+    <!-- Waitlist Modal -->
+    <div id="waitlist-modal" class="modal">
+        <div class="modal-content reservation-modal-content">
+            <div class="modal-header">
+                <h3>Waitlist <span id="wl-count-badge" class="wl-badge" style="display:none">0</span></h3>
+                <button class="modal-close" id="close-waitlist">&times;</button>
+            </div>
+            <div class="reservation-body">
+                <div class="res-new-section">
+                    <h4>Add to Waitlist</h4>
+                    <div class="res-form-grid">
+                        <label>Name</label>
+                        <input type="text" id="wl-name" class="res-input" placeholder="Guest name" autocomplete="off">
+                        <label>Party</label>
+                        <input type="number" id="wl-party-size" class="res-input" placeholder="# guests" min="1" value="2">
+                        <label>Phone</label>
+                        <input type="tel" id="wl-phone" class="res-input" placeholder="Phone number" autocomplete="off">
+                        <label>Notes</label>
+                        <input type="text" id="wl-notes" class="res-input" placeholder="Special requests" autocomplete="off">
+                    </div>
+                    <button class="btn-confirm" id="wl-add-btn" style="width:100%;margin-top:8px;">Add to Waitlist</button>
+                </div>
+                <div class="res-list-section">
+                    <h4>Current Waitlist</h4>
+                    <div class="res-list" id="wl-list">
+                        <p class="res-empty">Waitlist is empty</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Void Reason Modal -->
+    <div id="void-reason-modal" class="modal">
+        <div class="modal-content" style="max-width:420px">
+            <div class="modal-header">
+                <h3>Void Ticket <span id="void-ticket-id"></span></h3>
+                <button class="modal-close" id="close-void-reason">&times;</button>
+            </div>
+            <div style="padding:16px;">
+                <label style="display:block;margin-bottom:6px;font-weight:600;color:var(--text-primary)">Reason for Void</label>
+                <select id="void-reason-select" class="res-input" style="width:100%;margin-bottom:12px;">
+                    <option value="">-- Select reason --</option>
+                    <option value="Customer request">Customer request</option>
+                    <option value="Wrong order">Wrong order entered</option>
+                    <option value="Kitchen error">Kitchen error</option>
+                    <option value="Duplicate ticket">Duplicate ticket</option>
+                    <option value="System error">System error</option>
+                    <option value="Price adjustment">Price adjustment needed</option>
+                    <option value="Other">Other</option>
+                </select>
+                <label style="display:block;margin-bottom:6px;font-weight:600;color:var(--text-primary)">Notes (optional)</label>
+                <input type="text" id="void-reason-notes" class="res-input" placeholder="Additional details" autocomplete="off" style="width:100%;margin-bottom:16px;">
+                <button class="btn-confirm" id="void-reason-confirm" style="width:100%;background:var(--danger);">Confirm Void</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Void Manager Approval Modal -->
+    <div id="void-approval-modal" class="modal">
+        <div class="modal-content" style="max-width:380px">
+            <div class="modal-header">
+                <h3>Manager Approval Required</h3>
+                <button class="modal-close" id="close-void-approval">&times;</button>
+            </div>
+            <div style="padding:16px;text-align:center;">
+                <p style="color:var(--text-secondary);margin-bottom:12px;">
+                    Void ticket <strong id="void-approval-ticket-id"></strong> requires manager PIN
+                </p>
+                <input type="password" id="void-approval-pin" class="res-input" maxlength="4" placeholder="Manager PIN" autocomplete="off"
+                    style="width:100%;text-align:center;font-size:1.5rem;letter-spacing:8px;margin-bottom:8px;">
+                <p id="void-approval-error" style="color:var(--danger);font-size:0.85rem;min-height:1.2em;"></p>
+                <button class="btn-confirm" id="void-approval-confirm" style="width:100%;margin-top:8px;">Approve Void</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Happy Hour Banner (shown when active) -->
     <div id="happy-hour-banner" class="happy-hour-banner" style="display:none">
         <span class="hh-icon">&#x1F37A;</span>
@@ -1009,6 +1087,16 @@
     <!-- Toast Notifications -->
     <div id="toast-container" class="toast-container"></div>
 
+    <!-- Core: data definitions, state, utilities (must load first) -->
+    <script src="js/pos-core.js"></script>
+    <script src="js/calculations.js"></script>
+    <script src="js/api-client.js"></script>
+    <!-- Main POS operations -->
     <script src="js/pos.js"></script>
+    <!-- Feature modules (load after pos.js) -->
+    <script src="js/pos-kitchen.js"></script>
+    <script src="js/pos-tables.js"></script>
+    <script src="js/pos-loyalty.js"></script>
+    <script src="js/pos-extras.js"></script>
 </body>
 </html>
