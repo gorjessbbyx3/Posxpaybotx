@@ -1603,143 +1603,21 @@ function populateReports() {
     if (typeof APIClient !== 'undefined') {
         APIClient.getReportSummary().then(data => {
             if (data && data.totalSales !== undefined) {
-                $('#report-total-sales').textContent = formatCurrency(data.totalSales);
-                $('#report-ticket-count').textContent = data.ticketCount || 0;
-                $('#report-avg-ticket').textContent = formatCurrency(data.avgTicket || 0);
-                $('#report-cash-sales').textContent = formatCurrency(data.cashSales || 0);
-                $('#report-card-sales').textContent = formatCurrency(data.cardSales || 0);
-                $('#report-tax').textContent = formatCurrency(data.totalTax || 0);
-                $('#report-discounts').textContent = formatCurrency(data.totalDiscounts || 0);
-                $('#report-tips').textContent = formatCurrency(data.totalTips || 0);
+                const el = (id) => document.getElementById(id);
+                if (el('report-total-sales')) el('report-total-sales').textContent = formatCurrency(data.totalSales);
+                if (el('report-ticket-count')) el('report-ticket-count').textContent = data.ticketCount || 0;
+                if (el('report-avg-ticket')) el('report-avg-ticket').textContent = formatCurrency(data.avgTicket || 0);
+                if (el('report-cash-sales')) el('report-cash-sales').textContent = formatCurrency(data.cashSales || 0);
+                if (el('report-card-sales')) el('report-card-sales').textContent = formatCurrency(data.cardSales || 0);
+                if (el('report-tax')) el('report-tax').textContent = formatCurrency(data.totalTax || 0);
+                if (el('report-discounts')) el('report-discounts').textContent = formatCurrency(data.totalDiscounts || 0);
+                if (el('report-tips')) el('report-tips').textContent = formatCurrency(data.totalTips || 0);
             }
         }).catch(() => {});
     }
 }
 
-// Report tab switching with data population
-$$('.report-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-        $$('.report-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        const tabName = tab.dataset.tab;
-
-        $$('.report-panel').forEach(p => p.classList.remove('active'));
-        const panel = document.getElementById('report-' + tabName);
-        if (panel) panel.classList.add('active');
-
-        // Populate tab-specific data from API
-        if (typeof APIClient !== 'undefined') {
-            if (tabName === 'hourly') {
-                populateHourlyReport();
-            } else if (tabName === 'items') {
-                populateItemMixReport();
-            } else if (tabName === 'labor') {
-                populateLaborReport();
-            }
-        }
-    });
-});
-
-function populateHourlyReport() {
-    const panel = document.getElementById('report-hourly');
-    if (!panel) return;
-    APIClient.getReportHourly().then(data => {
-        if (data && data.hours) {
-            let html = '<table class="report-table"><thead><tr><th>Hour</th><th>Sales</th><th>Tickets</th><th>Avg</th></tr></thead><tbody>';
-            data.hours.forEach(h => {
-                html += '<tr><td>' + h.hour + '</td><td>' + formatCurrency(h.sales) + '</td><td>' + h.tickets + '</td><td>' + formatCurrency(h.avg) + '</td></tr>';
-            });
-            html += '</tbody></table>';
-            panel.innerHTML = html;
-        }
-    }).catch(() => {
-        // Fallback: generate from local data
-        const hourMap = {};
-        state.allTickets.forEach(t => {
-            if (!t.paid) return;
-            const h = new Date(t.time || t.paidAt).getHours();
-            if (!hourMap[h]) hourMap[h] = { sales: 0, tickets: 0 };
-            hourMap[h].sales += t.total || 0;
-            hourMap[h].tickets++;
-        });
-        let html = '<table class="report-table"><thead><tr><th>Hour</th><th>Sales</th><th>Tickets</th><th>Avg</th></tr></thead><tbody>';
-        Object.keys(hourMap).sort((a, b) => a - b).forEach(h => {
-            const d = hourMap[h];
-            const hNum = parseInt(h);
-            const label = (hNum % 12 || 12) + (hNum >= 12 ? 'PM' : 'AM');
-            html += '<tr><td>' + label + '</td><td>' + formatCurrency(d.sales) + '</td><td>' + d.tickets + '</td><td>' + formatCurrency(d.tickets > 0 ? d.sales / d.tickets : 0) + '</td></tr>';
-        });
-        html += '</tbody></table>';
-        if (Object.keys(hourMap).length === 0) html = '<p style="text-align:center;color:var(--text-secondary);padding:24px;">No sales data for today</p>';
-        panel.innerHTML = html;
-    });
-}
-
-function populateItemMixReport() {
-    const panel = document.getElementById('report-items');
-    if (!panel) return;
-    APIClient.getReportItemMix().then(data => {
-        if (data && data.items) {
-            let html = '<table class="report-table"><thead><tr><th>Item</th><th>Qty Sold</th><th>Revenue</th><th>% of Sales</th></tr></thead><tbody>';
-            data.items.forEach(i => {
-                html += '<tr><td>' + escapeHtml(i.name) + '</td><td>' + i.qty + '</td><td>' + formatCurrency(i.revenue) + '</td><td>' + i.pct + '%</td></tr>';
-            });
-            html += '</tbody></table>';
-            panel.innerHTML = html;
-        }
-    }).catch(() => {
-        // Fallback: generate from local data
-        const itemMap = {};
-        let totalRev = 0;
-        state.allTickets.forEach(t => {
-            if (!t.paid || !t.items) return;
-            t.items.forEach(item => {
-                const key = item.name || item.id;
-                if (!itemMap[key]) itemMap[key] = { name: item.name, qty: 0, revenue: 0 };
-                itemMap[key].qty += item.qty || 1;
-                itemMap[key].revenue += (item.price || 0) * (item.qty || 1);
-                totalRev += (item.price || 0) * (item.qty || 1);
-            });
-        });
-        const sorted = Object.values(itemMap).sort((a, b) => b.revenue - a.revenue);
-        let html = '<table class="report-table"><thead><tr><th>Item</th><th>Qty Sold</th><th>Revenue</th><th>% of Sales</th></tr></thead><tbody>';
-        sorted.forEach(i => {
-            const pct = totalRev > 0 ? Math.round(i.revenue / totalRev * 100) : 0;
-            html += '<tr><td>' + escapeHtml(i.name) + '</td><td>' + i.qty + '</td><td>' + formatCurrency(i.revenue) + '</td><td>' + pct + '%</td></tr>';
-        });
-        html += '</tbody></table>';
-        if (sorted.length === 0) html = '<p style="text-align:center;color:var(--text-secondary);padding:24px;">No item data for today</p>';
-        panel.innerHTML = html;
-    });
-}
-
-function populateLaborReport() {
-    const panel = document.getElementById('report-labor');
-    if (!panel) return;
-    APIClient.getReportLabor().then(data => {
-        if (data && data.employees) {
-            let html = '<table class="report-table"><thead><tr><th>Employee</th><th>Role</th><th>Hours</th><th>Status</th></tr></thead><tbody>';
-            data.employees.forEach(e => {
-                html += '<tr><td>' + escapeHtml(e.name) + '</td><td>' + escapeHtml(e.role) + '</td><td>' + e.hours + '</td><td>' + e.status + '</td></tr>';
-            });
-            html += '</tbody></table>';
-            panel.innerHTML = html;
-        }
-    }).catch(() => {
-        // Fallback: generate from local timeclock data
-        const today = new Date().toDateString();
-        const todayRecords = timeClock.filter(r => new Date(r.clockIn).toDateString() === today);
-        let html = '<table class="report-table"><thead><tr><th>Employee</th><th>Role</th><th>Hours</th><th>Status</th></tr></thead><tbody>';
-        todayRecords.forEach(r => {
-            const hrs = r.clockOut ? ((new Date(r.clockOut) - new Date(r.clockIn)) / 3600000).toFixed(2) : 'active';
-            const status = r.clockOut ? 'Completed' : 'Active';
-            html += '<tr><td>' + escapeHtml(r.empName) + '</td><td>' + escapeHtml(r.role) + '</td><td>' + hrs + '</td><td>' + status + '</td></tr>';
-        });
-        html += '</tbody></table>';
-        if (todayRecords.length === 0) html = '<p style="text-align:center;color:var(--text-secondary);padding:24px;">No labor data for today</p>';
-        panel.innerHTML = html;
-    });
-}
+// Report tab API population functions are defined alongside their local fallback implementations below
 
 $('#btn-refresh-report').addEventListener('click', () => {
     populateReports();
@@ -2586,7 +2464,22 @@ $$('.report-tab').forEach(btn => {
         const panel = document.getElementById(panelMap[activeReportTab]);
         if (panel) panel.classList.add('active');
 
-        populateReports();
+        // Also try to enrich refunds data from API
+        if (activeReportTab === 'refunds' && typeof APIClient !== 'undefined') {
+            APIClient.getRefunds().then(data => {
+                if (data && Array.isArray(data) && data.length > 0) {
+                    // Merge API refund data into local
+                    data.forEach(r => {
+                        if (!refundHistory.find(local => local.ticketId === r.ticketId && local.time === r.time)) {
+                            refundHistory.push(r);
+                        }
+                    });
+                }
+                populateReports();
+            }).catch(() => { populateReports(); });
+        } else {
+            populateReports();
+        }
     });
 });
 
@@ -3811,6 +3704,12 @@ document.getElementById('tab-form-save').addEventListener('click', () => {
     };
 
     customerTabs.push(tab);
+
+    // Sync to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.createCustomer({ name, phone: tab.phone, tab: true, tabLimit: tab.limit }).catch(() => {});
+    }
+
     document.getElementById('tab-new-form').style.display = 'none';
     document.getElementById('tab-name').value = '';
     document.getElementById('tab-phone').value = '';
@@ -3913,14 +3812,33 @@ document.getElementById('gc-lookup-btn').addEventListener('click', () => {
     const cardNum = document.getElementById('gc-card-number').value.trim();
     if (!cardNum) { showToast('Enter a card number', 'error'); return; }
 
-    const card = giftCards[cardNum];
-    if (!card) {
-        showToast('Card not found', 'error');
-        document.getElementById('gc-result').style.display = 'none';
-        return;
+    // Try API first, fall back to local storage
+    if (typeof APIClient !== 'undefined') {
+        APIClient.getGiftCard(cardNum).then(card => {
+            if (card) {
+                giftCards[cardNum] = card;
+                syncGiftCardsToStorage();
+                showGiftCardResult(card);
+            }
+        }).catch(() => {
+            // API unavailable, use local storage
+            const card = giftCards[cardNum];
+            if (!card) {
+                showToast('Card not found', 'error');
+                document.getElementById('gc-result').style.display = 'none';
+                return;
+            }
+            showGiftCardResult(card);
+        });
+    } else {
+        const card = giftCards[cardNum];
+        if (!card) {
+            showToast('Card not found', 'error');
+            document.getElementById('gc-result').style.display = 'none';
+            return;
+        }
+        showGiftCardResult(card);
     }
-
-    showGiftCardResult(card);
 });
 
 function showGiftCardResult(card) {
