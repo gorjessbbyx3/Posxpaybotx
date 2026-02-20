@@ -162,7 +162,7 @@ describe('POST /api/auth/login', () => {
 // ==========================================
 describe('Tickets API', () => {
     it('GET /api/tickets returns empty list initially', async () => {
-        const res = await req('GET', '/api/tickets');
+        const res = await req('GET', '/api/tickets', null, serverToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.tickets.length, 0);
     });
@@ -190,13 +190,13 @@ describe('Tickets API', () => {
     });
 
     it('GET /api/tickets/:id returns the ticket', async () => {
-        const res = await req('GET', '/api/tickets/1001');
+        const res = await req('GET', '/api/tickets/1001', null, serverToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.id, 1001);
     });
 
     it('GET /api/tickets/:id returns 404 for missing', async () => {
-        const res = await req('GET', '/api/tickets/9999');
+        const res = await req('GET', '/api/tickets/9999', null, serverToken);
         assert.equal(res.status, 404);
     });
 
@@ -439,8 +439,10 @@ describe('Time Clock API', () => {
 // Configuration
 // ==========================================
 describe('Configuration API', () => {
-    it('GET /api/config returns all config (no auth needed)', async () => {
-        const res = await req('GET', '/api/config');
+    it('GET /api/config requires config permission', async () => {
+        const noAuth = await req('GET', '/api/config');
+        assert.equal(noAuth.status, 401);
+        const res = await req('GET', '/api/config', null, managerToken);
         assert.equal(res.status, 200);
         assert.ok(res.body.cashDiscount);
         assert.ok(res.body.tax);
@@ -1203,13 +1205,13 @@ describe('Gift Card Management API', () => {
     });
 
     it('looks up gift card by code', async () => {
-        const res = await req('GET', '/api/gift-cards/GIFT100');
+        const res = await req('GET', '/api/gift-cards/GIFT100', null, serverToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.balance, 100);
     });
 
     it('returns 404 for missing gift card', async () => {
-        const res = await req('GET', '/api/gift-cards/INVALID');
+        const res = await req('GET', '/api/gift-cards/INVALID', null, serverToken);
         assert.equal(res.status, 404);
     });
 
@@ -1540,7 +1542,7 @@ describe('Loyalty Points API', () => {
     });
 
     it('gets loyalty status (starts at 0)', async () => {
-        const res = await req('GET', `/api/customers/${loyaltyCustomerId}/loyalty`);
+        const res = await req('GET', `/api/customers/${loyaltyCustomerId}/loyalty`, null, serverToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.points, 0);
         assert.equal(res.body.redeemableRewards, 0);
@@ -1593,7 +1595,7 @@ describe('Loyalty Points API', () => {
     });
 
     it('returns 404 for missing customer loyalty', async () => {
-        const res = await req('GET', '/api/customers/99999/loyalty');
+        const res = await req('GET', '/api/customers/99999/loyalty', null, serverToken);
         assert.equal(res.status, 404);
     });
 });
@@ -3348,7 +3350,7 @@ describe('Reports Endpoints', () => {
 // ==========================================
 describe('GET list endpoints', () => {
     it('GET /api/refunds returns refund list', async () => {
-        const res = await req('GET', '/api/refunds');
+        const res = await req('GET', '/api/refunds', null, managerToken);
         assert.equal(res.status, 200);
         assert.ok(res.body.refunds !== undefined);
     });
@@ -3460,7 +3462,7 @@ describe('Sync Push Implementation', () => {
         assert.equal(res.body.applied.length, 1);
 
         // Verify the note was applied
-        const get = await req('GET', `/api/tickets/${ticket.body.id}`);
+        const get = await req('GET', `/api/tickets/${ticket.body.id}`, null, managerToken);
         assert.equal(get.body.note, 'Extra hot');
     });
 
@@ -3903,6 +3905,36 @@ describe('Authorization on previously public endpoints', () => {
 
     it('GET /api/qr-orders requires auth', async () => {
         const res = await req('GET', '/api/qr-orders');
+        assert.equal(res.status, 401);
+    });
+
+    it('GET /api/tickets requires auth', async () => {
+        const res = await req('GET', '/api/tickets');
+        assert.equal(res.status, 401);
+    });
+
+    it('GET /api/tickets/:id requires auth', async () => {
+        const res = await req('GET', '/api/tickets/1001');
+        assert.equal(res.status, 401);
+    });
+
+    it('GET /api/refunds requires auth', async () => {
+        const res = await req('GET', '/api/refunds');
+        assert.equal(res.status, 401);
+    });
+
+    it('GET /api/gift-cards/:code requires auth', async () => {
+        const res = await req('GET', '/api/gift-cards/SOMECODE');
+        assert.equal(res.status, 401);
+    });
+
+    it('GET /api/customers/:id/loyalty requires auth', async () => {
+        const res = await req('GET', '/api/customers/1/loyalty');
+        assert.equal(res.status, 401);
+    });
+
+    it('GET /api/config requires auth', async () => {
+        const res = await req('GET', '/api/config');
         assert.equal(res.status, 401);
     });
 });
