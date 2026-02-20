@@ -388,7 +388,7 @@ describe('Kitchen API', () => {
     });
 
     it('GET /api/kitchen returns active orders', async () => {
-        const res = await req('GET', '/api/kitchen');
+        const res = await req('GET', '/api/kitchen', null, kitchenToken);
         assert.equal(res.status, 200);
         assert.ok(res.body.orders.length > 0);
     });
@@ -710,7 +710,7 @@ describe('Kitchen Station Routing', () => {
     });
 
     it('filters orders by station', async () => {
-        const res = await req('GET', '/api/kitchen/station/grill');
+        const res = await req('GET', '/api/kitchen/station/grill', null, kitchenToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.station, 'grill');
         assert.ok(res.body.orders.length > 0);
@@ -721,7 +721,7 @@ describe('Kitchen Station Routing', () => {
     });
 
     it('returns empty for station with no orders', async () => {
-        const res = await req('GET', '/api/kitchen/station/pizza');
+        const res = await req('GET', '/api/kitchen/station/pizza', null, kitchenToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.orders.length, 0);
     });
@@ -1091,7 +1091,7 @@ describe('Category Margin Analysis', () => {
 // ==========================================
 describe('Customer Profiles API', () => {
     it('GET /api/customers returns empty list initially', async () => {
-        const res = await req('GET', '/api/customers');
+        const res = await req('GET', '/api/customers', null, serverToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.customers.length, 0);
     });
@@ -1121,13 +1121,13 @@ describe('Customer Profiles API', () => {
     });
 
     it('gets customer by ID', async () => {
-        const res = await req('GET', '/api/customers/1');
+        const res = await req('GET', '/api/customers/1', null, serverToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.name, 'Jane Doe');
     });
 
     it('returns 404 for missing customer', async () => {
-        const res = await req('GET', '/api/customers/999');
+        const res = await req('GET', '/api/customers/999', null, serverToken);
         assert.equal(res.status, 404);
     });
 
@@ -1143,13 +1143,13 @@ describe('Customer Profiles API', () => {
     });
 
     it('searches customers by name', async () => {
-        const res = await req('GET', '/api/customers?search=jane');
+        const res = await req('GET', '/api/customers?search=jane', null, serverToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.customers.length, 1);
     });
 
     it('filters by tag', async () => {
-        const res = await req('GET', '/api/customers?tag=vip');
+        const res = await req('GET', '/api/customers?tag=vip', null, serverToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.customers.length, 1);
     });
@@ -1476,7 +1476,7 @@ describe('Seat-Level Ordering & Split by Seat', () => {
 // ==========================================
 describe('Expo Screen API', () => {
     it('returns expo view with ready and in-progress', async () => {
-        const res = await req('GET', '/api/kitchen/expo');
+        const res = await req('GET', '/api/kitchen/expo', null, kitchenToken);
         assert.equal(res.status, 200);
         assert.ok(Array.isArray(res.body.ready));
         assert.ok(Array.isArray(res.body.inProgress));
@@ -1498,7 +1498,7 @@ describe('Expo Screen API', () => {
         await req('POST', '/api/kitchen/8001/bump', {}, kitchenToken);
 
         // Check expo
-        const expo = await req('GET', '/api/kitchen/expo');
+        const expo = await req('GET', '/api/kitchen/expo', null, kitchenToken);
         assert.equal(expo.status, 200);
         const readyOrder = expo.body.ready.find(o => o.id === 8001);
         assert.ok(readyOrder);
@@ -1512,7 +1512,7 @@ describe('Expo Screen API', () => {
         assert.equal(res.body.pickedUp, true);
 
         // Should no longer appear in expo ready
-        const expo = await req('GET', '/api/kitchen/expo');
+        const expo = await req('GET', '/api/kitchen/expo', null, kitchenToken);
         const gone = expo.body.ready.find(o => o.id === 8001);
         assert.equal(gone, undefined);
     });
@@ -2374,7 +2374,7 @@ describe('QR Table Ordering', () => {
     });
 
     it('lists active QR orders', async () => {
-        const res = await req('GET', '/api/qr-orders');
+        const res = await req('GET', '/api/qr-orders', null, serverToken);
         assert.equal(res.status, 200);
         assert.ok(res.body.length >= 1);
     });
@@ -3118,7 +3118,7 @@ describe('Held Orders', () => {
     });
 
     it('lists held orders', async () => {
-        const res = await req('GET', '/api/held-orders');
+        const res = await req('GET', '/api/held-orders', null, serverToken);
         assert.equal(res.status, 200);
         assert.ok(res.body.orders.length >= 1);
         assert.ok(res.body.orders[0].id);
@@ -3354,7 +3354,7 @@ describe('GET list endpoints', () => {
     });
 
     it('GET /api/timeclock returns records', async () => {
-        const res = await req('GET', '/api/timeclock');
+        const res = await req('GET', '/api/timeclock', null, serverToken);
         assert.equal(res.status, 200);
         assert.ok(res.body.records !== undefined);
     });
@@ -3514,7 +3514,7 @@ describe('Email Campaign Targeting', () => {
         assert.ok(res.body.recipients);
         assert.equal(res.body.recipientCount, 1); // Only Alice has loyalty points
         assert.equal(res.body.recipients[0].email, 'alice@test.com');
-        assert.equal(res.body.recipients[0].status, 'delivered');
+        assert.equal(res.body.recipients[0].status, 'queued');
     });
 
     it('fails campaign with no matching recipients', async () => {
@@ -3864,6 +3864,276 @@ describe('Saved Payment in Ticket Pay', () => {
             method: 'card', savedPaymentId: 99999
         }, managerToken);
         assert.equal(res.status, 404);
+    });
+});
+
+// ==========================================
+// Security & Bug Fix Tests
+// ==========================================
+describe('Authorization on previously public endpoints', () => {
+    it('GET /api/kitchen requires auth', async () => {
+        const res = await req('GET', '/api/kitchen');
+        assert.equal(res.status, 401);
+    });
+
+    it('GET /api/kitchen/station/:station requires auth', async () => {
+        const res = await req('GET', '/api/kitchen/station/grill');
+        assert.equal(res.status, 401);
+    });
+
+    it('GET /api/kitchen/expo requires auth', async () => {
+        const res = await req('GET', '/api/kitchen/expo');
+        assert.equal(res.status, 401);
+    });
+
+    it('GET /api/customers requires auth', async () => {
+        const res = await req('GET', '/api/customers');
+        assert.equal(res.status, 401);
+    });
+
+    it('GET /api/held-orders requires auth', async () => {
+        const res = await req('GET', '/api/held-orders');
+        assert.equal(res.status, 401);
+    });
+
+    it('GET /api/timeclock requires auth', async () => {
+        const res = await req('GET', '/api/timeclock');
+        assert.equal(res.status, 401);
+    });
+
+    it('GET /api/qr-orders requires auth', async () => {
+        const res = await req('GET', '/api/qr-orders');
+        assert.equal(res.status, 401);
+    });
+});
+
+describe('Partial Payment Safeguards', () => {
+    before(() => {
+        store.tickets.length = 0;
+    });
+
+    it('prevents overpayment', async () => {
+        const create = await req('POST', '/api/tickets', {
+            items: [{ name: 'Soup', price: 10, qty: 1 }], type: 'dine-in'
+        }, serverToken);
+        const id = create.body.id;
+
+        // Pay more than the total — should be capped
+        const pay = await req('POST', `/api/tickets/${id}/partial-pay`, {
+            amount: 999, method: 'card'
+        }, serverToken);
+        assert.equal(pay.status, 200);
+        assert.ok(pay.body.amountPaid <= pay.body.total + 0.01);
+        assert.equal(pay.body.status, 'paid');
+
+        // Second pay should be rejected — already paid
+        const pay2 = await req('POST', `/api/tickets/${id}/partial-pay`, {
+            amount: 5, method: 'card'
+        }, serverToken);
+        assert.equal(pay2.status, 400);
+    });
+
+    it('deduplicates with idempotency key', async () => {
+        const create = await req('POST', '/api/tickets', {
+            items: [{ name: 'Salad', price: 20, qty: 1 }], type: 'dine-in'
+        }, serverToken);
+        const id = create.body.id;
+
+        const pay1 = await req('POST', `/api/tickets/${id}/partial-pay`, {
+            amount: 10, method: 'card', idempotencyKey: 'key-123'
+        }, serverToken);
+        assert.equal(pay1.status, 200);
+
+        // Same idempotency key — should not double-charge
+        const pay2 = await req('POST', `/api/tickets/${id}/partial-pay`, {
+            amount: 10, method: 'card', idempotencyKey: 'key-123'
+        }, serverToken);
+        assert.equal(pay2.status, 200);
+        assert.equal(pay2.body.partialPayments.length, 1); // Still just 1 payment
+    });
+});
+
+describe('Kitchen Course Fire Duplicate Prevention', () => {
+    before(() => {
+        store.kitchenOrders.length = 0;
+    });
+
+    it('rejects duplicate course fire', async () => {
+        // Create a kitchen order with 2 courses
+        await req('POST', '/api/kitchen', {
+            ticketId: 5555, items: [
+                { name: 'App', station: 'general', course: 1 },
+                { name: 'Main', station: 'general', course: 2 }
+            ]
+        }, kitchenToken);
+
+        // Fire course 1
+        const fire1 = await req('POST', '/api/kitchen/5555/fire-course', { course: 1 }, kitchenToken);
+        assert.equal(fire1.status, 200);
+
+        // Try to fire course 1 again
+        const fire2 = await req('POST', '/api/kitchen/5555/fire-course', { course: 1 }, kitchenToken);
+        assert.equal(fire2.status, 409);
+    });
+});
+
+describe('Inventory Negative Stock Prevention', () => {
+    before(() => {
+        store.ingredients.length = 0;
+    });
+
+    it('rejects adjustment that would go below zero', async () => {
+        await req('POST', '/api/ingredients', { name: 'Flour', unit: 'kg', stock: 5 }, managerToken);
+        const ing = store.ingredients[0];
+
+        const res = await req('POST', `/api/ingredients/${ing.id}/adjust`, {
+            quantity: -10, reason: 'usage'
+        }, managerToken);
+        assert.equal(res.status, 400);
+        assert.ok(res.body.error.includes('Insufficient'));
+    });
+});
+
+describe('Delivery Integration API Key Masking', () => {
+    before(() => {
+        store.deliveryIntegrations.length = 0;
+    });
+
+    it('masks API keys on GET', async () => {
+        await req('POST', '/api/delivery-integrations', {
+            platform: 'doordash', apiKey: 'sk_live_abc123xyz789', storeId: 'store_456'
+        }, managerToken);
+
+        const res = await req('GET', '/api/delivery-integrations', null, managerToken);
+        assert.equal(res.status, 200);
+        const int = res.body[0];
+        assert.ok(!int.apiKey.includes('abc123')); // Key is masked
+        assert.ok(int.apiKey.includes('****'));
+    });
+
+    it('masks API keys on POST response', async () => {
+        store.deliveryIntegrations.length = 0;
+        const res = await req('POST', '/api/delivery-integrations', {
+            platform: 'ubereats', apiKey: 'sk_test_secretkey123'
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.ok(res.body.apiKey.includes('****'));
+    });
+});
+
+describe('Token Vault Security', () => {
+    before(() => {
+        store.tokenVault.length = 0;
+    });
+
+    it('returns masked token on POST', async () => {
+        const res = await req('POST', '/api/token-vault', {
+            lastFour: '4242', cardBrand: 'visa'
+        }, serverToken);
+        assert.equal(res.status, 201);
+        assert.ok(res.body.token.includes('...'));
+        assert.ok(!res.body.encryptedToken); // Never expose encrypted token
+    });
+
+    it('returns masked tokens on GET', async () => {
+        const res = await req('GET', '/api/token-vault', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body[0].token.includes('...'));
+        assert.ok(!res.body[0].encryptedToken);
+    });
+});
+
+describe('Ticket PATCH Empty Items', () => {
+    before(() => {
+        store.tickets.length = 0;
+    });
+
+    it('zeros totals when items set to empty array', async () => {
+        const create = await req('POST', '/api/tickets', {
+            items: [{ name: 'Steak', price: 25, qty: 1 }], type: 'dine-in'
+        }, serverToken);
+        assert.ok(create.body.total > 0);
+
+        const patch = await req('PATCH', `/api/tickets/${create.body.id}`, {
+            items: []
+        }, serverToken);
+        assert.equal(patch.status, 200);
+        assert.equal(patch.body.subtotal, 0);
+        assert.equal(patch.body.tax, 0);
+        assert.equal(patch.body.total, 0);
+    });
+});
+
+describe('Backup Restore', () => {
+    before(() => {
+        store.backups.length = 0;
+    });
+
+    it('creates a backup and restores from it', async () => {
+        // Create a backup first
+        const backup = await req('POST', '/api/backups', {}, managerToken);
+        assert.equal(backup.status, 201);
+
+        // Restore
+        const res = await req('POST', `/api/backups/${backup.body.id}/restore`, {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.restoredKeys > 0);
+    });
+
+    it('rejects restore from non-existent backup', async () => {
+        const res = await req('POST', '/api/backups/9999/restore', {}, managerToken);
+        assert.equal(res.status, 404);
+    });
+});
+
+describe('2FA Re-setup Protection', () => {
+    before(() => {
+        delete store.config.twoFactorSecrets;
+    });
+
+    it('allows initial setup', async () => {
+        const res = await req('POST', '/api/auth/2fa/setup', {}, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.secret);
+    });
+
+    it('blocks re-setup after verification without force flag', async () => {
+        // Verify the initial setup to enable 2FA
+        const userTfa = store.config.twoFactorSecrets['M001'];
+        // Mark as enabled
+        userTfa.enabled = true;
+
+        const res = await req('POST', '/api/auth/2fa/setup', {}, managerToken);
+        assert.equal(res.status, 409);
+    });
+
+    it('allows re-setup with force flag', async () => {
+        const res = await req('POST', '/api/auth/2fa/setup', { force: true }, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.secret);
+    });
+});
+
+describe('Sync Engine Expanded Entity Types', () => {
+    it('snapshot includes all entity types', async () => {
+        const res = await req('GET', '/api/sync/snapshot', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok('tickets' in res.body);
+        assert.ok('customers' in res.body);
+        assert.ok('giftCards' in res.body);
+        assert.ok('refunds' in res.body);
+        assert.ok('heldOrders' in res.body);
+        assert.ok('timeClock' in res.body);
+        assert.ok('promoCodes' in res.body);
+    });
+
+    it('sync push handles customer entity', async () => {
+        const res = await req('POST', '/api/sync/push', {
+            changes: [{ type: 'customer', action: 'create', data: { name: 'Sync Test', email: 'sync@test.com' } }]
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.applied.length, 1);
+        assert.equal(res.body.applied[0].type, 'customer');
     });
 });
 
