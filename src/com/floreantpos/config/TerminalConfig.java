@@ -20,7 +20,7 @@ package com.floreantpos.config;
 import java.util.Locale;
 import java.util.StringTokenizer;
 
-import org.apache.commons.configuration.PropertiesConfiguration;
+import org.apache.commons.configuration2.PropertiesConfiguration;
 import org.apache.commons.lang.StringUtils;
 
 import com.floreantpos.model.PaymentStatusFilter;
