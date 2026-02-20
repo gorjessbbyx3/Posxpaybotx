@@ -689,7 +689,7 @@ $('#btn-hold').addEventListener('click', () => {
     }
 
     // Hold current ticket
-    heldOrders.push({
+    const heldOrder = {
         id: state.ticket.id,
         type: state.ticket.type,
         items: state.ticket.items.map(i => ({ ...i })),
@@ -698,7 +698,13 @@ $('#btn-hold').addEventListener('click', () => {
         discount: state.ticket.discount,
         heldAt: new Date(),
         note: ''
-    });
+    };
+    heldOrders.push(heldOrder);
+
+    // Sync to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.holdOrder(heldOrder).catch(() => {});
+    }
 
     showToast('Order #' + state.ticket.id + ' held (' + heldOrders.length + ' held)');
     updateHeldBadge();
@@ -813,6 +819,12 @@ function recallHeldOrder(idx) {
     }
 
     heldOrders.splice(idx, 1);
+
+    // Sync recall to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.recallHeldOrder(idx).catch(() => {});
+    }
+
     updateHeldBadge();
     updateTicketDisplay();
 
@@ -826,6 +838,12 @@ window.recallHeldOrder = recallHeldOrder;
 
 function deleteHeldOrder(idx) {
     if (!confirm('Discard held order?')) return;
+
+    // Sync delete to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.recallHeldOrder(idx).catch(() => {});
+    }
+
     heldOrders.splice(idx, 1);
     updateHeldBadge();
     openHeldOrdersModal(); // Refresh display
@@ -834,9 +852,7 @@ function deleteHeldOrder(idx) {
 }
 window.deleteHeldOrder = deleteHeldOrder;
 
-$('#btn-split').addEventListener('click', () => {
-    showToast('Split check feature', 'warning');
-});
+// Split check button wired in the Split Check section below
 
 $('#btn-discount').addEventListener('click', () => {
     if (state.ticket.items.length === 0) {
@@ -1203,8 +1219,55 @@ function openSplitModal(ways) {
 }
 
 $('#split-confirm').addEventListener('click', () => {
-    showToast('Check split applied');
+    const ways = document.querySelectorAll('.split-card').length;
+    if (!ways || ways < 2) {
+        showToast('Select split amount first', 'warning');
+        return;
+    }
+
+    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+    const tax = subtotal * (CONFIG.taxRate / 100);
+    const total = subtotal + tax;
+    const perSplit = Math.round((total / ways) * 100) / 100;
+
+    // Create individual split tickets
+    for (let i = 0; i < ways; i++) {
+        const amount = (i === ways - 1) ? Math.round((total - perSplit * (ways - 1)) * 100) / 100 : perSplit;
+        state.allTickets.push({
+            id: state.ticketCounter++,
+            server: state.currentUser,
+            type: state.ticket.type,
+            items: state.ticket.items.map(item => ({
+                ...item,
+                price: Math.round((item.price / ways) * 100) / 100,
+                splitFrom: state.ticket.id
+            })),
+            status: 'open',
+            paid: false,
+            total: amount,
+            subtotal: Math.round((subtotal / ways) * 100) / 100,
+            tax: Math.round((tax / ways) * 100) / 100,
+            table: state.ticket.table,
+            time: new Date(),
+            splitGuest: i + 1,
+            splitWays: ways,
+            parentTicketId: state.ticket.id
+        });
+    }
+
+    // Sync split to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.createTicket({
+            id: state.ticket.id,
+            action: 'split',
+            ways: ways
+        }).catch(() => {});
+    }
+
+    showToast('Check split into ' + ways + ' ways');
     $('#split-modal').classList.remove('active');
+    newTicket();
+    saveState();
 });
 
 // ==========================================
@@ -1317,34 +1380,59 @@ function createDiscountModal() {
     // Promo code
     document.getElementById('btn-apply-promo').addEventListener('click', () => {
         const code = document.getElementById('promo-code-input').value.trim().toUpperCase();
-        const promo = PROMO_CODES[code];
         const resultEl = document.getElementById('promo-result');
-
-        if (!promo) {
-            resultEl.textContent = 'Invalid promo code';
-            resultEl.style.color = 'var(--danger)';
-            return;
-        }
-
         const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
-        if (subtotal < promo.minAmount) {
-            resultEl.textContent = 'Minimum order ' + formatCurrency(promo.minAmount) + ' required';
-            resultEl.style.color = 'var(--warning)';
-            return;
+
+        function applyPromo(promo) {
+            if (subtotal < promo.minAmount) {
+                resultEl.textContent = 'Minimum order ' + formatCurrency(promo.minAmount) + ' required';
+                resultEl.style.color = 'var(--warning)';
+                return;
+            }
+            resultEl.textContent = promo.description;
+            resultEl.style.color = 'var(--success)';
+            appliedPromo = { ...promo, code };
+            if (promo.type !== 'delivery') {
+                appliedDiscount = {
+                    type: promo.type,
+                    value: promo.value,
+                    reason: 'Promo: ' + code
+                };
+            }
+            updateDiscountPreview();
         }
 
-        resultEl.textContent = promo.description;
-        resultEl.style.color = 'var(--success)';
-        appliedPromo = { ...promo, code };
-
-        if (promo.type !== 'delivery') {
-            appliedDiscount = {
-                type: promo.type,
-                value: promo.value,
-                reason: 'Promo: ' + code
-            };
+        // Try API first, fall back to local PROMO_CODES
+        if (typeof APIClient !== 'undefined') {
+            APIClient.validatePromoCode(code).then(data => {
+                if (data && data.valid) {
+                    applyPromo(data.promo || data);
+                } else {
+                    // API says invalid, try local fallback
+                    const local = PROMO_CODES[code];
+                    if (local) { applyPromo(local); return; }
+                    resultEl.textContent = (data && data.error) || 'Invalid promo code';
+                    resultEl.style.color = 'var(--danger)';
+                }
+            }).catch(() => {
+                // API unavailable, use local
+                const local = PROMO_CODES[code];
+                if (!local) {
+                    resultEl.textContent = 'Invalid promo code';
+                    resultEl.style.color = 'var(--danger)';
+                    return;
+                }
+                applyPromo(local);
+            });
+        } else {
+            const promo = PROMO_CODES[code];
+            if (!promo) {
+                resultEl.textContent = 'Invalid promo code';
+                resultEl.style.color = 'var(--danger)';
+                return;
+            }
+            applyPromo(promo);
         }
-        updateDiscountPreview();
     });
 
     // Confirm
@@ -1511,10 +1599,13 @@ function populateReports() {
     let cashSales = 0;
     let cardSales = 0;
     let ticketCount = state.allTickets.length;
+    let totalDiscounts = 0;
 
     state.allTickets.forEach(t => {
         totalSales += t.total;
         totalTax += t.tax;
+        if (t.tip) totalTips += t.tip;
+        if (t.discount && t.discount.amount) totalDiscounts += t.discount.amount;
         if (t.paymentMethod === 'cash') {
             cashSales += t.total;
         } else {
@@ -1530,9 +1621,28 @@ function populateReports() {
     $('#report-cash-sales').textContent = formatCurrency(cashSales);
     $('#report-card-sales').textContent = formatCurrency(cardSales);
     $('#report-tax').textContent = formatCurrency(totalTax);
-    $('#report-discounts').textContent = formatCurrency(0);
+    $('#report-discounts').textContent = formatCurrency(totalDiscounts);
     $('#report-tips').textContent = formatCurrency(totalTips);
+
+    // Also try to fetch from API backend for richer data
+    if (typeof APIClient !== 'undefined') {
+        APIClient.getReportSummary().then(data => {
+            if (data && data.totalSales !== undefined) {
+                const el = (id) => document.getElementById(id);
+                if (el('report-total-sales')) el('report-total-sales').textContent = formatCurrency(data.totalSales);
+                if (el('report-ticket-count')) el('report-ticket-count').textContent = data.ticketCount || 0;
+                if (el('report-avg-ticket')) el('report-avg-ticket').textContent = formatCurrency(data.avgTicket || 0);
+                if (el('report-cash-sales')) el('report-cash-sales').textContent = formatCurrency(data.cashSales || 0);
+                if (el('report-card-sales')) el('report-card-sales').textContent = formatCurrency(data.cardSales || 0);
+                if (el('report-tax')) el('report-tax').textContent = formatCurrency(data.totalTax || 0);
+                if (el('report-discounts')) el('report-discounts').textContent = formatCurrency(data.totalDiscounts || 0);
+                if (el('report-tips')) el('report-tips').textContent = formatCurrency(data.totalTips || 0);
+            }
+        }).catch(() => {});
+    }
 }
+
+// Report tab API population functions are defined alongside their local fallback implementations below
 
 $('#btn-refresh-report').addEventListener('click', () => {
     populateReports();
@@ -2379,7 +2489,22 @@ $$('.report-tab').forEach(btn => {
         const panel = document.getElementById(panelMap[activeReportTab]);
         if (panel) panel.classList.add('active');
 
-        populateReports();
+        // Also try to enrich refunds data from API
+        if (activeReportTab === 'refunds' && typeof APIClient !== 'undefined') {
+            APIClient.getRefunds().then(data => {
+                if (data && Array.isArray(data) && data.length > 0) {
+                    // Merge API refund data into local
+                    data.forEach(r => {
+                        if (!refundHistory.find(local => local.ticketId === r.ticketId && local.time === r.time)) {
+                            refundHistory.push(r);
+                        }
+                    });
+                }
+                populateReports();
+            }).catch(() => { populateReports(); });
+        } else {
+            populateReports();
+        }
     });
 });
 
@@ -2631,24 +2756,7 @@ $('#close-side-menu').addEventListener('click', () => {
     if (overlay) overlay.classList.remove('active');
 });
 
-// Clock in/out from side menu
-document.getElementById('menu-clock-in').addEventListener('click', () => {
-    if (state.clockedIn) {
-        clockOut();
-    } else {
-        clockIn();
-    }
-    $('#side-menu').classList.remove('open');
-    const overlay = document.querySelector('.side-menu-overlay');
-    if (overlay) overlay.classList.remove('active');
-});
-
-// Open cash drawer
-document.getElementById('menu-open-drawer').addEventListener('click', () => {
-    showToast('Cash drawer opened');
-    $('#side-menu').classList.remove('open');
-    document.querySelector('.side-menu-overlay').classList.remove('active');
-});
+// Clock in/out and cash drawer wired in Time Clock UI and Cash Drawer sections below
 
 // ==========================================
 // Data Persistence (localStorage)
@@ -3321,6 +3429,121 @@ function switchToView(viewName) {
     // Trigger population callbacks
     if (viewName === 'kitchen' && typeof populateKitchen === 'function') populateKitchen();
     if (viewName === 'tickets' && typeof populateTicketsList === 'function') populateTicketsList();
+    if (viewName === 'reports' && typeof populateReports === 'function') populateReports();
+    if (viewName === 'tables' && typeof populateTables === 'function') populateTables();
+    if (viewName === 'orders' && typeof populateIncomingOrders === 'function') populateIncomingOrders();
+}
+
+// ==========================================
+// Incoming Orders Management (Online / QR / Scheduled)
+// ==========================================
+let incomingOrdersFilter = 'all';
+
+function populateIncomingOrders() {
+    const list = document.getElementById('incoming-orders-list');
+    if (!list) return;
+
+    if (typeof APIClient === 'undefined') {
+        list.innerHTML = '<p class="tc-empty">API client not available</p>';
+        return;
+    }
+
+    list.innerHTML = '<p class="tc-empty">Loading orders...</p>';
+
+    const fetches = [];
+    if (incomingOrdersFilter === 'all' || incomingOrdersFilter === 'online') {
+        fetches.push(APIClient.getOnlineOrders().then(data => (data.orders || data || []).map(o => ({ ...o, source: 'online' }))).catch(() => []));
+    }
+    if (incomingOrdersFilter === 'all' || incomingOrdersFilter === 'qr') {
+        fetches.push(APIClient.getQROrders().then(data => (data.orders || data || []).map(o => ({ ...o, source: 'qr' }))).catch(() => []));
+    }
+    if (incomingOrdersFilter === 'all' || incomingOrdersFilter === 'scheduled') {
+        fetches.push(
+            APIClient.getTickets({ type: 'scheduled' }).then(data => (data.tickets || data || []).map(o => ({ ...o, source: 'scheduled' }))).catch(() => [])
+        );
+    }
+
+    Promise.all(fetches).then(results => {
+        const allOrders = results.flat();
+        if (allOrders.length === 0) {
+            list.innerHTML = '<p class="tc-empty">No incoming orders</p>';
+            return;
+        }
+
+        list.innerHTML = allOrders.map(order => {
+            const statusClass = order.status === 'pending' ? 'open' : (order.status === 'accepted' ? 'paid' : '');
+            const sourceLabel = order.source === 'online' ? 'Online' : (order.source === 'qr' ? 'QR Table' : 'Scheduled');
+            const itemsSummary = (order.items || []).map(i => (i.qty > 1 ? i.qty + 'x ' : '') + (i.name || 'Item')).join(', ') || 'No items';
+            const total = typeof formatCurrency === 'function' ? formatCurrency(order.total || 0) : '$' + (order.total || 0).toFixed(2);
+            const time = order.createdAt ? new Date(order.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+            const scheduledTime = order.scheduledFor ? '<div class="ticket-meta">Scheduled: ' + new Date(order.scheduledFor).toLocaleString() + '</div>' : '';
+
+            return '<div class="ticket-card ' + statusClass + '" data-order-id="' + order.id + '" data-source="' + order.source + '">' +
+                '<div class="ticket-card-header">' +
+                    '<span class="ticket-id">#' + order.id + '</span>' +
+                    '<span class="ticket-badge">' + sourceLabel + '</span>' +
+                    '<span class="ticket-time">' + time + '</span>' +
+                '</div>' +
+                '<div class="ticket-items">' + escapeHtml(itemsSummary) + '</div>' +
+                scheduledTime +
+                (order.customerName ? '<div class="ticket-meta">Customer: ' + escapeHtml(order.customerName) + '</div>' : '') +
+                (order.table ? '<div class="ticket-meta">Table: ' + escapeHtml(String(order.table)) + '</div>' : '') +
+                '<div class="ticket-card-footer">' +
+                    '<span class="ticket-total">' + total + '</span>' +
+                    '<span class="ticket-status">' + (order.status || 'pending') + '</span>' +
+                '</div>' +
+                (order.status === 'pending' ? '<div class="ticket-actions" style="display:flex;gap:8px;margin-top:8px;">' +
+                    '<button class="btn-success btn-accept-order" data-id="' + order.id + '" data-source="' + order.source + '" style="flex:1;padding:8px;">Accept</button>' +
+                    '<button class="btn-danger btn-reject-order" data-id="' + order.id + '" data-source="' + order.source + '" style="flex:1;padding:8px;">Reject</button>' +
+                '</div>' : '') +
+            '</div>';
+        }).join('');
+
+        // Wire accept/reject buttons
+        list.querySelectorAll('.btn-accept-order').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const id = parseInt(btn.dataset.id);
+                const source = btn.dataset.source;
+                const acceptFn = source === 'online' ? APIClient.acceptOnlineOrder : APIClient.acceptQROrder;
+                acceptFn(id).then(() => {
+                    showToast('Order #' + id + ' accepted');
+                    populateIncomingOrders();
+                }).catch(err => {
+                    showToast('Failed to accept: ' + (err.message || 'error'), 'error');
+                });
+            });
+        });
+
+        list.querySelectorAll('.btn-reject-order').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const id = parseInt(btn.dataset.id);
+                const source = btn.dataset.source;
+                const endpoint = source === 'online' ? '/online-orders/' + id + '/reject' : '/qr-orders/' + id + '/reject';
+                fetch('/api' + endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' } }).then(() => {
+                    showToast('Order #' + id + ' rejected');
+                    populateIncomingOrders();
+                }).catch(err => {
+                    showToast('Failed to reject: ' + (err.message || 'error'), 'error');
+                });
+            });
+        });
+    });
+}
+
+// Order type filter buttons
+document.querySelectorAll('.order-type-filter').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.order-type-filter').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        incomingOrdersFilter = btn.dataset.type || 'all';
+        populateIncomingOrders();
+    });
+});
+
+// Refresh button
+const refreshOrdersBtn = document.getElementById('btn-refresh-orders');
+if (refreshOrdersBtn) {
+    refreshOrdersBtn.addEventListener('click', populateIncomingOrders);
 }
 
 // ==========================================
@@ -3619,6 +3842,12 @@ document.getElementById('tab-form-save').addEventListener('click', () => {
     };
 
     customerTabs.push(tab);
+
+    // Sync to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.createCustomer({ name, phone: tab.phone, tab: true, tabLimit: tab.limit }).catch(() => {});
+    }
+
     document.getElementById('tab-new-form').style.display = 'none';
     document.getElementById('tab-name').value = '';
     document.getElementById('tab-phone').value = '';
@@ -3721,14 +3950,33 @@ document.getElementById('gc-lookup-btn').addEventListener('click', () => {
     const cardNum = document.getElementById('gc-card-number').value.trim();
     if (!cardNum) { showToast('Enter a card number', 'error'); return; }
 
-    const card = giftCards[cardNum];
-    if (!card) {
-        showToast('Card not found', 'error');
-        document.getElementById('gc-result').style.display = 'none';
-        return;
+    // Try API first, fall back to local storage
+    if (typeof APIClient !== 'undefined') {
+        APIClient.getGiftCard(cardNum).then(card => {
+            if (card) {
+                giftCards[cardNum] = card;
+                syncGiftCardsToStorage();
+                showGiftCardResult(card);
+            }
+        }).catch(() => {
+            // API unavailable, use local storage
+            const card = giftCards[cardNum];
+            if (!card) {
+                showToast('Card not found', 'error');
+                document.getElementById('gc-result').style.display = 'none';
+                return;
+            }
+            showGiftCardResult(card);
+        });
+    } else {
+        const card = giftCards[cardNum];
+        if (!card) {
+            showToast('Card not found', 'error');
+            document.getElementById('gc-result').style.display = 'none';
+            return;
+        }
+        showGiftCardResult(card);
     }
-
-    showGiftCardResult(card);
 });
 
 function showGiftCardResult(card) {
@@ -3778,6 +4026,11 @@ function activateGiftCard(amount) {
         ]
     };
 
+    // Sync to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.createGiftCard(amount).catch(() => {});
+    }
+
     document.getElementById('gc-card-number').value = cardNum;
     showGiftCardResult(giftCards[cardNum]);
     showToast(`Gift card activated: ${cardNum} for ${formatCurrency(amount)}`);
@@ -3796,6 +4049,12 @@ document.getElementById('gc-reload-btn').addEventListener('click', () => {
 
     card.balance = Math.round((card.balance + reloadAmount) * 100) / 100;
     card.history.push({ type: 'reload', amount: reloadAmount, time: new Date().toISOString() });
+
+    // Sync reload to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.reloadGiftCard(cardNum, reloadAmount).catch(() => {});
+    }
+
     showGiftCardResult(card);
     showToast(`Reloaded ${formatCurrency(reloadAmount)} to ${cardNum}`);
     syncGiftCardsToStorage();
@@ -3873,6 +4132,11 @@ document.getElementById('gc-pay-btn').addEventListener('click', () => {
             time: new Date(),
             paidAt: new Date().toISOString()
         });
+    }
+
+    // Sync gift card charge to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.chargeGiftCard(cardNum, total, state.ticket.id).catch(() => {});
     }
 
     giftCardModal.classList.remove('active');
@@ -4421,7 +4685,37 @@ if ('serviceWorker' in navigator) {
             // SW registration failed - app still works without it
         });
     });
+
+    // Listen for offline queue replay notifications from service worker
+    navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'QUEUE_REPLAYED') {
+            if (event.data.replayed > 0) {
+                showToast(event.data.replayed + ' queued operation(s) synced');
+            }
+        } else if (event.data && event.data.type === 'OFFLINE_QUEUED') {
+            showToast('Offline - operation queued for sync', 'warning');
+        }
+    });
 }
+
+// Flush APIClient offline queue when back online
+window.addEventListener('online', () => {
+    showToast('Connection restored');
+    if (typeof APIClient !== 'undefined') {
+        APIClient.flushOfflineQueue().then(results => {
+            const synced = results.filter(r => r.success).length;
+            if (synced > 0) showToast(synced + ' queued operation(s) synced');
+        }).catch(() => {});
+    }
+    // Also tell service worker to replay its queue
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'REPLAY_QUEUE' });
+    }
+});
+
+window.addEventListener('offline', () => {
+    showToast('Connection lost - working offline', 'warning');
+});
 
 // ==========================================
 // Initialize

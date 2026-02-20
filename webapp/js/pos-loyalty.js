@@ -38,6 +38,12 @@ function registerLoyaltyMember(name, phone) {
         birthday: null,
         rewardsRedeemed: 0
     };
+
+    // Sync to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.createCustomer({ name, phone, loyaltyMember: true }).catch(() => {});
+    }
+
     return loyaltyDB[phone];
 }
 
@@ -60,6 +66,11 @@ function earnLoyaltyPoints(phone, amount) {
     else if (member.totalSpent >= 500) member.tier = 'silver';
     else member.tier = 'bronze';
 
+    // Sync to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.earnLoyalty(phone, points, state.ticket ? state.ticket.id : null).catch(() => {});
+    }
+
     return points;
 }
 
@@ -69,8 +80,14 @@ function redeemLoyaltyPoints(phone) {
 
     const redeemSets = Math.floor(member.points / LOYALTY.redeemThreshold);
     const discount = redeemSets * LOYALTY.redeemValue;
-    member.points -= redeemSets * LOYALTY.redeemThreshold;
+    const pointsUsed = redeemSets * LOYALTY.redeemThreshold;
+    member.points -= pointsUsed;
     member.rewardsRedeemed += redeemSets;
+
+    // Sync to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.redeemLoyalty(phone, pointsUsed).catch(() => {});
+    }
 
     return discount;
 }
@@ -475,12 +492,32 @@ function openAuditLogModal() {
         document.getElementById('audit-filter-user').addEventListener('change', renderAuditLog);
     }
 
+    // Fetch audit log from API and merge with local
+    if (typeof APIClient !== 'undefined') {
+        APIClient.getAuditLog().then(data => {
+            if (data && Array.isArray(data)) {
+                data.forEach(entry => {
+                    if (!auditLog.find(local => local.timestamp === entry.timestamp && local.action === entry.action)) {
+                        auditLog.push(entry);
+                    }
+                });
+            }
+        }).catch(() => {}).finally(() => {
+            populateAuditFilters();
+            renderAuditLog();
+        });
+    } else {
+        populateAuditFilters();
+        renderAuditLog();
+    }
+
+    modal.classList.add('active');
+}
+
+function populateAuditFilters() {
     const users = [...new Set(auditLog.map(e => e.user))];
     const userSelect = document.getElementById('audit-filter-user');
     userSelect.innerHTML = '<option value="">All Users</option>' + users.map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join('');
-
-    renderAuditLog();
-    modal.classList.add('active');
 }
 
 function renderAuditLog() {

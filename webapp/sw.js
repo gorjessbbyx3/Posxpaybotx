@@ -9,6 +9,7 @@ const ASSETS_TO_CACHE = [
     '/index.html',
     '/admin.html',
     '/customer-display.html',
+    '/compliance-signage.html',
     '/css/pos.css',
     '/js/pos-core.js',
     '/js/calculations.js',

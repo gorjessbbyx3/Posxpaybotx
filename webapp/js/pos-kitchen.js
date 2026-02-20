@@ -195,6 +195,7 @@ function populateKitchen() {
             <div class="kds-ticket-courses">${coursesHtml}</div>
             <div class="kds-ticket-footer">
                 <button class="kds-reprint-btn" data-order-id="${order.id}">REPRINT</button>
+                <button class="kds-pickup-btn" data-order-id="${order.id}">PICKUP</button>
                 <button class="kds-bump-btn" data-order-id="${order.id}">BUMP ALL</button>
             </div>
         `;
@@ -208,6 +209,10 @@ function populateKitchen() {
                 if (o) {
                     if (!o.firedCourses) o.firedCourses = [];
                     o.firedCourses.push(course);
+                    // Sync to API
+                    if (typeof APIClient !== 'undefined') {
+                        APIClient.fireCourse(orderId, course).catch(() => {});
+                    }
                     showToast(`Course "${course}" fired for #${orderId}`);
                     populateKitchen();
                 }
@@ -221,6 +226,20 @@ function populateKitchen() {
                 if (typeof printKitchenOrder === 'function') {
                     printKitchenOrder(parseInt(reprintBtn.dataset.orderId));
                 }
+            });
+        }
+
+        // Pickup button
+        const pickupBtn = el.querySelector('.kds-pickup-btn');
+        if (pickupBtn) {
+            pickupBtn.addEventListener('click', () => {
+                const oid = parseInt(pickupBtn.dataset.orderId);
+                if (typeof APIClient !== 'undefined') {
+                    APIClient.pickupKitchenOrder(oid).catch(() => {});
+                }
+                state.kitchenOrders = state.kitchenOrders.filter(o => o.id !== oid);
+                showToast('Order #' + oid + ' marked for pickup');
+                populateKitchen();
             });
         }
 

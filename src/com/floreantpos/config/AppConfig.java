@@ -19,13 +19,15 @@ package com.floreantpos.config;
 
 import java.io.File;
 
-import org.apache.commons.configuration.PropertiesConfiguration;
+import org.apache.commons.configuration2.PropertiesConfiguration;
+import org.apache.commons.configuration2.builder.FileBasedConfigurationBuilder;
+import org.apache.commons.configuration2.builder.fluent.Parameters;
 
 import com.floreantpos.Database;
 import com.floreantpos.PosLog;
 
 public class AppConfig {
-	
+
 	public static final String DATABASE_URL = "database_url"; //$NON-NLS-1$
 	public static final String DATABASE_PORT = "database_port"; //$NON-NLS-1$
 	public static final String DATABASE_NAME = "database_name"; //$NON-NLS-1$
@@ -33,14 +35,14 @@ public class AppConfig {
 	public static final String DATABASE_PASSWORD = "database_pass"; //$NON-NLS-1$
 	public static final String CONNECTION_STRING = "connection_string"; //$NON-NLS-1$
 	public static final String DATABASE_PROVIDER_NAME = "database_provider_name"; //$NON-NLS-1$
-	
+
 	private static final String KITCHEN_PRINT_ON_ORDER_SETTLE = "kitchen_print_on_order_settle"; //$NON-NLS-1$
 	private static final String KITCHEN_PRINT_ON_ORDER_FINISH = "kitchen_print_on_order_finish"; //$NON-NLS-1$
 	private static final String PRINT_RECEIPT_ON_ORDER_SETTLE = "print_receipt_on_order_settle"; //$NON-NLS-1$
 	private static final String PRINT_RECEIPT_ON_ORDER_FINISH = "print_receipt_on_order_finish"; //$NON-NLS-1$
-	
+
 	private static PropertiesConfiguration config;
-	
+
 	static {
 		try {
 			//File workingDir = Application.getWorkingDir();
@@ -48,9 +50,12 @@ public class AppConfig {
 			if(!configFile.exists()) {
 				configFile.createNewFile();
 			}
-			
-			config = new PropertiesConfiguration(configFile);
-			config.setAutoSave(true);
+
+			FileBasedConfigurationBuilder<PropertiesConfiguration> builder =
+				new FileBasedConfigurationBuilder<>(PropertiesConfiguration.class)
+				.configure(new Parameters().properties().setFile(configFile));
+			builder.setAutoSave(true);
+			config = builder.getConfiguration();
 
 		} catch (Exception e) {
 			PosLog.error(AppConfig.class, e.getMessage());
