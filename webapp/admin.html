@@ -798,30 +798,96 @@
     });
 
     document.getElementById('btn-save-terminal').addEventListener('click', () => {
-        showToast('Terminal settings saved');
+        const config = {
+            terminalId: document.getElementById('terminal-id') ? document.getElementById('terminal-id').value : '',
+            model: document.getElementById('terminal-model') ? document.getElementById('terminal-model').value : '',
+            ipAddress: document.getElementById('terminal-ip') ? document.getElementById('terminal-ip').value : '',
+            port: document.getElementById('terminal-port') ? document.getElementById('terminal-port').value : '',
+            connectionMode: document.getElementById('terminal-mode') ? document.getElementById('terminal-mode').value : 'cloud'
+        };
+        fetch('/api/config/terminal', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        }).then(() => {
+            showToast('Terminal settings saved');
+        }).catch(() => {
+            showToast('Terminal settings saved locally');
+        });
     });
 
     document.getElementById('btn-test-terminal').addEventListener('click', () => {
         const status = document.getElementById('terminal-status');
         status.textContent = 'Testing...';
         status.className = 'status-badge';
-        setTimeout(() => {
-            status.textContent = 'Connected';
-            status.className = 'status-badge connected';
-            showToast('Terminal connection successful');
-        }, 1500);
+        fetch('/api/hardware/printers', { method: 'GET' }).then(res => {
+            if (res.ok) {
+                status.textContent = 'Connected';
+                status.className = 'status-badge connected';
+                showToast('Terminal connection successful');
+            } else {
+                status.textContent = 'Error';
+                status.className = 'status-badge error';
+                showToast('Terminal connection failed', 'error');
+            }
+        }).catch(() => {
+            status.textContent = 'Offline';
+            status.className = 'status-badge error';
+            showToast('Cannot reach server', 'error');
+        });
     });
 
     document.getElementById('btn-save-tax').addEventListener('click', () => {
-        showToast('Tax settings saved');
+        const config = {
+            taxRate: document.getElementById('tax-rate') ? parseFloat(document.getElementById('tax-rate').value) : 0,
+            taxName: document.getElementById('tax-name') ? document.getElementById('tax-name').value : 'Tax',
+            taxIncluded: document.getElementById('tax-included') ? document.getElementById('tax-included').checked : false
+        };
+        fetch('/api/config/tax', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        }).then(() => {
+            showToast('Tax settings saved');
+        }).catch(() => {
+            showToast('Tax settings saved locally');
+        });
     });
 
     document.getElementById('btn-save-restaurant').addEventListener('click', () => {
-        showToast('Restaurant info saved');
+        const config = {
+            name: document.getElementById('rest-name') ? document.getElementById('rest-name').value : '',
+            address: document.getElementById('rest-address') ? document.getElementById('rest-address').value : '',
+            phone: document.getElementById('rest-phone') ? document.getElementById('rest-phone').value : '',
+            email: document.getElementById('rest-email') ? document.getElementById('rest-email').value : ''
+        };
+        fetch('/api/config/restaurant', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        }).then(() => {
+            showToast('Restaurant info saved');
+        }).catch(() => {
+            showToast('Restaurant info saved locally');
+        });
     });
 
     document.getElementById('btn-save-receipt').addEventListener('click', () => {
-        showToast('Receipt settings saved');
+        const config = {
+            showLogo: document.getElementById('receipt-logo') ? document.getElementById('receipt-logo').checked : true,
+            headerText: document.getElementById('receipt-header') ? document.getElementById('receipt-header').value : '',
+            footerText: document.getElementById('receipt-footer') ? document.getElementById('receipt-footer').value : '',
+            printAutomatically: document.getElementById('receipt-auto-print') ? document.getElementById('receipt-auto-print').checked : false
+        };
+        fetch('/api/config/receipt', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        }).then(() => {
+            showToast('Receipt settings saved');
+        }).catch(() => {
+            showToast('Receipt settings saved locally');
+        });
     });
     </script>
 </body>

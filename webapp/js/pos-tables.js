@@ -366,6 +366,11 @@ const reservations = [];
 
             reservations.push(res);
 
+            // Sync to API backend
+            if (typeof APIClient !== 'undefined') {
+                APIClient.createReservation(res).catch(() => {});
+            }
+
             if (res.table) {
                 const tbl = TABLES.find(t => t.number === parseInt(res.table));
                 if (tbl) tbl.status = 'reserved';

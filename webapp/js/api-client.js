@@ -207,6 +207,176 @@ const APIClient = (function () {
         return request('POST', '/auth/login', { pin, user });
     }
 
+    // ---- Customers ----
+
+    function getCustomers() {
+        return request('GET', '/customers');
+    }
+
+    function getCustomer(id) {
+        return request('GET', '/customers/' + id);
+    }
+
+    function createCustomer(customer) {
+        return request('POST', '/customers', customer);
+    }
+
+    function updateCustomer(id, updates) {
+        return request('PATCH', '/customers/' + id, updates);
+    }
+
+    function getLoyalty(customerId) {
+        return request('GET', '/customers/' + customerId + '/loyalty');
+    }
+
+    function earnLoyalty(customerId, points, ticketId) {
+        return request('POST', '/customers/' + customerId + '/loyalty/earn', { points, ticketId });
+    }
+
+    function redeemLoyalty(customerId, points) {
+        return request('POST', '/customers/' + customerId + '/loyalty/redeem', { points });
+    }
+
+    // ---- Gift Cards ----
+
+    function getGiftCards() {
+        return request('GET', '/gift-cards');
+    }
+
+    function getGiftCard(number) {
+        return request('GET', '/gift-cards/' + number);
+    }
+
+    function createGiftCard(amount) {
+        return request('POST', '/gift-cards', { amount });
+    }
+
+    function chargeGiftCard(number, amount, ticketId) {
+        return request('POST', '/gift-cards/' + number + '/charge', { amount, ticketId });
+    }
+
+    function reloadGiftCard(number, amount) {
+        return request('POST', '/gift-cards/' + number + '/reload', { amount });
+    }
+
+    // ---- Promo Codes ----
+
+    function validatePromoCode(code) {
+        return request('POST', '/promo-codes/validate', { code });
+    }
+
+    function redeemPromoCode(code, ticketId) {
+        return request('POST', '/promo-codes/redeem', { code, ticketId });
+    }
+
+    // ---- Inventory ----
+
+    function getIngredients() {
+        return request('GET', '/ingredients');
+    }
+
+    function adjustIngredient(id, qty, reason) {
+        return request('POST', '/ingredients/' + id + '/adjust', { quantity: qty, reason });
+    }
+
+    function getLowStockAlerts() {
+        return request('GET', '/alerts/low-stock');
+    }
+
+    // ---- Waitlist ----
+
+    function getWaitlist() {
+        return request('GET', '/waitlist');
+    }
+
+    function addToWaitlist(entry) {
+        return request('POST', '/waitlist', entry);
+    }
+
+    function updateWaitlistEntry(id, updates) {
+        return request('PATCH', '/waitlist/' + id, updates);
+    }
+
+    // ---- Reservations ----
+
+    function getReservations() {
+        return request('GET', '/reservations');
+    }
+
+    function createReservation(reservation) {
+        return request('POST', '/reservations', reservation);
+    }
+
+    function deleteReservation(id) {
+        return request('DELETE', '/reservations/' + id);
+    }
+
+    // ---- Online / QR Orders ----
+
+    function getOnlineOrders() {
+        return request('GET', '/online-orders');
+    }
+
+    function acceptOnlineOrder(id) {
+        return request('POST', '/online-orders/' + id + '/accept');
+    }
+
+    function getQROrders() {
+        return request('GET', '/qr-orders');
+    }
+
+    function acceptQROrder(id) {
+        return request('POST', '/qr-orders/' + id + '/accept');
+    }
+
+    // ---- Advanced Reports ----
+
+    function getPaymentTypeReport() {
+        return request('GET', '/reports/payment-type');
+    }
+
+    function getSurchargeReport() {
+        return request('GET', '/reports/surcharge');
+    }
+
+    function getServerPerformanceReport() {
+        return request('GET', '/reports/server-performance');
+    }
+
+    function getLaborCostReport() {
+        return request('GET', '/reports/labor-cost');
+    }
+
+    // ---- Audit / Fraud ----
+
+    function getAuditLog() {
+        return request('GET', '/audit-log');
+    }
+
+    function getFraudAlerts() {
+        return request('GET', '/fraud-alerts');
+    }
+
+    // ---- Partial / Advanced Payments ----
+
+    function partialPay(ticketId, amount, method) {
+        return request('POST', '/tickets/' + ticketId + '/partial-pay', { amount, method });
+    }
+
+    function getTicketReceipt(ticketId) {
+        return request('GET', '/tickets/' + ticketId + '/receipt');
+    }
+
+    // ---- Backups ----
+
+    function getBackups() {
+        return request('GET', '/backups');
+    }
+
+    function createBackup() {
+        return request('POST', '/backups');
+    }
+
     // ---- Offline Queue ----
 
     /**
@@ -282,6 +452,65 @@ const APIClient = (function () {
 
         // Auth
         login,
+
+        // Customers
+        getCustomers,
+        getCustomer,
+        createCustomer,
+        updateCustomer,
+        getLoyalty,
+        earnLoyalty,
+        redeemLoyalty,
+
+        // Gift Cards
+        getGiftCards,
+        getGiftCard,
+        createGiftCard,
+        chargeGiftCard,
+        reloadGiftCard,
+
+        // Promo Codes
+        validatePromoCode,
+        redeemPromoCode,
+
+        // Inventory
+        getIngredients,
+        adjustIngredient,
+        getLowStockAlerts,
+
+        // Waitlist
+        getWaitlist,
+        addToWaitlist,
+        updateWaitlistEntry,
+
+        // Reservations
+        getReservations,
+        createReservation,
+        deleteReservation,
+
+        // Online / QR Orders
+        getOnlineOrders,
+        acceptOnlineOrder,
+        getQROrders,
+        acceptQROrder,
+
+        // Advanced Reports
+        getPaymentTypeReport,
+        getSurchargeReport,
+        getServerPerformanceReport,
+        getLaborCostReport,
+
+        // Audit / Fraud
+        getAuditLog,
+        getFraudAlerts,
+
+        // Advanced Payments
+        partialPay,
+        getTicketReceipt,
+
+        // Backups
+        getBackups,
+        createBackup,
 
         // Offline
         flushOfflineQueue,

@@ -689,7 +689,7 @@ $('#btn-hold').addEventListener('click', () => {
     }
 
     // Hold current ticket
-    heldOrders.push({
+    const heldOrder = {
         id: state.ticket.id,
         type: state.ticket.type,
         items: state.ticket.items.map(i => ({ ...i })),
@@ -698,7 +698,13 @@ $('#btn-hold').addEventListener('click', () => {
         discount: state.ticket.discount,
         heldAt: new Date(),
         note: ''
-    });
+    };
+    heldOrders.push(heldOrder);
+
+    // Sync to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.holdOrder(heldOrder).catch(() => {});
+    }
 
     showToast('Order #' + state.ticket.id + ' held (' + heldOrders.length + ' held)');
     updateHeldBadge();
@@ -813,6 +819,12 @@ function recallHeldOrder(idx) {
     }
 
     heldOrders.splice(idx, 1);
+
+    // Sync recall to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.recallHeldOrder(idx).catch(() => {});
+    }
+
     updateHeldBadge();
     updateTicketDisplay();
 
@@ -826,6 +838,12 @@ window.recallHeldOrder = recallHeldOrder;
 
 function deleteHeldOrder(idx) {
     if (!confirm('Discard held order?')) return;
+
+    // Sync delete to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.recallHeldOrder(idx).catch(() => {});
+    }
+
     heldOrders.splice(idx, 1);
     updateHeldBadge();
     openHeldOrdersModal(); // Refresh display
@@ -834,9 +852,7 @@ function deleteHeldOrder(idx) {
 }
 window.deleteHeldOrder = deleteHeldOrder;
 
-$('#btn-split').addEventListener('click', () => {
-    showToast('Split check feature', 'warning');
-});
+// Split check button wired in the Split Check section below
 
 $('#btn-discount').addEventListener('click', () => {
     if (state.ticket.items.length === 0) {
@@ -1203,8 +1219,55 @@ function openSplitModal(ways) {
 }
 
 $('#split-confirm').addEventListener('click', () => {
-    showToast('Check split applied');
+    const ways = document.querySelectorAll('.split-card').length;
+    if (!ways || ways < 2) {
+        showToast('Select split amount first', 'warning');
+        return;
+    }
+
+    const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
+    const tax = subtotal * (CONFIG.taxRate / 100);
+    const total = subtotal + tax;
+    const perSplit = Math.round((total / ways) * 100) / 100;
+
+    // Create individual split tickets
+    for (let i = 0; i < ways; i++) {
+        const amount = (i === ways - 1) ? Math.round((total - perSplit * (ways - 1)) * 100) / 100 : perSplit;
+        state.allTickets.push({
+            id: state.ticketCounter++,
+            server: state.currentUser,
+            type: state.ticket.type,
+            items: state.ticket.items.map(item => ({
+                ...item,
+                price: Math.round((item.price / ways) * 100) / 100,
+                splitFrom: state.ticket.id
+            })),
+            status: 'open',
+            paid: false,
+            total: amount,
+            subtotal: Math.round((subtotal / ways) * 100) / 100,
+            tax: Math.round((tax / ways) * 100) / 100,
+            table: state.ticket.table,
+            time: new Date(),
+            splitGuest: i + 1,
+            splitWays: ways,
+            parentTicketId: state.ticket.id
+        });
+    }
+
+    // Sync split to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.createTicket({
+            id: state.ticket.id,
+            action: 'split',
+            ways: ways
+        }).catch(() => {});
+    }
+
+    showToast('Check split into ' + ways + ' ways');
     $('#split-modal').classList.remove('active');
+    newTicket();
+    saveState();
 });
 
 // ==========================================
@@ -1511,10 +1574,13 @@ function populateReports() {
     let cashSales = 0;
     let cardSales = 0;
     let ticketCount = state.allTickets.length;
+    let totalDiscounts = 0;
 
     state.allTickets.forEach(t => {
         totalSales += t.total;
         totalTax += t.tax;
+        if (t.tip) totalTips += t.tip;
+        if (t.discount && t.discount.amount) totalDiscounts += t.discount.amount;
         if (t.paymentMethod === 'cash') {
             cashSales += t.total;
         } else {
@@ -1530,8 +1596,149 @@ function populateReports() {
     $('#report-cash-sales').textContent = formatCurrency(cashSales);
     $('#report-card-sales').textContent = formatCurrency(cardSales);
     $('#report-tax').textContent = formatCurrency(totalTax);
-    $('#report-discounts').textContent = formatCurrency(0);
+    $('#report-discounts').textContent = formatCurrency(totalDiscounts);
     $('#report-tips').textContent = formatCurrency(totalTips);
+
+    // Also try to fetch from API backend for richer data
+    if (typeof APIClient !== 'undefined') {
+        APIClient.getReportSummary().then(data => {
+            if (data && data.totalSales !== undefined) {
+                $('#report-total-sales').textContent = formatCurrency(data.totalSales);
+                $('#report-ticket-count').textContent = data.ticketCount || 0;
+                $('#report-avg-ticket').textContent = formatCurrency(data.avgTicket || 0);
+                $('#report-cash-sales').textContent = formatCurrency(data.cashSales || 0);
+                $('#report-card-sales').textContent = formatCurrency(data.cardSales || 0);
+                $('#report-tax').textContent = formatCurrency(data.totalTax || 0);
+                $('#report-discounts').textContent = formatCurrency(data.totalDiscounts || 0);
+                $('#report-tips').textContent = formatCurrency(data.totalTips || 0);
+            }
+        }).catch(() => {});
+    }
+}
+
+// Report tab switching with data population
+$$('.report-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        $$('.report-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const tabName = tab.dataset.tab;
+
+        $$('.report-panel').forEach(p => p.classList.remove('active'));
+        const panel = document.getElementById('report-' + tabName);
+        if (panel) panel.classList.add('active');
+
+        // Populate tab-specific data from API
+        if (typeof APIClient !== 'undefined') {
+            if (tabName === 'hourly') {
+                populateHourlyReport();
+            } else if (tabName === 'items') {
+                populateItemMixReport();
+            } else if (tabName === 'labor') {
+                populateLaborReport();
+            }
+        }
+    });
+});
+
+function populateHourlyReport() {
+    const panel = document.getElementById('report-hourly');
+    if (!panel) return;
+    APIClient.getReportHourly().then(data => {
+        if (data && data.hours) {
+            let html = '<table class="report-table"><thead><tr><th>Hour</th><th>Sales</th><th>Tickets</th><th>Avg</th></tr></thead><tbody>';
+            data.hours.forEach(h => {
+                html += '<tr><td>' + h.hour + '</td><td>' + formatCurrency(h.sales) + '</td><td>' + h.tickets + '</td><td>' + formatCurrency(h.avg) + '</td></tr>';
+            });
+            html += '</tbody></table>';
+            panel.innerHTML = html;
+        }
+    }).catch(() => {
+        // Fallback: generate from local data
+        const hourMap = {};
+        state.allTickets.forEach(t => {
+            if (!t.paid) return;
+            const h = new Date(t.time || t.paidAt).getHours();
+            if (!hourMap[h]) hourMap[h] = { sales: 0, tickets: 0 };
+            hourMap[h].sales += t.total || 0;
+            hourMap[h].tickets++;
+        });
+        let html = '<table class="report-table"><thead><tr><th>Hour</th><th>Sales</th><th>Tickets</th><th>Avg</th></tr></thead><tbody>';
+        Object.keys(hourMap).sort((a, b) => a - b).forEach(h => {
+            const d = hourMap[h];
+            const hNum = parseInt(h);
+            const label = (hNum % 12 || 12) + (hNum >= 12 ? 'PM' : 'AM');
+            html += '<tr><td>' + label + '</td><td>' + formatCurrency(d.sales) + '</td><td>' + d.tickets + '</td><td>' + formatCurrency(d.tickets > 0 ? d.sales / d.tickets : 0) + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        if (Object.keys(hourMap).length === 0) html = '<p style="text-align:center;color:var(--text-secondary);padding:24px;">No sales data for today</p>';
+        panel.innerHTML = html;
+    });
+}
+
+function populateItemMixReport() {
+    const panel = document.getElementById('report-items');
+    if (!panel) return;
+    APIClient.getReportItemMix().then(data => {
+        if (data && data.items) {
+            let html = '<table class="report-table"><thead><tr><th>Item</th><th>Qty Sold</th><th>Revenue</th><th>% of Sales</th></tr></thead><tbody>';
+            data.items.forEach(i => {
+                html += '<tr><td>' + escapeHtml(i.name) + '</td><td>' + i.qty + '</td><td>' + formatCurrency(i.revenue) + '</td><td>' + i.pct + '%</td></tr>';
+            });
+            html += '</tbody></table>';
+            panel.innerHTML = html;
+        }
+    }).catch(() => {
+        // Fallback: generate from local data
+        const itemMap = {};
+        let totalRev = 0;
+        state.allTickets.forEach(t => {
+            if (!t.paid || !t.items) return;
+            t.items.forEach(item => {
+                const key = item.name || item.id;
+                if (!itemMap[key]) itemMap[key] = { name: item.name, qty: 0, revenue: 0 };
+                itemMap[key].qty += item.qty || 1;
+                itemMap[key].revenue += (item.price || 0) * (item.qty || 1);
+                totalRev += (item.price || 0) * (item.qty || 1);
+            });
+        });
+        const sorted = Object.values(itemMap).sort((a, b) => b.revenue - a.revenue);
+        let html = '<table class="report-table"><thead><tr><th>Item</th><th>Qty Sold</th><th>Revenue</th><th>% of Sales</th></tr></thead><tbody>';
+        sorted.forEach(i => {
+            const pct = totalRev > 0 ? Math.round(i.revenue / totalRev * 100) : 0;
+            html += '<tr><td>' + escapeHtml(i.name) + '</td><td>' + i.qty + '</td><td>' + formatCurrency(i.revenue) + '</td><td>' + pct + '%</td></tr>';
+        });
+        html += '</tbody></table>';
+        if (sorted.length === 0) html = '<p style="text-align:center;color:var(--text-secondary);padding:24px;">No item data for today</p>';
+        panel.innerHTML = html;
+    });
+}
+
+function populateLaborReport() {
+    const panel = document.getElementById('report-labor');
+    if (!panel) return;
+    APIClient.getReportLabor().then(data => {
+        if (data && data.employees) {
+            let html = '<table class="report-table"><thead><tr><th>Employee</th><th>Role</th><th>Hours</th><th>Status</th></tr></thead><tbody>';
+            data.employees.forEach(e => {
+                html += '<tr><td>' + escapeHtml(e.name) + '</td><td>' + escapeHtml(e.role) + '</td><td>' + e.hours + '</td><td>' + e.status + '</td></tr>';
+            });
+            html += '</tbody></table>';
+            panel.innerHTML = html;
+        }
+    }).catch(() => {
+        // Fallback: generate from local timeclock data
+        const today = new Date().toDateString();
+        const todayRecords = timeClock.filter(r => new Date(r.clockIn).toDateString() === today);
+        let html = '<table class="report-table"><thead><tr><th>Employee</th><th>Role</th><th>Hours</th><th>Status</th></tr></thead><tbody>';
+        todayRecords.forEach(r => {
+            const hrs = r.clockOut ? ((new Date(r.clockOut) - new Date(r.clockIn)) / 3600000).toFixed(2) : 'active';
+            const status = r.clockOut ? 'Completed' : 'Active';
+            html += '<tr><td>' + escapeHtml(r.empName) + '</td><td>' + escapeHtml(r.role) + '</td><td>' + hrs + '</td><td>' + status + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        if (todayRecords.length === 0) html = '<p style="text-align:center;color:var(--text-secondary);padding:24px;">No labor data for today</p>';
+        panel.innerHTML = html;
+    });
 }
 
 $('#btn-refresh-report').addEventListener('click', () => {
@@ -2631,24 +2838,7 @@ $('#close-side-menu').addEventListener('click', () => {
     if (overlay) overlay.classList.remove('active');
 });
 
-// Clock in/out from side menu
-document.getElementById('menu-clock-in').addEventListener('click', () => {
-    if (state.clockedIn) {
-        clockOut();
-    } else {
-        clockIn();
-    }
-    $('#side-menu').classList.remove('open');
-    const overlay = document.querySelector('.side-menu-overlay');
-    if (overlay) overlay.classList.remove('active');
-});
-
-// Open cash drawer
-document.getElementById('menu-open-drawer').addEventListener('click', () => {
-    showToast('Cash drawer opened');
-    $('#side-menu').classList.remove('open');
-    document.querySelector('.side-menu-overlay').classList.remove('active');
-});
+// Clock in/out and cash drawer wired in Time Clock UI and Cash Drawer sections below
 
 // ==========================================
 // Data Persistence (localStorage)
@@ -3321,6 +3511,8 @@ function switchToView(viewName) {
     // Trigger population callbacks
     if (viewName === 'kitchen' && typeof populateKitchen === 'function') populateKitchen();
     if (viewName === 'tickets' && typeof populateTicketsList === 'function') populateTicketsList();
+    if (viewName === 'reports' && typeof populateReports === 'function') populateReports();
+    if (viewName === 'tables' && typeof populateTables === 'function') populateTables();
 }
 
 // ==========================================
@@ -3778,6 +3970,11 @@ function activateGiftCard(amount) {
         ]
     };
 
+    // Sync to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.createGiftCard(amount).catch(() => {});
+    }
+
     document.getElementById('gc-card-number').value = cardNum;
     showGiftCardResult(giftCards[cardNum]);
     showToast(`Gift card activated: ${cardNum} for ${formatCurrency(amount)}`);
@@ -3796,6 +3993,12 @@ document.getElementById('gc-reload-btn').addEventListener('click', () => {
 
     card.balance = Math.round((card.balance + reloadAmount) * 100) / 100;
     card.history.push({ type: 'reload', amount: reloadAmount, time: new Date().toISOString() });
+
+    // Sync reload to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.reloadGiftCard(cardNum, reloadAmount).catch(() => {});
+    }
+
     showGiftCardResult(card);
     showToast(`Reloaded ${formatCurrency(reloadAmount)} to ${cardNum}`);
     syncGiftCardsToStorage();
@@ -3873,6 +4076,11 @@ document.getElementById('gc-pay-btn').addEventListener('click', () => {
             time: new Date(),
             paidAt: new Date().toISOString()
         });
+    }
+
+    // Sync gift card charge to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.chargeGiftCard(cardNum, total, state.ticket.id).catch(() => {});
     }
 
     giftCardModal.classList.remove('active');
@@ -4421,7 +4629,37 @@ if ('serviceWorker' in navigator) {
             // SW registration failed - app still works without it
         });
     });
+
+    // Listen for offline queue replay notifications from service worker
+    navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'QUEUE_REPLAYED') {
+            if (event.data.replayed > 0) {
+                showToast(event.data.replayed + ' queued operation(s) synced');
+            }
+        } else if (event.data && event.data.type === 'OFFLINE_QUEUED') {
+            showToast('Offline - operation queued for sync', 'warning');
+        }
+    });
 }
+
+// Flush APIClient offline queue when back online
+window.addEventListener('online', () => {
+    showToast('Connection restored');
+    if (typeof APIClient !== 'undefined') {
+        APIClient.flushOfflineQueue().then(results => {
+            const synced = results.filter(r => r.success).length;
+            if (synced > 0) showToast(synced + ' queued operation(s) synced');
+        }).catch(() => {});
+    }
+    // Also tell service worker to replay its queue
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'REPLAY_QUEUE' });
+    }
+});
+
+window.addEventListener('offline', () => {
+    showToast('Connection lost - working offline', 'warning');
+});
 
 // ==========================================
 // Initialize

@@ -42,6 +42,12 @@ function addToWaitlist() {
     };
 
     waitlist.push(entry);
+
+    // Sync to API backend
+    if (typeof APIClient !== 'undefined') {
+        APIClient.addToWaitlist(entry).catch(() => {});
+    }
+
     showToast(name + ' added to waitlist (' + entry.estimatedWait + ' min est.)');
     refreshWaitlist();
 
@@ -137,6 +143,12 @@ function seatWaitlistGuest(id) {
         suitableTable.amount = '0.00';
         entry.status = 'seated';
         entry.seatedAt = new Date();
+
+        // Sync to API backend
+        if (typeof APIClient !== 'undefined') {
+            APIClient.updateWaitlistEntry(id, { status: 'seated' }).catch(() => {});
+        }
+
         showToast(entry.name + ' seated at Table ' + suitableTable.number);
         if (typeof populateTables === 'function') populateTables();
     } else {

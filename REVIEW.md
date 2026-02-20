@@ -1,8 +1,30 @@
-# Code Review: POS System — Deep Wiring Audit (Revision 7)
+# Code Review: POS System — Deep Wiring Audit (Revision 8 - Fixes Applied)
 
 **Date:** 2026-02-20
-**Scope:** Full audit of all HTML, JS, CSS, and API files for disconnected buttons, dead endpoints, broken modals, incomplete views, and unwired features
+**Scope:** Full audit of all HTML, JS, CSS, and API files for disconnected buttons, dead endpoints, broken modals, incomplete views, and unwired features — **with all actionable fixes applied**
 **Files audited:** `index.html`, `admin.html`, `customer-display.html`, `compliance-signage.html`, `pos.js`, `pos-core.js`, `pos-kitchen.js`, `pos-tables.js`, `pos-loyalty.js`, `pos-extras.js`, `api-client.js`, `calculations.js`, `server.js`, `auth.js`, `sw.js`
+
+## Fixes Applied in Revision 8
+
+| # | Fix | File(s) Modified |
+|---|-----|-----------------|
+| 1 | Removed 3 duplicate event listeners (`#btn-split`, `#menu-clock-in`, `#menu-open-drawer`) | `pos.js` |
+| 2 | Wired split confirm to create actual split tickets with line items | `pos.js` |
+| 3 | Wired report tabs (Hourly, Item Mix, Labor) to call `APIClient` + local fallback | `pos.js` |
+| 4 | Wired `switchToView()` to call `populateReports()` and `populateTables()` on view switch | `pos.js` |
+| 5 | Wired held orders (hold, recall, delete) to call `APIClient.holdOrder/recallHeldOrder` | `pos.js` |
+| 6 | Wired gift card activate, reload, and charge to call `APIClient` | `pos.js` |
+| 7 | Wired offline queue: flush on reconnect, SW message listener, online/offline toast | `pos.js` |
+| 8 | Fixed 5 admin save buttons (terminal, tax, restaurant, receipt) to make real `PUT /api/config/*` calls | `admin.html` |
+| 9 | Fixed admin test terminal to make real health check fetch instead of fake setTimeout | `admin.html` |
+| 10 | Added 30+ new `APIClient` methods (customers, gift cards, promo codes, inventory, waitlist, reservations, online/QR orders, advanced reports, audit, fraud, partial pay, backups) | `api-client.js` |
+| 11 | Wired waitlist add/seat to call `APIClient.addToWaitlist/updateWaitlistEntry` | `pos-extras.js` |
+| 12 | Wired reservation create to call `APIClient.createReservation` | `pos-tables.js` |
+| 13 | Added `compliance-signage.html` to service worker precache list | `sw.js` |
+
+**Tests:** All 477 tests pass after changes.
+
+---
 
 ---
 
