@@ -799,11 +799,15 @@
 
     document.getElementById('btn-save-terminal').addEventListener('click', () => {
         const config = {
-            terminalId: document.getElementById('terminal-id') ? document.getElementById('terminal-id').value : '',
-            model: document.getElementById('terminal-model') ? document.getElementById('terminal-model').value : '',
-            ipAddress: document.getElementById('terminal-ip') ? document.getElementById('terminal-ip').value : '',
-            port: document.getElementById('terminal-port') ? document.getElementById('terminal-port').value : '',
-            connectionMode: document.getElementById('terminal-mode') ? document.getElementById('terminal-mode').value : 'cloud'
+            terminalId: document.getElementById('term-id') ? document.getElementById('term-id').value : '',
+            model: document.getElementById('term-model') ? document.getElementById('term-model').value : '',
+            ipAddress: document.getElementById('term-ip') ? document.getElementById('term-ip').value : '',
+            port: document.getElementById('term-port') ? document.getElementById('term-port').value : '',
+            merchantId: document.getElementById('term-merchant') ? document.getElementById('term-merchant').value : '',
+            apiKey: document.getElementById('term-apikey') ? document.getElementById('term-apikey').value : '',
+            gatewayUrl: document.getElementById('term-gateway') ? document.getElementById('term-gateway').value : '',
+            serialNumber: document.getElementById('term-serial') ? document.getElementById('term-serial').value : '',
+            autoSettle: document.getElementById('term-auto-settle') ? document.getElementById('term-auto-settle').checked : true
         };
         fetch('/api/config/terminal', {
             method: 'PUT',

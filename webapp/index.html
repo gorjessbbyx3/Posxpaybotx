@@ -71,6 +71,7 @@
                 <button class="tab-btn" data-view="kitchen">Kitchen</button>
                 <button class="tab-btn" data-view="tickets">Tickets</button>
                 <button class="tab-btn" data-view="reports">Reports</button>
+                <button class="tab-btn" data-view="orders">Orders</button>
             </div>
             <div class="top-bar-right">
                 <span class="clock" id="clock"></span>
@@ -275,6 +276,25 @@
                 </div>
                 <div class="tickets-list" id="tickets-list">
                     <!-- Tickets populated by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Orders View (Online / QR / Scheduled) -->
+        <div id="orders-view" class="main-view">
+            <div class="tickets-container">
+                <div class="tickets-header">
+                    <h3>Incoming Orders</h3>
+                    <div class="tickets-filters">
+                        <button class="order-type-filter active" data-type="all">All</button>
+                        <button class="order-type-filter" data-type="online">Online</button>
+                        <button class="order-type-filter" data-type="qr">QR Table</button>
+                        <button class="order-type-filter" data-type="scheduled">Scheduled</button>
+                    </div>
+                    <button class="btn-secondary" id="btn-refresh-orders" style="margin-left:auto;padding:6px 14px;">Refresh</button>
+                </div>
+                <div class="tickets-list" id="incoming-orders-list">
+                    <p class="tc-empty">No incoming orders</p>
                 </div>
             </div>
         </div>

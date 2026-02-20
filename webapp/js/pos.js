@@ -1380,34 +1380,59 @@ function createDiscountModal() {
     // Promo code
     document.getElementById('btn-apply-promo').addEventListener('click', () => {
         const code = document.getElementById('promo-code-input').value.trim().toUpperCase();
-        const promo = PROMO_CODES[code];
         const resultEl = document.getElementById('promo-result');
-
-        if (!promo) {
-            resultEl.textContent = 'Invalid promo code';
-            resultEl.style.color = 'var(--danger)';
-            return;
-        }
-
         const subtotal = state.ticket.items.reduce((s, i) => s + i.price * i.qty, 0);
-        if (subtotal < promo.minAmount) {
-            resultEl.textContent = 'Minimum order ' + formatCurrency(promo.minAmount) + ' required';
-            resultEl.style.color = 'var(--warning)';
-            return;
+
+        function applyPromo(promo) {
+            if (subtotal < promo.minAmount) {
+                resultEl.textContent = 'Minimum order ' + formatCurrency(promo.minAmount) + ' required';
+                resultEl.style.color = 'var(--warning)';
+                return;
+            }
+            resultEl.textContent = promo.description;
+            resultEl.style.color = 'var(--success)';
+            appliedPromo = { ...promo, code };
+            if (promo.type !== 'delivery') {
+                appliedDiscount = {
+                    type: promo.type,
+                    value: promo.value,
+                    reason: 'Promo: ' + code
+                };
+            }
+            updateDiscountPreview();
         }
 
-        resultEl.textContent = promo.description;
-        resultEl.style.color = 'var(--success)';
-        appliedPromo = { ...promo, code };
-
-        if (promo.type !== 'delivery') {
-            appliedDiscount = {
-                type: promo.type,
-                value: promo.value,
-                reason: 'Promo: ' + code
-            };
+        // Try API first, fall back to local PROMO_CODES
+        if (typeof APIClient !== 'undefined') {
+            APIClient.validatePromoCode(code).then(data => {
+                if (data && data.valid) {
+                    applyPromo(data.promo || data);
+                } else {
+                    // API says invalid, try local fallback
+                    const local = PROMO_CODES[code];
+                    if (local) { applyPromo(local); return; }
+                    resultEl.textContent = (data && data.error) || 'Invalid promo code';
+                    resultEl.style.color = 'var(--danger)';
+                }
+            }).catch(() => {
+                // API unavailable, use local
+                const local = PROMO_CODES[code];
+                if (!local) {
+                    resultEl.textContent = 'Invalid promo code';
+                    resultEl.style.color = 'var(--danger)';
+                    return;
+                }
+                applyPromo(local);
+            });
+        } else {
+            const promo = PROMO_CODES[code];
+            if (!promo) {
+                resultEl.textContent = 'Invalid promo code';
+                resultEl.style.color = 'var(--danger)';
+                return;
+            }
+            applyPromo(promo);
         }
-        updateDiscountPreview();
     });
 
     // Confirm
@@ -3406,6 +3431,119 @@ function switchToView(viewName) {
     if (viewName === 'tickets' && typeof populateTicketsList === 'function') populateTicketsList();
     if (viewName === 'reports' && typeof populateReports === 'function') populateReports();
     if (viewName === 'tables' && typeof populateTables === 'function') populateTables();
+    if (viewName === 'orders' && typeof populateIncomingOrders === 'function') populateIncomingOrders();
+}
+
+// ==========================================
+// Incoming Orders Management (Online / QR / Scheduled)
+// ==========================================
+let incomingOrdersFilter = 'all';
+
+function populateIncomingOrders() {
+    const list = document.getElementById('incoming-orders-list');
+    if (!list) return;
+
+    if (typeof APIClient === 'undefined') {
+        list.innerHTML = '<p class="tc-empty">API client not available</p>';
+        return;
+    }
+
+    list.innerHTML = '<p class="tc-empty">Loading orders...</p>';
+
+    const fetches = [];
+    if (incomingOrdersFilter === 'all' || incomingOrdersFilter === 'online') {
+        fetches.push(APIClient.getOnlineOrders().then(data => (data.orders || data || []).map(o => ({ ...o, source: 'online' }))).catch(() => []));
+    }
+    if (incomingOrdersFilter === 'all' || incomingOrdersFilter === 'qr') {
+        fetches.push(APIClient.getQROrders().then(data => (data.orders || data || []).map(o => ({ ...o, source: 'qr' }))).catch(() => []));
+    }
+    if (incomingOrdersFilter === 'all' || incomingOrdersFilter === 'scheduled') {
+        fetches.push(
+            APIClient.getTickets({ type: 'scheduled' }).then(data => (data.tickets || data || []).map(o => ({ ...o, source: 'scheduled' }))).catch(() => [])
+        );
+    }
+
+    Promise.all(fetches).then(results => {
+        const allOrders = results.flat();
+        if (allOrders.length === 0) {
+            list.innerHTML = '<p class="tc-empty">No incoming orders</p>';
+            return;
+        }
+
+        list.innerHTML = allOrders.map(order => {
+            const statusClass = order.status === 'pending' ? 'open' : (order.status === 'accepted' ? 'paid' : '');
+            const sourceLabel = order.source === 'online' ? 'Online' : (order.source === 'qr' ? 'QR Table' : 'Scheduled');
+            const itemsSummary = (order.items || []).map(i => (i.qty > 1 ? i.qty + 'x ' : '') + (i.name || 'Item')).join(', ') || 'No items';
+            const total = typeof formatCurrency === 'function' ? formatCurrency(order.total || 0) : '$' + (order.total || 0).toFixed(2);
+            const time = order.createdAt ? new Date(order.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+            const scheduledTime = order.scheduledFor ? '<div class="ticket-meta">Scheduled: ' + new Date(order.scheduledFor).toLocaleString() + '</div>' : '';
+
+            return '<div class="ticket-card ' + statusClass + '" data-order-id="' + order.id + '" data-source="' + order.source + '">' +
+                '<div class="ticket-card-header">' +
+                    '<span class="ticket-id">#' + order.id + '</span>' +
+                    '<span class="ticket-badge">' + sourceLabel + '</span>' +
+                    '<span class="ticket-time">' + time + '</span>' +
+                '</div>' +
+                '<div class="ticket-items">' + escapeHtml(itemsSummary) + '</div>' +
+                scheduledTime +
+                (order.customerName ? '<div class="ticket-meta">Customer: ' + escapeHtml(order.customerName) + '</div>' : '') +
+                (order.table ? '<div class="ticket-meta">Table: ' + escapeHtml(String(order.table)) + '</div>' : '') +
+                '<div class="ticket-card-footer">' +
+                    '<span class="ticket-total">' + total + '</span>' +
+                    '<span class="ticket-status">' + (order.status || 'pending') + '</span>' +
+                '</div>' +
+                (order.status === 'pending' ? '<div class="ticket-actions" style="display:flex;gap:8px;margin-top:8px;">' +
+                    '<button class="btn-success btn-accept-order" data-id="' + order.id + '" data-source="' + order.source + '" style="flex:1;padding:8px;">Accept</button>' +
+                    '<button class="btn-danger btn-reject-order" data-id="' + order.id + '" data-source="' + order.source + '" style="flex:1;padding:8px;">Reject</button>' +
+                '</div>' : '') +
+            '</div>';
+        }).join('');
+
+        // Wire accept/reject buttons
+        list.querySelectorAll('.btn-accept-order').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const id = parseInt(btn.dataset.id);
+                const source = btn.dataset.source;
+                const acceptFn = source === 'online' ? APIClient.acceptOnlineOrder : APIClient.acceptQROrder;
+                acceptFn(id).then(() => {
+                    showToast('Order #' + id + ' accepted');
+                    populateIncomingOrders();
+                }).catch(err => {
+                    showToast('Failed to accept: ' + (err.message || 'error'), 'error');
+                });
+            });
+        });
+
+        list.querySelectorAll('.btn-reject-order').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const id = parseInt(btn.dataset.id);
+                const source = btn.dataset.source;
+                const endpoint = source === 'online' ? '/online-orders/' + id + '/reject' : '/qr-orders/' + id + '/reject';
+                fetch('/api' + endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' } }).then(() => {
+                    showToast('Order #' + id + ' rejected');
+                    populateIncomingOrders();
+                }).catch(err => {
+                    showToast('Failed to reject: ' + (err.message || 'error'), 'error');
+                });
+            });
+        });
+    });
+}
+
+// Order type filter buttons
+document.querySelectorAll('.order-type-filter').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.order-type-filter').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        incomingOrdersFilter = btn.dataset.type || 'all';
+        populateIncomingOrders();
+    });
+});
+
+// Refresh button
+const refreshOrdersBtn = document.getElementById('btn-refresh-orders');
+if (refreshOrdersBtn) {
+    refreshOrdersBtn.addEventListener('click', populateIncomingOrders);
 }
 
 // ==========================================

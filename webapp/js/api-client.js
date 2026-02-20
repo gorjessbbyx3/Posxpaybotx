@@ -136,6 +136,14 @@ const APIClient = (function () {
         return request('POST', '/kitchen/' + id + '/bump');
     }
 
+    function fireCourse(id, course) {
+        return request('POST', '/kitchen/' + id + '/fire-course', { course });
+    }
+
+    function pickupKitchenOrder(id) {
+        return request('POST', '/kitchen/' + id + '/pickup');
+    }
+
     // ---- Held Orders ----
 
     function getHeldOrders() {
@@ -426,6 +434,8 @@ const APIClient = (function () {
         getKitchenOrders,
         sendToKitchen,
         bumpKitchenOrder,
+        fireCourse,
+        pickupKitchenOrder,
 
         // Held Orders
         getHeldOrders,
