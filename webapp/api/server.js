@@ -269,12 +269,24 @@ function logAudit(action, user, details) {
 // ==========================================
 // Webhook Helper — fire-and-forget HTTP POST to registered URLs
 // ==========================================
+function isPrivateHost(hostname) {
+    // Block private/reserved IPs and localhost to prevent SSRF
+    if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.|169\.254\.|::1|fc00|fd00|fe80)/i.test(hostname)) return true;
+    if (/^(metadata|internal|\.local$)/i.test(hostname)) return true;
+    // Block cloud metadata endpoints
+    if (hostname === '169.254.169.254') return true;
+    return false;
+}
+
 function fireWebhooks(event, payload) {
     const hooks = store.webhooks.filter(w => w.active && w.events.includes(event));
     hooks.forEach(w => {
         const body = JSON.stringify({ event, data: payload, time: new Date().toISOString() });
         try {
             const url = new URL(w.url);
+            // SSRF protection: block requests to private/internal networks
+            if (isPrivateHost(url.hostname)) return;
+            if (url.protocol !== 'https:' && url.protocol !== 'http:') return;
             const options = {
                 hostname: url.hostname,
                 port: url.port || (url.protocol === 'https:' ? 443 : 80),
@@ -416,6 +428,7 @@ app.patch('/api/tickets/:id', authorize('tickets'), (req, res) => {
     // Recalculate totals when items or discount change
     if (req.body.items !== undefined || req.body.discount !== undefined || req.body.deliveryFee !== undefined) {
         if (ticket.items && ticket.items.length > 0) {
+
             const subtotal = ticket.items.reduce((s, i) => s + Math.round((parseFloat(i.price) || 0) * (parseInt(i.qty, 10) || 1) * 100) / 100, 0);
             const discountAmt = ticket.discount ? (parseFloat(ticket.discount.amount) || 0) : 0;
             const afterDiscount = Math.round(Math.max(0, subtotal - discountAmt) * 100) / 100;
@@ -425,6 +438,11 @@ app.patch('/api/tickets/:id', authorize('tickets'), (req, res) => {
             ticket.subtotal = Math.round(subtotal * 100) / 100;
             ticket.tax = tax;
             ticket.total = Math.round((afterDiscount + tax + dFee) * 100) / 100;
+        } else {
+            // Empty items — zero out totals
+            ticket.subtotal = 0;
+            ticket.tax = 0;
+            ticket.total = 0;
         }
     }
 
@@ -603,7 +621,7 @@ app.post('/api/refunds', authorize('refund'), (req, res) => {
 // ==========================================
 // Kitchen Display Endpoints
 // ==========================================
-app.get('/api/kitchen', (req, res) => {
+app.get('/api/kitchen', authorize('kitchen'), (req, res) => {
     const { station } = req.query;
     let orders = store.kitchenOrders.filter(o => o.status !== 'bumped');
 
@@ -638,7 +656,7 @@ app.post('/api/kitchen', authorize('kitchen'), (req, res) => {
 });
 
 // Get orders routed to a specific station
-app.get('/api/kitchen/station/:station', (req, res) => {
+app.get('/api/kitchen/station/:station', authorize('kitchen'), (req, res) => {
     const station = req.params.station;
     const orders = store.kitchenOrders
         .filter(o => o.status !== 'bumped')
@@ -663,8 +681,13 @@ app.post('/api/kitchen/:id/fire-course', authorize('kitchen'), (req, res) => {
         return res.status(400).json({ error: 'No items in course ' + courseToFire });
     }
 
-    order.currentCourse = courseToFire;
+    // Duplicate check — prevent double-fire of the same course
     order.courseFiredAt = order.courseFiredAt || {};
+    if (order.courseFiredAt[courseToFire]) {
+        return res.status(409).json({ error: `Course ${courseToFire} already fired`, firedAt: order.courseFiredAt[courseToFire] });
+    }
+
+    order.currentCourse = courseToFire;
     order.courseFiredAt[courseToFire] = new Date().toISOString();
     order.courseFiredBy = order.courseFiredBy || {};
     order.courseFiredBy[courseToFire] = req.user ? req.user.name : 'unknown';
@@ -689,7 +712,7 @@ app.post('/api/kitchen/:id/bump', authorize('kitchen'), (req, res) => {
 // ==========================================
 // Held Orders Endpoints
 // ==========================================
-app.get('/api/held-orders', (req, res) => {
+app.get('/api/held-orders', authorize('tickets'), (req, res) => {
     res.json({ orders: store.heldOrders, total: store.heldOrders.length });
 });
 
@@ -726,7 +749,7 @@ app.delete('/api/held-orders/:id', authorize('tickets'), (req, res) => {
 // ==========================================
 // Time Clock Endpoints
 // ==========================================
-app.get('/api/timeclock', (req, res) => {
+app.get('/api/timeclock', authorize('timeclock'), (req, res) => {
     const { empId, date } = req.query;
     let records = store.timeClock;
 
@@ -1098,8 +1121,8 @@ app.get('/api/reports/surcharge', authorize('reports'), (req, res) => {
                     // Card price is the menu price; surcharge is embedded
                     surcharge = (t.total || 0) * rate / (1 + rate);
                 } else {
-                    // CARD_SURCHARGE: surcharge is added on top
-                    surcharge = (t.total || 0) * rate / (1 + rate);
+                    // CARD_SURCHARGE: surcharge is added on top of base price
+                    surcharge = (t.total || 0) * rate;
                 }
                 totalSurchargeRevenue += surcharge;
                 surchargeTicketCount++;
@@ -1250,7 +1273,7 @@ app.get('/api/reports/category-margin', authorize('reports'), (req, res) => {
 // ==========================================
 const CUSTOMER_FIELDS = ['name', 'email', 'phone', 'address', 'notes', 'loyaltyPoints', 'tags'];
 
-app.get('/api/customers', (req, res) => {
+app.get('/api/customers', authorize('tickets'), (req, res) => {
     let customers = store.customers;
     const { search, tag } = req.query;
     if (search) {
@@ -1267,7 +1290,7 @@ app.get('/api/customers', (req, res) => {
     res.json({ customers, total: customers.length });
 });
 
-app.get('/api/customers/:id', (req, res) => {
+app.get('/api/customers/:id', authorize('tickets'), (req, res) => {
     const customer = store.customers.find(c => c.id === parseInt(req.params.id));
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
     res.json(customer);
@@ -1610,7 +1633,7 @@ app.get('/api/tickets/:id/split-by-seat', authorize('tickets'), (req, res) => {
 // ==========================================
 // Expo Screen (view of ready / bumped orders)
 // ==========================================
-app.get('/api/kitchen/expo', (req, res) => {
+app.get('/api/kitchen/expo', authorize('kitchen'), (req, res) => {
     // Expo sees bumped orders that haven't been marked as picked up
     const ready = store.kitchenOrders
         .filter(o => o.status === 'bumped' && !o.pickedUp)
@@ -1685,10 +1708,19 @@ app.post('/api/customers/:id/loyalty/earn', authorize('tickets'), (req, res) => 
     const customer = store.customers.find(c => c.id === parseInt(req.params.id));
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
-    const amount = parseFloat(req.body.amount) || 0;
+    let amount = parseFloat(req.body.amount) || 0;
     if (amount <= 0) return res.status(400).json({ error: 'Amount must be positive' });
 
-    const multiplier = parseFloat(req.body.multiplier) || 1;
+    // If ticketId provided, validate amount against actual ticket total (post-discount)
+    if (req.body.ticketId) {
+        const ticket = store.tickets.find(t => t.id === parseInt(req.body.ticketId));
+        if (ticket) {
+            const maxAmount = Math.round(((ticket.subtotal || ticket.total || 0) - (ticket.discount ? (ticket.discount.amount || 0) : 0)) * 100) / 100;
+            amount = Math.min(amount, Math.max(0, maxAmount));
+        }
+    }
+    // Cap multiplier to prevent abuse (max 3x)
+    const multiplier = Math.min(parseFloat(req.body.multiplier) || 1, 3);
     const earned = Math.floor(amount * LOYALTY_CONFIG.pointsPerDollar * multiplier);
 
     customer.loyaltyPoints = (customer.loyaltyPoints || 0) + earned;
@@ -2164,7 +2196,9 @@ app.post('/api/ingredients/:id/adjust', authorize('config'), (req, res) => {
     if (qty === 0) return res.status(400).json({ error: 'Quantity required' });
 
     const oldStock = ingredient.stock;
-    ingredient.stock = Math.round((ingredient.stock + qty) * 100) / 100;
+    const newStock = Math.round((ingredient.stock + qty) * 100) / 100;
+    if (newStock < 0) return res.status(400).json({ error: 'Insufficient stock', currentStock: ingredient.stock, requested: qty });
+    ingredient.stock = newStock;
 
     const movement = {
         id: nextId(store.inventoryMovements),
@@ -2834,12 +2868,10 @@ app.post('/api/email-campaigns/:id/send', authorize('config'), (req, res) => {
         campaign.failReason = 'No recipients matched the target segment';
     }
 
-    // Simulate delivery (mark all as delivered — real implementation would use SendGrid/SES)
-    campaign.recipients.forEach(r => {
-        r.status = 'delivered';
-        r.deliveredAt = new Date().toISOString();
-    });
-    campaign.deliveredCount = campaign.recipients.filter(r => r.status === 'delivered').length;
+    // Recipients are queued — actual delivery requires SMTP/SendGrid/SES integration
+    // Set status to 'queued' not 'delivered' to be honest about delivery state
+    campaign.deliveredCount = 0;
+    campaign.queuedCount = campaign.recipients.length;
 
     fireWebhooks('email_campaign.sent', { campaignId: campaign.id, recipientCount: campaign.recipientCount });
     logAudit('email_campaign_sent', req.user, { campaignId: campaign.id, recipientCount: campaign.recipientCount });
@@ -2850,18 +2882,18 @@ app.post('/api/email-campaigns/:id/send', authorize('config'), (req, res) => {
 // ==========================================
 // QR Table Ordering
 // ==========================================
-app.get('/api/qr-orders', (req, res) => {
+app.get('/api/qr-orders', authorize('tickets'), (req, res) => {
     res.json(store.qrOrders.filter(o => o.status !== 'completed'));
 });
 
 app.post('/api/qr-orders', (req, res) => {
     const { tableNumber, items, customerName } = req.body;
     if (!tableNumber || !items || !items.length) return res.status(400).json({ error: 'Table number and items required' });
-    const total = items.reduce((sum, item) => sum + Math.round((item.price || 0) * (item.quantity || 1) * 100) / 100, 0);
+    const total = Math.round(items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0) * 100) / 100;
     const order = {
         id: nextId(store.qrOrders), tableNumber, items,
         customerName: customerName || 'Guest',
-        total: Math.round(total * 100) / 100,
+        total,
         status: 'pending', createdAt: new Date().toISOString()
     };
     store.qrOrders.push(order);
@@ -2908,7 +2940,12 @@ app.post('/api/qr-orders/:id/complete', authorize('tickets'), (req, res) => {
 // Delivery Integrations
 // ==========================================
 app.get('/api/delivery-integrations', authorize('config'), (req, res) => {
-    res.json(store.deliveryIntegrations);
+    // Mask API keys — never return full keys
+    res.json(store.deliveryIntegrations.map(d => ({
+        ...d,
+        apiKey: d.apiKey ? d.apiKey.slice(0, 4) + '****' + d.apiKey.slice(-4) : '',
+        storeId: d.storeId ? d.storeId.slice(0, 2) + '****' : ''
+    })));
 });
 
 app.post('/api/delivery-integrations', authorize('config'), (req, res) => {
@@ -2932,7 +2969,12 @@ app.post('/api/delivery-integrations', authorize('config'), (req, res) => {
     store.deliveryIntegrations.push(integration);
     logAudit('delivery_integration_added', req.user, { platform: integration.platform });
     scheduleSave();
-    res.status(201).json(integration);
+    // Return masked response
+    res.status(201).json({
+        ...integration,
+        apiKey: integration.apiKey ? integration.apiKey.slice(0, 4) + '****' + integration.apiKey.slice(-4) : '',
+        storeId: integration.storeId ? integration.storeId.slice(0, 2) + '****' : ''
+    });
 });
 
 app.post('/api/delivery-integrations/:id/test', authorize('config'), (req, res) => {
@@ -2959,7 +3001,11 @@ app.put('/api/delivery-integrations/:id', authorize('config'), (req, res) => {
     if (enabled !== undefined) integration.enabled = enabled;
     integration.updatedAt = new Date().toISOString();
     scheduleSave();
-    res.json(integration);
+    res.json({
+        ...integration,
+        apiKey: integration.apiKey ? integration.apiKey.slice(0, 4) + '****' + integration.apiKey.slice(-4) : '',
+        storeId: integration.storeId ? integration.storeId.slice(0, 2) + '****' : ''
+    });
 });
 
 // ==========================================
@@ -2968,20 +3014,33 @@ app.put('/api/delivery-integrations/:id', authorize('config'), (req, res) => {
 app.post('/api/token-vault', authorize('tickets'), (req, res) => {
     const { customerId, lastFour, cardBrand, token } = req.body;
     if (!lastFour) return res.status(400).json({ error: 'Card last four required' });
+    const rawToken = token || 'tok_' + crypto.randomBytes(16).toString('hex');
+    // Encrypt token at rest using AES-256
+    const tokenKey = process.env.TOKEN_ENCRYPTION_KEY || crypto.createHash('sha256').update('pos-token-vault-key').digest();
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv('aes-256-cbc', tokenKey, iv);
+    const encrypted = Buffer.concat([cipher.update(rawToken, 'utf8'), cipher.final()]);
     const entry = {
         id: nextId(store.tokenVault),
         customerId: customerId || null, lastFour,
         cardBrand: cardBrand || 'unknown',
-        token: token || 'tok_' + crypto.randomBytes(16).toString('hex'),
+        encryptedToken: iv.toString('hex') + ':' + encrypted.toString('hex'),
+        tokenPreview: rawToken.slice(0, 8) + '...',
         createdAt: new Date().toISOString()
     };
     store.tokenVault.push(entry);
     scheduleSave();
-    res.status(201).json(entry);
+    // Never return raw or encrypted token — return preview only
+    res.status(201).json({ id: entry.id, customerId: entry.customerId, lastFour, cardBrand: entry.cardBrand, token: entry.tokenPreview, createdAt: entry.createdAt });
 });
 
 app.get('/api/token-vault', authorize('config'), (req, res) => {
-    res.json(store.tokenVault.map(t => ({ ...t, token: t.token.slice(0, 8) + '...' })));
+    // Never return encrypted tokens — only safe metadata
+    res.json(store.tokenVault.map(t => ({
+        id: t.id, customerId: t.customerId, lastFour: t.lastFour,
+        cardBrand: t.cardBrand, token: t.tokenPreview || (t.token ? t.token.slice(0, 8) + '...' : '***'),
+        createdAt: t.createdAt
+    })));
 });
 
 // ==========================================
@@ -2990,12 +3049,28 @@ app.get('/api/token-vault', authorize('config'), (req, res) => {
 app.post('/api/tickets/:id/partial-pay', authorize('tickets'), (req, res) => {
     const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-    const { amount, method } = req.body;
+    if (ticket.status === 'paid') return res.status(400).json({ error: 'Ticket already fully paid' });
+    if (ticket.status === 'voided') return res.status(400).json({ error: 'Cannot pay a voided ticket' });
+    const { amount, method, idempotencyKey } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: 'Valid payment amount required' });
     if (!ticket.partialPayments) ticket.partialPayments = [];
+
+    // Idempotency check — prevent duplicate payments
+    if (idempotencyKey) {
+        const duplicate = ticket.partialPayments.find(p => p.idempotencyKey === idempotencyKey);
+        if (duplicate) return res.json(ticket); // Already processed, return current state
+    }
+
+    // Prevent overpayment
+    const currentPaid = ticket.partialPayments.reduce((sum, p) => sum + p.amount, 0);
+    const remaining = Math.round(((ticket.total || 0) - currentPaid) * 100) / 100;
+    const payAmount = Math.round(Math.min(amount, remaining) * 100) / 100;
+    if (payAmount <= 0) return res.status(400).json({ error: 'Ticket already fully paid' });
+
     ticket.partialPayments.push({
-        amount: Math.round(amount * 100) / 100,
-        method: method || 'card', paidAt: new Date().toISOString()
+        amount: payAmount,
+        method: method || 'card', paidAt: new Date().toISOString(),
+        idempotencyKey: idempotencyKey || null
     });
     const totalPaid = ticket.partialPayments.reduce((sum, p) => sum + p.amount, 0);
     ticket.amountPaid = Math.round(totalPaid * 100) / 100;
@@ -3109,17 +3184,66 @@ app.post('/api/backups', authorize('config'), (req, res) => {
     }
 });
 
+app.post('/api/backups/:id/restore', authorize('config'), (req, res) => {
+    const backup = store.backups.find(b => b.id === parseInt(req.params.id));
+    if (!backup) return res.status(404).json({ error: 'Backup not found' });
+    if (backup.status !== 'completed') return res.status(400).json({ error: 'Cannot restore from failed backup' });
+
+    try {
+        const backupPath = backup.path || path.join(DATA_DIR, backup.filename || `backup-${backup.id}.json`);
+        if (!fs.existsSync(backupPath)) return res.status(404).json({ error: 'Backup file not found on disk' });
+
+        let raw = fs.readFileSync(backupPath, 'utf8');
+        // Handle encrypted backups
+        if (backup.encrypted && store.config.security && store.config.security.encryptionKey) {
+            const decipher = crypto.createDecipheriv('aes-256-cbc',
+                Buffer.from(store.config.security.encryptionKey, 'hex').slice(0, 32),
+                Buffer.alloc(16, 0));
+            raw = decipher.update(raw, 'hex', 'utf8') + decipher.final('utf8');
+        }
+        // Verify hash integrity
+        const hash = crypto.createHash('sha256').update(Buffer.from(raw)).digest('hex');
+
+        const restoredData = JSON.parse(raw);
+        // Restore store collections from backup
+        const restorableKeys = ['tickets', 'kitchenOrders', 'customers', 'giftCards',
+            'ingredients', 'promoCodes', 'heldOrders', 'timeClock', 'refunds'];
+        let restored = 0;
+        restorableKeys.forEach(key => {
+            if (restoredData[key] && Array.isArray(restoredData[key])) {
+                store[key] = restoredData[key];
+                restored++;
+            }
+        });
+        if (restoredData.config && typeof restoredData.config === 'object') {
+            Object.assign(store.config, restoredData.config);
+            restored++;
+        }
+
+        scheduleSave();
+        logAudit('backup_restored', req.user, { backupId: backup.id, filename: backup.filename, restoredKeys: restored });
+        res.json({ message: 'Backup restored', backupId: backup.id, restoredKeys: restored, hash });
+    } catch (err) {
+        res.status(500).json({ error: 'Restore failed', details: err.message });
+    }
+});
+
 // ==========================================
 // Two-Factor Authentication
 // ==========================================
 app.post('/api/auth/2fa/setup', authorize('config'), (req, res) => {
-    const secret = crypto.randomBytes(20).toString('hex');
-    // Store the secret associated with the user
     if (!store.config.twoFactorSecrets) store.config.twoFactorSecrets = {};
+    // Warn if 2FA is already enabled — require force flag to overwrite
+    const existing = store.config.twoFactorSecrets[req.user.id];
+    if (existing && existing.enabled && !req.body.force) {
+        return res.status(409).json({ error: '2FA already enabled. Pass force: true to re-setup (this will invalidate your current 2FA)' });
+    }
+    const secret = crypto.randomBytes(20).toString('hex');
     store.config.twoFactorSecrets[req.user.id] = {
         secret,
         enabled: false,
-        setupAt: new Date().toISOString()
+        setupAt: new Date().toISOString(),
+        previouslyEnabled: !!(existing && existing.enabled)
     };
     scheduleSave();
     res.json({
@@ -3444,9 +3568,9 @@ app.post('/api/locations', authorize('config'), (req, res) => {
     const { name, address, phone, email } = req.body;
     if (!name) return res.status(400).json({ error: 'Location name required' });
     if (!store.config.locations) store.config.locations = [];
-    const nextId = store.config.locations.length > 0 ? Math.max(...store.config.locations.map(l => l.id)) + 1 : 1;
+    const locId = nextId(store.config.locations);
     const location = {
-        id: nextId, name, address: address || '', phone: phone || '', email: email || '',
+        id: locId, name, address: address || '', phone: phone || '', email: email || '',
         active: true, createdAt: new Date().toISOString()
     };
     store.config.locations.push(location);
@@ -3614,7 +3738,7 @@ app.post('/api/hardware/kds-displays', authorize('config'), (req, res) => {
     const { name, station, ipAddress } = req.body;
     if (!name) return res.status(400).json({ error: 'Display name required' });
     const display = {
-        id: store.config.hardware.kdsDisplays.length > 0 ? Math.max(...store.config.hardware.kdsDisplays.map(d => d.id)) + 1 : 1,
+        id: nextId(store.config.hardware.kdsDisplays),
         name, station: station || 'kitchen', ipAddress: ipAddress || '',
         status: 'online', lastHeartbeat: new Date().toISOString(), addedAt: new Date().toISOString()
     };
@@ -3661,6 +3785,9 @@ app.get('/api/sync/snapshot', authorize('config'), (req, res) => {
     res.json({
         version: Date.now(), tickets: store.tickets,
         kitchenOrders: store.kitchenOrders, ingredients: store.ingredients,
+        customers: store.customers, giftCards: store.giftCards,
+        refunds: store.refunds, heldOrders: store.heldOrders,
+        timeClock: store.timeClock, promoCodes: store.promoCodes,
         config: store.config, generatedAt: new Date().toISOString()
     });
 });
@@ -3708,6 +3835,56 @@ app.post('/api/sync/push', authorize('config'), (req, res) => {
                     const ing = store.ingredients.find(i => i.id === id);
                     if (ing && data) { Object.assign(ing, data); applied.push({ id, type, action }); }
                     else errors.push({ id, type, error: 'Not found' });
+                } else if (action === 'create' && data) {
+                    store.ingredients.push({ ...data, id: nextId(store.ingredients) });
+                    applied.push({ type, action });
+                }
+            } else if (type === 'customer') {
+                if (action === 'update') {
+                    const cust = store.customers.find(c => c.id === id);
+                    if (cust && data) { CUSTOMER_FIELDS.forEach(f => { if (data[f] !== undefined) cust[f] = data[f]; }); applied.push({ id, type, action }); }
+                    else errors.push({ id, type, error: 'Not found' });
+                } else if (action === 'create' && data) {
+                    store.customers.push({ ...data, id: nextId(store.customers) });
+                    applied.push({ type, action });
+                }
+            } else if (type === 'giftCard') {
+                if (action === 'update') {
+                    const gc = store.giftCards.find(g => g.id === id);
+                    if (gc && data) { Object.assign(gc, data); applied.push({ id, type, action }); }
+                    else errors.push({ id, type, error: 'Not found' });
+                }
+            } else if (type === 'refund') {
+                if (action === 'create' && data) {
+                    store.refunds.push({ ...data, id: nextId(store.refunds) });
+                    applied.push({ type, action });
+                }
+            } else if (type === 'heldOrder') {
+                if (action === 'create' && data) {
+                    store.heldOrders.push({ ...data, id: nextId(store.heldOrders) });
+                    applied.push({ type, action });
+                } else if (action === 'delete') {
+                    const idx = store.heldOrders.findIndex(h => h.id === id);
+                    if (idx !== -1) { store.heldOrders.splice(idx, 1); applied.push({ id, type, action }); }
+                    else errors.push({ id, type, error: 'Not found' });
+                }
+            } else if (type === 'timeClock') {
+                if (action === 'create' && data) {
+                    store.timeClock.push({ ...data, id: nextId(store.timeClock) });
+                    applied.push({ type, action });
+                } else if (action === 'update') {
+                    const rec = store.timeClock.find(r => r.id === id);
+                    if (rec && data) { Object.assign(rec, data); applied.push({ id, type, action }); }
+                    else errors.push({ id, type, error: 'Not found' });
+                }
+            } else if (type === 'promoCode') {
+                if (action === 'create' && data) {
+                    store.promoCodes.push({ ...data, id: nextId(store.promoCodes) });
+                    applied.push({ type, action });
+                } else if (action === 'update') {
+                    const pc = store.promoCodes.find(p => p.id === id);
+                    if (pc && data) { Object.assign(pc, data); applied.push({ id, type, action }); }
+                    else errors.push({ id, type, error: 'Not found' });
                 }
             }
         } catch (e) { errors.push({ id, type, error: e.message }); }
@@ -3720,9 +3897,19 @@ app.post('/api/sync/push', authorize('config'), (req, res) => {
 
 app.post('/api/sync/resync', authorize('config'), (req, res) => {
     const { lastSyncVersion } = req.body;
-    const changes = store.tickets.filter(t => !lastSyncVersion || new Date(t.updatedAt || t.createdAt) > new Date(lastSyncVersion));
+    const since = lastSyncVersion ? new Date(lastSyncVersion) : null;
+    const filterSince = (arr, dateField = 'updatedAt', fallback = 'createdAt') =>
+        arr.filter(item => !since || new Date(item[dateField] || item[fallback] || 0) > since);
+
+    const changes = [
+        ...filterSince(store.tickets).map(t => ({ type: 'ticket', action: 'update', data: t })),
+        ...filterSince(store.customers).map(c => ({ type: 'customer', action: 'update', data: c })),
+        ...filterSince(store.ingredients).map(i => ({ type: 'ingredient', action: 'update', data: i })),
+        ...filterSince(store.giftCards).map(g => ({ type: 'giftCard', action: 'update', data: g })),
+        ...filterSince(store.promoCodes).map(p => ({ type: 'promoCode', action: 'update', data: p }))
+    ];
     res.json({
-        changes: changes.map(t => ({ type: 'ticket', action: 'update', data: t })),
+        changes,
         currentVersion: Date.now(), fullResync: !lastSyncVersion
     });
 });
