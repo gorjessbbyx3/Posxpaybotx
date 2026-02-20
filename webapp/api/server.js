@@ -346,7 +346,7 @@ app.post('/api/auth/login', loginHandler);
 // Whitelist of fields allowed on ticket PATCH
 const TICKET_PATCH_FIELDS = ['table', 'server', 'type', 'items', 'discount', 'deliveryFee', 'deliveryAddress', 'note', 'seats'];
 
-app.get('/api/tickets', (req, res) => {
+app.get('/api/tickets', authorize('tickets'), (req, res) => {
     let tickets = store.tickets;
     const { status, server, search } = req.query;
 
@@ -368,7 +368,7 @@ app.get('/api/tickets', (req, res) => {
     res.json({ tickets, total: tickets.length });
 });
 
-app.get('/api/tickets/:id', (req, res) => {
+app.get('/api/tickets/:id', authorize('tickets'), (req, res) => {
     const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
     res.json(ticket);
@@ -569,7 +569,7 @@ app.post('/api/tickets/:id/void', authorize('void'), (req, res) => {
 // ==========================================
 // Refund Endpoints (requires refund permission)
 // ==========================================
-app.get('/api/refunds', (req, res) => {
+app.get('/api/refunds', authorize('refund'), (req, res) => {
     res.json({ refunds: store.refunds, total: store.refunds.length });
 });
 
@@ -811,11 +811,11 @@ const CONFIG_ALLOWED_FIELDS = {
     receipt: ['customerCopy', 'merchantCopy', 'showDualPrices', 'showTipLine', 'footer', 'cdNotice']
 };
 
-app.get('/api/config', (req, res) => {
+app.get('/api/config', authorize('config'), (req, res) => {
     res.json(store.config);
 });
 
-app.get('/api/config/:section', (req, res) => {
+app.get('/api/config/:section', authorize('config'), (req, res) => {
     const section = store.config[req.params.section];
     if (!section) return res.status(404).json({ error: 'Config section not found' });
     res.json(section);
@@ -1349,7 +1349,7 @@ app.get('/api/gift-cards', authorize('tickets'), (req, res) => {
     res.json({ giftCards: store.giftCards, total: store.giftCards.length });
 });
 
-app.get('/api/gift-cards/:code', (req, res) => {
+app.get('/api/gift-cards/:code', authorize('tickets'), (req, res) => {
     const card = store.giftCards.find(g => g.code === req.params.code);
     if (!card) return res.status(404).json({ error: 'Gift card not found' });
     res.json(card);
@@ -1686,7 +1686,7 @@ const LOYALTY_CONFIG = {
     redeemValue: 5.00
 };
 
-app.get('/api/customers/:id/loyalty', (req, res) => {
+app.get('/api/customers/:id/loyalty', authorize('tickets'), (req, res) => {
     const customer = store.customers.find(c => c.id === parseInt(req.params.id));
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
 
@@ -2792,7 +2792,7 @@ app.delete('/api/reservations/:id', authorize('tickets'), (req, res) => {
 // ==========================================
 // Saved Payment Methods
 // ==========================================
-app.get('/api/saved-payment-methods', authorize('config'), (req, res) => {
+app.get('/api/saved-payment-methods', authorize('tickets'), (req, res) => {
     const customerId = req.query.customerId;
     if (customerId) return res.json(store.savedPaymentMethods.filter(m => m.customerId === customerId));
     res.json(store.savedPaymentMethods);
@@ -3038,7 +3038,7 @@ app.get('/api/token-vault', authorize('config'), (req, res) => {
     // Never return encrypted tokens — only safe metadata
     res.json(store.tokenVault.map(t => ({
         id: t.id, customerId: t.customerId, lastFour: t.lastFour,
-        cardBrand: t.cardBrand, token: t.tokenPreview || (t.token ? t.token.slice(0, 8) + '...' : '***'),
+        cardBrand: t.cardBrand, token: t.tokenPreview || '***',
         createdAt: t.createdAt
     })));
 });
