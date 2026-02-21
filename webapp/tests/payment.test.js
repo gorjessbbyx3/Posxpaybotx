@@ -888,6 +888,66 @@ describe('Payment API Endpoints', () => {
         });
     });
 
+    describe('Retry Logic with Exponential Backoff', () => {
+        it('retries transient failures and succeeds', async () => {
+            const retryService = new PaymentService({
+                cardProvider: new InMemoryProvider(),
+                cashProvider: new InMemoryProvider(),
+                retryConfig: { maxRetries: 3, baseDelay: 10, maxDelay: 50 }
+            });
+            // Fail twice then succeed
+            retryService.cardProvider.setTransientFailMode(2, 'Connection timeout');
+            const { result, transaction } = await retryService.processPayment({
+                ticketId: 900, amount: 15.00, method: 'credit'
+            });
+            assert.equal(result.success, true);
+            assert.equal(transaction.metadata.retryCount, 2);
+        });
+
+        it('stops retrying after maxRetries and returns FAILED', async () => {
+            const retryService = new PaymentService({
+                cardProvider: new InMemoryProvider(),
+                cashProvider: new InMemoryProvider(),
+                retryConfig: { maxRetries: 2, baseDelay: 10, maxDelay: 50 }
+            });
+            // Fail more times than maxRetries
+            retryService.cardProvider.setTransientFailMode(5, 'Connection timeout');
+            const { result, transaction } = await retryService.processPayment({
+                ticketId: 901, amount: 20.00, method: 'credit'
+            });
+            assert.equal(result.success, false);
+            assert.equal(transaction.metadata.retriesExhausted, true);
+        });
+
+        it('does not retry business errors (declined)', async () => {
+            const retryService = new PaymentService({
+                cardProvider: new InMemoryProvider(),
+                cashProvider: new InMemoryProvider(),
+                retryConfig: { maxRetries: 3, baseDelay: 10, maxDelay: 50 }
+            });
+            retryService.cardProvider.setFailMode(true, 'Card declined');
+            const { result, transaction } = await retryService.processPayment({
+                ticketId: 902, amount: 30.00, method: 'credit'
+            });
+            assert.equal(result.success, false);
+            assert.equal(transaction.metadata.retryCount, undefined);
+        });
+
+        it('retries authorize with backoff', async () => {
+            const retryService = new PaymentService({
+                cardProvider: new InMemoryProvider(),
+                cashProvider: new InMemoryProvider(),
+                retryConfig: { maxRetries: 3, baseDelay: 10, maxDelay: 50 }
+            });
+            retryService.cardProvider.setTransientFailMode(1, 'Gateway timeout');
+            const { result, transaction } = await retryService.authorizePayment({
+                ticketId: 903, amount: 50.00, method: 'credit'
+            });
+            assert.equal(result.success, true);
+            assert.equal(transaction.metadata.retryCount, 1);
+        });
+    });
+
     describe('Payment Service API Endpoints', () => {
         it('GET /api/payments/ticket/:ticketId returns payment summary', async () => {
             const create = await req('POST', '/api/tickets', {

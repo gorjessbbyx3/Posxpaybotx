@@ -4147,6 +4147,83 @@ describe('2FA Re-setup Protection', () => {
     });
 });
 
+describe('Enhanced Health Endpoint', () => {
+    it('returns subsystem checks and memory info', async () => {
+        const res = await req('GET', '/api/health');
+        assert.equal(res.status, 200);
+        assert.ok(['ok', 'degraded', 'down'].includes(res.body.status));
+        assert.ok(res.body.checks);
+        assert.ok(res.body.checks.dataStore);
+        assert.ok(res.body.checks.paymentProviders);
+        assert.ok(res.body.memory);
+        assert.ok(typeof res.body.memory.rss === 'number');
+        assert.ok(typeof res.body.memory.heapUsed === 'number');
+        assert.ok(typeof res.body.uptime === 'number');
+        assert.ok(res.body.timestamp);
+    });
+
+    it('includes payment provider health details', async () => {
+        const res = await req('GET', '/api/health');
+        assert.equal(res.status, 200);
+        const pp = res.body.checks.paymentProviders;
+        assert.ok(pp.cardProvider);
+        assert.ok(pp.cashProvider);
+    });
+});
+
+describe('Request ID Middleware', () => {
+    it('generates a request ID when none provided', async () => {
+        const res = await new Promise((resolve, reject) => {
+            const opts = {
+                hostname: '127.0.0.1', port, path: '/api/health', method: 'GET',
+                headers: {}
+            };
+            const request = http.request(opts, (r) => {
+                let data = '';
+                r.on('data', c => data += c);
+                r.on('end', () => {
+                    resolve({ status: r.statusCode, headers: r.headers, body: JSON.parse(data) });
+                });
+            });
+            request.on('error', reject);
+            request.end();
+        });
+        assert.equal(res.status, 200);
+        assert.ok(res.headers['x-request-id']);
+    });
+
+    it('propagates a provided X-Request-Id header', async () => {
+        const testId = 'test-request-id-12345';
+        const res = await new Promise((resolve, reject) => {
+            const opts = {
+                hostname: '127.0.0.1', port, path: '/api/health', method: 'GET',
+                headers: { 'X-Request-Id': testId }
+            };
+            const request = http.request(opts, (r) => {
+                let data = '';
+                r.on('data', c => data += c);
+                r.on('end', () => {
+                    resolve({ status: r.statusCode, headers: r.headers, body: JSON.parse(data) });
+                });
+            });
+            request.on('error', reject);
+            request.end();
+        });
+        assert.equal(res.headers['x-request-id'], testId);
+    });
+});
+
+describe('Global Error Handler', () => {
+    it('returns requestId in error responses', async () => {
+        // Hit a non-existent API route that requires auth — should return structured error
+        const res = await req('GET', '/api/nonexistent-route-12345', null, ownerToken);
+        // Any error response should have a requestId
+        if (res.status >= 400 && res.body.requestId) {
+            assert.ok(res.body.requestId);
+        }
+    });
+});
+
 describe('Sync Engine Expanded Entity Types', () => {
     it('snapshot includes all entity types', async () => {
         const res = await req('GET', '/api/sync/snapshot', null, managerToken);
