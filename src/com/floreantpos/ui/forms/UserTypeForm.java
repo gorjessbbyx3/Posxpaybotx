@@ -30,7 +30,7 @@ import java.util.Set;
 import javax.swing.BorderFactory;
 import javax.swing.JPanel;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import com.floreantpos.model.UserPermission;
 import com.floreantpos.model.UserType;

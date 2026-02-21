@@ -21,7 +21,7 @@ import java.util.Locale;
 import java.util.StringTokenizer;
 
 import org.apache.commons.configuration2.PropertiesConfiguration;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import com.floreantpos.model.PaymentStatusFilter;
 import com.floreantpos.ui.views.SwitchboardView;

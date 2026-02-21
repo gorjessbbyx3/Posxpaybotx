@@ -17,7 +17,7 @@
  */
 package com.floreantpos.model;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 public enum PaymentStatusFilter {
 	OPEN, PAID, CLOSED;

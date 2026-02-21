@@ -23,7 +23,7 @@ import java.util.Vector;
 
 import javax.swing.JOptionPane;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.hibernate.StaleStateException;
 
 import com.floreantpos.Messages;

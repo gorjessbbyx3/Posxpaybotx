@@ -22,7 +22,7 @@ import java.awt.Color;
 import javax.xml.bind.annotation.XmlRootElement;
 import javax.xml.bind.annotation.XmlTransient;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import com.floreantpos.config.TerminalConfig;
 import com.floreantpos.model.base.BaseMenuGroup;

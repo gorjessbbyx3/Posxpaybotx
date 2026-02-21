@@ -40,14 +40,14 @@ import com.floreantpos.util.NumberUtil;
 import com.floreantpos.util.PrintServiceUtil;
 
 import net.sf.jasperreports.engine.JRDataSource;
-import net.sf.jasperreports.engine.JRExporterParameter;
 import net.sf.jasperreports.engine.JasperFillManager;
 import net.sf.jasperreports.engine.JasperPrint;
 import net.sf.jasperreports.engine.JasperReport;
 import net.sf.jasperreports.engine.data.JRBeanCollectionDataSource;
 import net.sf.jasperreports.engine.data.JRTableModelDataSource;
 import net.sf.jasperreports.engine.export.JRPrintServiceExporter;
-import net.sf.jasperreports.engine.export.JRPrintServiceExporterParameter;
+import net.sf.jasperreports.export.SimpleExporterInput;
+import net.sf.jasperreports.export.SimplePrintServiceExporterConfiguration;
 
 public class PosPrintService {
 	private static Log logger = LogFactory.getLog(PosPrintService.class);
@@ -83,9 +83,10 @@ public class PosPrintService {
 			jasperPrint.setName("DrawerPullReport" + drawerPullReport.getId());
 
 			JRPrintServiceExporter exporter = new JRPrintServiceExporter();
-			exporter.setParameter(JRExporterParameter.JASPER_PRINT, jasperPrint);
-			exporter.setParameter(JRPrintServiceExporterParameter.PRINT_SERVICE,
-					PrintServiceUtil.getPrintServiceForPrinter(jasperPrint.getProperty("printerName")));
+			exporter.setExporterInput(new SimpleExporterInput(jasperPrint));
+			SimplePrintServiceExporterConfiguration printConfig = new SimplePrintServiceExporterConfiguration();
+			printConfig.setPrintService(PrintServiceUtil.getPrintServiceForPrinter(jasperPrint.getProperty("printerName")));
+			exporter.setConfiguration(printConfig);
 			exporter.exportReport();
 
 			//JasperPrintManager.printReport(jasperPrint, false);

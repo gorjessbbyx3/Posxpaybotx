@@ -20,7 +20,7 @@ package com.floreantpos.util;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import com.floreantpos.model.GlobalConfig;
 import com.floreantpos.model.dao.GlobalConfigDAO;

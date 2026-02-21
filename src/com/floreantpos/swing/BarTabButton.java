@@ -19,7 +19,7 @@ package com.floreantpos.swing;
 
 import java.awt.Color;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import com.floreantpos.Messages;
 import com.floreantpos.main.Application;
