@@ -209,39 +209,54 @@ async function replayOfflineQueue() {
         const items = await getAllQueued();
         if (items.length === 0) return;
 
+        // Sort by timestamp to preserve original request order (item 7)
+        items.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
         let replayed = 0;
         let failed = 0;
+        const results = [];
 
         for (const queueItem of items) {
             try {
+                // Add idempotency header to prevent duplicate charges (item 3)
+                const headers = { ...queueItem.headers };
+                if (!headers['x-idempotency-key']) {
+                    headers['x-idempotency-key'] = 'offline-' + queueItem.id + '-' + queueItem.timestamp;
+                }
+
                 const response = await fetch(queueItem.url, {
                     method: queueItem.method,
-                    headers: queueItem.headers,
+                    headers: headers,
                     body: queueItem.body || undefined
                 });
 
                 if (response.ok || response.status < 500) {
-                    // Success or client error (don't retry client errors)
                     await deleteQueued(queueItem.id);
                     replayed++;
+                    results.push({ id: queueItem.id, url: queueItem.url, status: response.status, synced: true, conflict: response.status === 409 });
                 } else {
                     failed++;
+                    results.push({ id: queueItem.id, url: queueItem.url, status: response.status, synced: false });
                 }
             } catch (e) {
                 // Still offline - stop trying
                 failed++;
+                results.push({ id: queueItem.id, url: queueItem.url, synced: false, error: e.message });
                 break;
             }
         }
 
-        // Notify clients
+        // Notify clients with reconciliation details (items 7, 8)
+        const conflicts = results.filter(function(r) { return r.conflict; });
         const clients = await self.clients.matchAll();
-        clients.forEach(client => {
+        clients.forEach(function(client) {
             client.postMessage({
                 type: 'QUEUE_REPLAYED',
-                replayed,
-                failed,
-                remaining: items.length - replayed
+                replayed: replayed,
+                failed: failed,
+                remaining: items.length - replayed,
+                conflicts: conflicts.length,
+                results: results
             });
         });
     } catch (e) {

@@ -280,6 +280,48 @@ const Calculations = (function () {
         return '$' + (parseFloat(amount) || 0).toFixed(2);
     }
 
+    /**
+     * Calculate dual pricing for a split payment (item 4).
+     * When a ticket is paid partially in cash and partially in card,
+     * the cash discount/surcharge only applies to the card portion.
+     * @param {number} total - Ticket total
+     * @param {number} cashAmount - Amount paid in cash
+     * @param {number} cardAmount - Amount paid by card
+     * @param {Object} config - Cash discount config
+     * @returns {{cashPortion: number, cardPortion: number, adjustment: number, finalTotal: number}}
+     */
+    function splitPaymentDualPricing(total, cashAmount, cardAmount, config) {
+        if (!config || !config.enabled || !cardAmount) {
+            return { cashPortion: round(cashAmount), cardPortion: round(cardAmount), adjustment: 0, finalTotal: round(total) };
+        }
+        const rate = (parseFloat(config.rate) || 0) / 100;
+        const maxSurcharge = config.maxSurcharge !== undefined && config.maxSurcharge !== null
+            ? parseFloat(config.maxSurcharge) : null;
+
+        let adjustment = 0;
+        if (config.mode === 'CASH_DISCOUNT') {
+            // Cash portion gets the discount
+            adjustment = round(cashAmount * rate);
+            if (maxSurcharge !== null) adjustment = Math.min(adjustment, round(maxSurcharge));
+            return {
+                cashPortion: round(cashAmount - adjustment),
+                cardPortion: round(cardAmount),
+                adjustment,
+                finalTotal: round(cashAmount - adjustment + cardAmount)
+            };
+        } else {
+            // Card portion gets the surcharge
+            adjustment = round(cardAmount * rate);
+            if (maxSurcharge !== null) adjustment = Math.min(adjustment, round(maxSurcharge));
+            return {
+                cashPortion: round(cashAmount),
+                cardPortion: round(cardAmount + adjustment),
+                adjustment,
+                finalTotal: round(cashAmount + cardAmount + adjustment)
+            };
+        }
+    }
+
     return {
         subtotal,
         discountAmount,
@@ -287,6 +329,7 @@ const Calculations = (function () {
         deliveryFee,
         ticketTotal,
         dualPricing,
+        splitPaymentDualPricing,
         autoGratuity,
         loyaltyPointsEarned,
         loyaltyRedemption,

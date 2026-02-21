@@ -245,9 +245,9 @@ function verifyToken(token) {
 
         const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
 
-        // Check expiration
+        // Check expiration (item 15: detect and flag expired tokens)
         if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-            return null;
+            return { _expired: true };
         }
 
         return payload;
@@ -309,6 +309,10 @@ function authenticate(req, res, next) {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const payload = verifyToken(authHeader.slice(7));
+        if (payload && payload._expired) {
+            // Item 15: explicit 401 for expired tokens with clear message
+            return res.status(401).json({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
+        }
         if (payload) req.user = payload;
     }
 
