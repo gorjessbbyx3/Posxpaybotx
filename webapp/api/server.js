@@ -17,7 +17,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { loginHandler, authenticate, authorize } = require('./auth');
+const { loginHandler, authenticate, authorize, getEmployeeList, addEmployee, removeEmployee, updateEmployee } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -115,6 +115,18 @@ const store = {
             showTipLine: true,
             footer: 'Thank you! Pay with cash and save!',
             cdNotice: 'We offer a 4% discount for cash payments.'
+        },
+        terminal: {
+            terminalId: '',
+            model: 'VP8800',
+            ipAddress: '',
+            port: 443,
+            merchantId: '',
+            apiKey: '',
+            gatewayUrl: 'https://vt.isoaccess.com',
+            serialNumber: '',
+            autoSettle: true,
+            settleTime: '23:30'
         }
     },
     nextTicketId: 1001
@@ -802,13 +814,71 @@ app.post('/api/timeclock/clock-out', authorize('timeclock'), (req, res) => {
 });
 
 // ==========================================
+// Employee Management Endpoints (requires config permission)
+// ==========================================
+app.get('/api/employees', authorize('config'), (req, res) => {
+    res.json(getEmployeeList());
+});
+
+app.post('/api/employees', authorize('config'), (req, res) => {
+    const { pin, name, role } = req.body;
+    if (!pin || !name || !role) {
+        return res.status(400).json({ error: 'pin, name, and role are required' });
+    }
+    if (!/^\d{4}$/.test(pin)) {
+        return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
+    }
+    const validRoles = ['admin', 'manager', 'server', 'cashier', 'bartender', 'kitchen'];
+    if (!validRoles.includes(role)) {
+        return res.status(400).json({ error: 'Invalid role. Must be one of: ' + validRoles.join(', ') });
+    }
+    const id = role.charAt(0).toUpperCase() + String(Date.now()).slice(-3);
+    const employee = addEmployee(pin, { id, name, role });
+    if (!employee) {
+        return res.status(409).json({ error: 'PIN already in use by another employee' });
+    }
+    logAudit('employee_added', req.user, { employeeId: id, name, role });
+    res.status(201).json(employee);
+});
+
+app.put('/api/employees/:id', authorize('config'), (req, res) => {
+    const { name, role, pin } = req.body;
+    const validRoles = ['admin', 'manager', 'server', 'cashier', 'bartender', 'kitchen'];
+    if (role && !validRoles.includes(role)) {
+        return res.status(400).json({ error: 'Invalid role' });
+    }
+    if (pin && !/^\d{4}$/.test(pin)) {
+        return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
+    }
+    const updated = updateEmployee(req.params.id, { name, role, pin });
+    if (!updated) {
+        return res.status(404).json({ error: 'Employee not found or PIN conflict' });
+    }
+    logAudit('employee_updated', req.user, { employeeId: req.params.id, name, role });
+    res.json(updated);
+});
+
+app.delete('/api/employees/:id', authorize('config'), (req, res) => {
+    if (req.user && req.user.id === req.params.id) {
+        return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+    const removed = removeEmployee(req.params.id);
+    if (!removed) {
+        return res.status(404).json({ error: 'Employee not found' });
+    }
+    logAudit('employee_removed', req.user, { employeeId: req.params.id });
+    res.json({ success: true });
+});
+
+// ==========================================
 // Configuration Endpoints (requires config permission)
 // ==========================================
 const CONFIG_ALLOWED_FIELDS = {
     cashDiscount: ['enabled', 'mode', 'rate', 'cashLabel', 'surchargeLabel', 'showDualPricing', 'exemptDebit', 'applyBeforeTax', 'minCardAmount', 'maxSurcharge', 'stateRules'],
     tax: ['rate', 'inclusive', 'alcoholSeparate', 'alcoholRate'],
     restaurant: ['name', 'address1', 'address2', 'city', 'state', 'zip', 'phone', 'email'],
-    receipt: ['customerCopy', 'merchantCopy', 'showDualPrices', 'showTipLine', 'footer', 'cdNotice']
+    receipt: ['customerCopy', 'merchantCopy', 'showDualPrices', 'showTipLine', 'footer', 'cdNotice'],
+    terminal: ['terminalId', 'model', 'ipAddress', 'port', 'merchantId', 'apiKey', 'gatewayUrl', 'serialNumber', 'autoSettle', 'settleTime']
 };
 
 app.get('/api/config', authorize('config'), (req, res) => {

@@ -221,6 +221,7 @@
             <button class="nav-item" data-panel="tax">Tax Settings</button>
             <button class="nav-item" data-panel="restaurant">Restaurant Info</button>
             <button class="nav-item" data-panel="receipt">Receipt Config</button>
+            <button class="nav-item" data-panel="employees">Employees</button>
         </nav>
 
         <div class="admin-content">
@@ -593,6 +594,49 @@
 
                 <button class="btn-save" id="btn-save-receipt">Save Receipt Settings</button>
             </div>
+
+            <!-- Employee Management -->
+            <div class="settings-panel" id="panel-employees">
+                <h2 class="panel-title">Employee Management</h2>
+
+                <table class="menu-table" id="emp-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Role</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="emp-table-body"></tbody>
+                </table>
+
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-light);">
+                    <h3 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 12px;">Add New Employee</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-input" id="new-emp-name" placeholder="Employee name">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">4-Digit PIN</label>
+                            <input type="password" class="form-input" id="new-emp-pin" maxlength="4" inputmode="numeric" pattern="[0-9]*" placeholder="****">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Role</label>
+                        <select class="form-select" id="new-emp-role">
+                            <option value="server">Server</option>
+                            <option value="cashier">Cashier</option>
+                            <option value="bartender">Bartender</option>
+                            <option value="kitchen">Kitchen</option>
+                            <option value="manager">Manager</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                    <button class="btn-save" id="btn-add-employee">Add Employee</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -630,7 +674,7 @@
             .then(r => r.json())
             .then(data => {
                 if (data.user && ADMIN_ROLES.includes(data.user.role)) {
-                    sessionStorage.setItem('admin-auth', JSON.stringify({ role: data.user.role, ts: Date.now() }));
+                    sessionStorage.setItem('admin-auth', JSON.stringify({ role: data.user.role, token: data.token, ts: Date.now() }));
                     location.reload();
                 } else if (data.user) {
                     document.getElementById('admin-login-error').textContent = 'Access denied. Manager or admin role required.';
@@ -668,6 +712,90 @@
         setTimeout(() => toast.remove(), 3000);
     }
 
+    // Get auth token from admin login session
+    let _authToken = null;
+    function getAuthToken() {
+        if (_authToken) return _authToken;
+        const stored = sessionStorage.getItem('admin-auth');
+        if (stored) {
+            try { return JSON.parse(stored).token || ''; } catch(e) {}
+        }
+        return '';
+    }
+
+    // Load all config from API on page open
+    function loadConfig() {
+        // First login to get a token for API calls
+        const stored = sessionStorage.getItem('admin-auth');
+        let pin = '';
+        if (stored) {
+            try { pin = JSON.parse(stored).pin || ''; } catch(e) {}
+        }
+
+        fetch('/api/config').then(r => r.json()).then(cfg => {
+            // Cash discount
+            if (cfg.cashDiscount) {
+                const cd = cfg.cashDiscount;
+                document.getElementById('cd-enabled').checked = cd.enabled !== false;
+                document.getElementById('cd-mode').value = cd.mode || 'CASH_DISCOUNT';
+                document.getElementById('cd-rate').value = cd.rate || 4.0;
+                document.getElementById('cd-min-card').value = cd.minCardAmount || 0;
+                document.getElementById('cd-cash-label').value = cd.cashLabel || 'Cash Discount';
+                document.getElementById('cd-surcharge-label').value = cd.surchargeLabel || 'Non-Cash Adjustment';
+                document.getElementById('cd-dual-pricing').checked = cd.showDualPricing !== false;
+                document.getElementById('cd-exempt-debit').checked = cd.exemptDebit !== false;
+                document.getElementById('cd-before-tax').checked = cd.applyBeforeTax !== false;
+            }
+            // Tax
+            if (cfg.tax) {
+                document.getElementById('tax-rate').value = cfg.tax.rate || 0;
+                document.getElementById('tax-inclusive').checked = cfg.tax.inclusive === true;
+                document.getElementById('tax-alcohol-separate').checked = cfg.tax.alcoholSeparate === true;
+                document.getElementById('tax-alcohol-rate').value = cfg.tax.alcoholRate || 0;
+            }
+            // Restaurant
+            if (cfg.restaurant) {
+                const r = cfg.restaurant;
+                document.getElementById('rest-name').value = r.name || '';
+                document.getElementById('rest-addr1').value = r.address1 || '';
+                document.getElementById('rest-addr2').value = r.address2 || '';
+                document.getElementById('rest-city').value = r.city || '';
+                document.getElementById('rest-state').value = r.state || '';
+                document.getElementById('rest-zip').value = r.zip || '';
+                document.getElementById('rest-phone').value = r.phone || '';
+                document.getElementById('rest-email').value = r.email || '';
+            }
+            // Receipt
+            if (cfg.receipt) {
+                const rc = cfg.receipt;
+                document.getElementById('rcpt-customer-copy').checked = rc.customerCopy !== false;
+                document.getElementById('rcpt-merchant-copy').checked = rc.merchantCopy !== false;
+                document.getElementById('rcpt-dual-prices').checked = rc.showDualPrices !== false;
+                document.getElementById('rcpt-tip-line').checked = rc.showTipLine !== false;
+                document.getElementById('rcpt-footer').value = rc.footer || '';
+                document.getElementById('rcpt-cd-notice').value = rc.cdNotice || '';
+            }
+            // Terminal
+            if (cfg.terminal) {
+                const t = cfg.terminal;
+                document.getElementById('term-id').value = t.terminalId || '';
+                document.getElementById('term-model').value = t.model || 'VP8800';
+                document.getElementById('term-ip').value = t.ipAddress || '';
+                document.getElementById('term-port').value = t.port || 443;
+                document.getElementById('term-merchant').value = t.merchantId || '';
+                document.getElementById('term-apikey').value = t.apiKey || '';
+                document.getElementById('term-gateway').value = t.gatewayUrl || 'https://vt.isoaccess.com';
+                document.getElementById('term-serial').value = t.serialNumber || '';
+                document.getElementById('term-auto-settle').checked = t.autoSettle !== false;
+                document.getElementById('term-settle-time').value = t.settleTime || '23:30';
+            }
+        }).catch(() => {
+            // Server unavailable - use default values from HTML
+        });
+    }
+
+    loadConfig();
+
     // Cash discount dual pricing calculation
     function getDualPrices(price) {
         const rate = parseFloat(document.getElementById('cd-rate').value) / 100;
@@ -676,8 +804,8 @@
         return [price, price * (1 + rate)];
     }
 
-    // Menu table population
-    const MENU_DATA = {
+    // Menu data - loaded from API, falls back to defaults
+    const DEFAULT_MENU = {
         popular: [
             { id: 1, name: 'Cheeseburger', price: 12.99, station: 'grill' },
             { id: 2, name: 'Caesar Salad', price: 10.99, station: 'salad' },
@@ -719,53 +847,97 @@
         ]
     };
 
+    let MENU_DATA = JSON.parse(JSON.stringify(DEFAULT_MENU));
+    let _nextMenuId = 100;
+
+    // Load menu from API
+    function loadMenu() {
+        fetch('/api/menu').then(r => r.json()).then(data => {
+            if (data.items && data.items.length > 0) {
+                // Group items by category
+                const grouped = {};
+                data.items.forEach(item => {
+                    const cat = item.category || 'popular';
+                    if (!grouped[cat]) grouped[cat] = [];
+                    grouped[cat].push(item);
+                });
+                MENU_DATA = grouped;
+                // Merge default categories that have no API data
+                Object.keys(DEFAULT_MENU).forEach(cat => {
+                    if (!MENU_DATA[cat]) MENU_DATA[cat] = DEFAULT_MENU[cat];
+                });
+            }
+            populateMenuTable();
+        }).catch(() => {
+            populateMenuTable();
+        });
+    }
+
+    function saveMenuToApi() {
+        // Flatten all categories into items array
+        const items = [];
+        const categories = Object.keys(MENU_DATA);
+        categories.forEach(cat => {
+            (MENU_DATA[cat] || []).forEach(item => {
+                items.push({ ...item, category: cat });
+            });
+        });
+        fetch('/api/menu', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getAuthToken() },
+            body: JSON.stringify({ categories, items })
+        }).then(r => {
+            if (!r.ok) showToast('Failed to save menu to server', 'error');
+        }).catch(() => {});
+    }
+
     function populateMenuTable() {
         const cat = document.getElementById('menu-category-select').value;
         const items = MENU_DATA[cat] || [];
         const tbody = document.getElementById('menu-table-body');
         tbody.innerHTML = '';
 
-        items.forEach(item => {
+        items.forEach((item, idx) => {
             const [cash, card] = getDualPrices(item.price);
             const tr = document.createElement('tr');
+            tr.dataset.idx = idx;
             tr.innerHTML = `
                 <td>${item.name}</td>
                 <td class="price-col">$${item.price.toFixed(2)}</td>
                 <td class="price-col cash-col">$${cash.toFixed(2)}</td>
                 <td class="price-col card-col">$${card.toFixed(2)}</td>
                 <td>${item.station}</td>
-                <td><button class="btn-danger" style="padding:4px 10px; font-size:0.75rem" onclick="this.closest('tr').remove()">Delete</button></td>
+                <td><button class="btn-danger" style="padding:4px 10px; font-size:0.75rem">Delete</button></td>
             `;
+            tr.querySelector('.btn-danger').addEventListener('click', () => {
+                MENU_DATA[cat].splice(idx, 1);
+                populateMenuTable();
+                saveMenuToApi();
+                showToast(item.name + ' removed');
+            });
             tbody.appendChild(tr);
         });
     }
 
     document.getElementById('menu-category-select').addEventListener('change', populateMenuTable);
-    populateMenuTable();
+    loadMenu();
 
     // Add new menu item
     document.getElementById('btn-add-menu-item').addEventListener('click', () => {
         const name = document.getElementById('new-item-name').value.trim();
         const price = parseFloat(document.getElementById('new-item-price').value);
         const station = document.getElementById('new-item-station').value;
+        const cat = document.getElementById('menu-category-select').value;
 
         if (!name || isNaN(price)) {
             showToast('Please enter item name and price', 'error');
             return;
         }
 
-        const [cash, card] = getDualPrices(price);
-        const tbody = document.getElementById('menu-table-body');
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${name}</td>
-            <td class="price-col">$${price.toFixed(2)}</td>
-            <td class="price-col cash-col">$${cash.toFixed(2)}</td>
-            <td class="price-col card-col">$${card.toFixed(2)}</td>
-            <td>${station}</td>
-            <td><button class="btn-danger" style="padding:4px 10px; font-size:0.75rem" onclick="this.closest('tr').remove()">Delete</button></td>
-        `;
-        tbody.appendChild(tr);
+        if (!MENU_DATA[cat]) MENU_DATA[cat] = [];
+        MENU_DATA[cat].push({ id: _nextMenuId++, name, price, station });
+        populateMenuTable();
+        saveMenuToApi();
 
         document.getElementById('new-item-name').value = '';
         document.getElementById('new-item-price').value = '';
@@ -786,37 +958,40 @@
             minCardAmount: parseFloat(document.getElementById('cd-min-card').value)
         };
 
-        fetch('/api/config/cashdiscount', {
+        fetch('/api/config/cashDiscount', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getAuthToken() },
             body: JSON.stringify(config)
-        }).then(() => {
-            showToast('Cash discount settings saved');
+        }).then(r => {
+            if (r.ok) showToast('Cash discount settings saved');
+            else showToast('Failed to save cash discount settings', 'error');
         }).catch(() => {
-            showToast('Settings saved locally');
+            showToast('Server unavailable', 'error');
         });
     });
 
     document.getElementById('btn-save-terminal').addEventListener('click', () => {
         const config = {
-            terminalId: document.getElementById('term-id') ? document.getElementById('term-id').value : '',
-            model: document.getElementById('term-model') ? document.getElementById('term-model').value : '',
-            ipAddress: document.getElementById('term-ip') ? document.getElementById('term-ip').value : '',
-            port: document.getElementById('term-port') ? document.getElementById('term-port').value : '',
-            merchantId: document.getElementById('term-merchant') ? document.getElementById('term-merchant').value : '',
-            apiKey: document.getElementById('term-apikey') ? document.getElementById('term-apikey').value : '',
-            gatewayUrl: document.getElementById('term-gateway') ? document.getElementById('term-gateway').value : '',
-            serialNumber: document.getElementById('term-serial') ? document.getElementById('term-serial').value : '',
-            autoSettle: document.getElementById('term-auto-settle') ? document.getElementById('term-auto-settle').checked : true
+            terminalId: document.getElementById('term-id').value,
+            model: document.getElementById('term-model').value,
+            ipAddress: document.getElementById('term-ip').value,
+            port: parseInt(document.getElementById('term-port').value) || 443,
+            merchantId: document.getElementById('term-merchant').value,
+            apiKey: document.getElementById('term-apikey').value,
+            gatewayUrl: document.getElementById('term-gateway').value,
+            serialNumber: document.getElementById('term-serial').value,
+            autoSettle: document.getElementById('term-auto-settle').checked,
+            settleTime: document.getElementById('term-settle-time').value
         };
         fetch('/api/config/terminal', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getAuthToken() },
             body: JSON.stringify(config)
-        }).then(() => {
-            showToast('Terminal settings saved');
+        }).then(r => {
+            if (r.ok) showToast('Terminal settings saved');
+            else showToast('Failed to save terminal settings', 'error');
         }).catch(() => {
-            showToast('Terminal settings saved locally');
+            showToast('Server unavailable', 'error');
         });
     });
 
@@ -843,55 +1018,129 @@
 
     document.getElementById('btn-save-tax').addEventListener('click', () => {
         const config = {
-            taxRate: document.getElementById('tax-rate') ? parseFloat(document.getElementById('tax-rate').value) : 0,
-            taxName: document.getElementById('tax-name') ? document.getElementById('tax-name').value : 'Tax',
-            taxIncluded: document.getElementById('tax-included') ? document.getElementById('tax-included').checked : false
+            rate: parseFloat(document.getElementById('tax-rate').value) || 0,
+            inclusive: document.getElementById('tax-inclusive').checked,
+            alcoholSeparate: document.getElementById('tax-alcohol-separate').checked,
+            alcoholRate: parseFloat(document.getElementById('tax-alcohol-rate').value) || 0
         };
         fetch('/api/config/tax', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getAuthToken() },
             body: JSON.stringify(config)
-        }).then(() => {
-            showToast('Tax settings saved');
+        }).then(r => {
+            if (r.ok) showToast('Tax settings saved');
+            else showToast('Failed to save tax settings', 'error');
         }).catch(() => {
-            showToast('Tax settings saved locally');
+            showToast('Server unavailable', 'error');
         });
     });
 
     document.getElementById('btn-save-restaurant').addEventListener('click', () => {
         const config = {
-            name: document.getElementById('rest-name') ? document.getElementById('rest-name').value : '',
-            address: document.getElementById('rest-address') ? document.getElementById('rest-address').value : '',
-            phone: document.getElementById('rest-phone') ? document.getElementById('rest-phone').value : '',
-            email: document.getElementById('rest-email') ? document.getElementById('rest-email').value : ''
+            name: document.getElementById('rest-name').value,
+            address1: document.getElementById('rest-addr1').value,
+            address2: document.getElementById('rest-addr2').value,
+            city: document.getElementById('rest-city').value,
+            state: document.getElementById('rest-state').value,
+            zip: document.getElementById('rest-zip').value,
+            phone: document.getElementById('rest-phone').value,
+            email: document.getElementById('rest-email').value
         };
         fetch('/api/config/restaurant', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getAuthToken() },
             body: JSON.stringify(config)
-        }).then(() => {
-            showToast('Restaurant info saved');
+        }).then(r => {
+            if (r.ok) showToast('Restaurant info saved');
+            else showToast('Failed to save restaurant info', 'error');
         }).catch(() => {
-            showToast('Restaurant info saved locally');
+            showToast('Server unavailable', 'error');
         });
     });
 
     document.getElementById('btn-save-receipt').addEventListener('click', () => {
         const config = {
-            showLogo: document.getElementById('receipt-logo') ? document.getElementById('receipt-logo').checked : true,
-            headerText: document.getElementById('receipt-header') ? document.getElementById('receipt-header').value : '',
-            footerText: document.getElementById('receipt-footer') ? document.getElementById('receipt-footer').value : '',
-            printAutomatically: document.getElementById('receipt-auto-print') ? document.getElementById('receipt-auto-print').checked : false
+            customerCopy: document.getElementById('rcpt-customer-copy').checked,
+            merchantCopy: document.getElementById('rcpt-merchant-copy').checked,
+            showDualPrices: document.getElementById('rcpt-dual-prices').checked,
+            showTipLine: document.getElementById('rcpt-tip-line').checked,
+            footer: document.getElementById('rcpt-footer').value,
+            cdNotice: document.getElementById('rcpt-cd-notice').value
         };
         fetch('/api/config/receipt', {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getAuthToken() },
             body: JSON.stringify(config)
-        }).then(() => {
-            showToast('Receipt settings saved');
+        }).then(r => {
+            if (r.ok) showToast('Receipt settings saved');
+            else showToast('Failed to save receipt settings', 'error');
         }).catch(() => {
-            showToast('Receipt settings saved locally');
+            showToast('Server unavailable', 'error');
         });
+    });
+
+    // ==========================================
+    // Employee Management
+    // ==========================================
+    function loadEmployees() {
+        fetch('/api/employees', {
+            headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+        }).then(r => r.json()).then(employees => {
+            const tbody = document.getElementById('emp-table-body');
+            tbody.innerHTML = '';
+            employees.forEach(emp => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${emp.id}</td>
+                    <td>${emp.name}</td>
+                    <td style="text-transform:capitalize">${emp.role}</td>
+                    <td><button class="btn-danger" style="padding:4px 10px; font-size:0.75rem">Remove</button></td>
+                `;
+                tr.querySelector('.btn-danger').addEventListener('click', () => {
+                    if (!confirm('Remove ' + emp.name + '?')) return;
+                    fetch('/api/employees/' + emp.id, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+                    }).then(r => {
+                        if (r.ok) {
+                            showToast(emp.name + ' removed');
+                            loadEmployees();
+                        } else {
+                            r.json().then(d => showToast(d.error || 'Failed to remove', 'error'));
+                        }
+                    }).catch(() => showToast('Server unavailable', 'error'));
+                });
+                tbody.appendChild(tr);
+            });
+        }).catch(() => {
+            showToast('Could not load employees', 'error');
+        });
+    }
+
+    loadEmployees();
+
+    document.getElementById('btn-add-employee').addEventListener('click', () => {
+        const name = document.getElementById('new-emp-name').value.trim();
+        const pin = document.getElementById('new-emp-pin').value;
+        const role = document.getElementById('new-emp-role').value;
+
+        if (!name) { showToast('Please enter employee name', 'error'); return; }
+        if (!/^\d{4}$/.test(pin)) { showToast('PIN must be exactly 4 digits', 'error'); return; }
+
+        fetch('/api/employees', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getAuthToken() },
+            body: JSON.stringify({ name, pin, role })
+        }).then(r => r.json().then(data => ({ ok: r.ok, data }))).then(({ ok, data }) => {
+            if (ok) {
+                showToast(name + ' added as ' + role);
+                document.getElementById('new-emp-name').value = '';
+                document.getElementById('new-emp-pin').value = '';
+                loadEmployees();
+            } else {
+                showToast(data.error || 'Failed to add employee', 'error');
+            }
+        }).catch(() => showToast('Server unavailable', 'error'));
     });
     </script>
 </body>
