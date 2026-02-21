@@ -242,6 +242,12 @@ class PaymentService {
             success: result.success,
             state: transaction.state,
             providerTransactionId: result.providerTransactionId,
+            authCode: result.authCode,
+            cardType: result.cardType,
+            cardLastFour: result.cardLastFour,
+            isDebit: result.isDebit,
+            responseCode: result.metadata && result.metadata.responseCode || null,
+            gatewayMessage: result.metadata && result.metadata.gatewayMessage || null,
             error: result.error
         });
 

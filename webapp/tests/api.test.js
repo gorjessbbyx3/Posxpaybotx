@@ -4224,6 +4224,101 @@ describe('Global Error Handler', () => {
     });
 });
 
+describe('Happy Hour / Time-Based Pricing', () => {
+    it('GET /api/happy-hour returns config with active status', async () => {
+        const res = await req('GET', '/api/happy-hour', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok('enabled' in res.body);
+        assert.ok('rules' in res.body);
+        assert.ok('isActive' in res.body);
+    });
+
+    it('POST /api/happy-hour/rules creates a rule', async () => {
+        const res = await req('POST', '/api/happy-hour/rules', {
+            name: 'Test Happy Hour',
+            days: ['monday', 'friday'],
+            startTime: '15:00',
+            endTime: '18:00',
+            discountType: 'percent',
+            discountValue: 25,
+            categories: ['drinks']
+        }, managerToken);
+        assert.equal(res.status, 201);
+        assert.equal(res.body.name, 'Test Happy Hour');
+        assert.equal(res.body.discountType, 'percent');
+        assert.equal(res.body.discountValue, 25);
+        assert.ok(res.body.id);
+    });
+
+    it('rejects invalid discount type', async () => {
+        const res = await req('POST', '/api/happy-hour/rules', {
+            name: 'Bad', startTime: '15:00', endTime: '18:00',
+            discountType: 'bogus', discountValue: 10
+        }, managerToken);
+        assert.equal(res.status, 400);
+    });
+
+    it('PUT /api/happy-hour/toggle enables happy hour', async () => {
+        const res = await req('PUT', '/api/happy-hour/toggle', { enabled: true }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.enabled, true);
+    });
+});
+
+describe('Offline Reconciliation Verification', () => {
+    it('POST /api/sync/reconcile compares client vs server counts', async () => {
+        const res = await req('POST', '/api/sync/reconcile', {
+            clientCounts: { tickets: 0, customers: 0 }
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok('reconciled' in res.body);
+        assert.ok('serverCounts' in res.body);
+        assert.ok('mismatches' in res.body);
+        assert.ok(typeof res.body.serverCounts.tickets === 'number');
+    });
+
+    it('sync push includes verification data', async () => {
+        const res = await req('POST', '/api/sync/push', {
+            changes: [{ type: 'ticket', action: 'create', data: { items: [{ name: 'Sync', price: 1, qty: 1 }] } }]
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok(res.body.verification);
+        assert.ok(typeof res.body.verification.ticketCount === 'number');
+        assert.ok(res.body.verification.syncedAt);
+    });
+});
+
+describe('Scheduled Backup System', () => {
+    it('GET /api/backups/schedule returns schedule info', async () => {
+        const res = await req('GET', '/api/backups/schedule', null, managerToken);
+        assert.equal(res.status, 200);
+        assert.ok('enabled' in res.body);
+        assert.ok('intervalHours' in res.body);
+    });
+
+    it('PUT /api/backups/schedule configures schedule', async () => {
+        const res = await req('PUT', '/api/backups/schedule', {
+            enabled: false, intervalHours: 12
+        }, managerToken);
+        assert.equal(res.status, 200);
+        assert.equal(res.body.intervalHours, 12);
+    });
+});
+
+describe('Audit Log Before/After Values', () => {
+    it('config changes include from/to values', async () => {
+        await req('PUT', '/api/config/tax', { rate: 9.5 }, ownerToken);
+        const auditRes = await req('GET', '/api/audit-log?action=config_change', null, ownerToken);
+        assert.equal(auditRes.status, 200);
+        const entries = auditRes.body.entries || [];
+        const configEntry = entries.find(e => e.details && e.details.section === 'tax');
+        if (configEntry && configEntry.details.changed && configEntry.details.changed.rate) {
+            assert.ok('from' in configEntry.details.changed.rate);
+            assert.ok('to' in configEntry.details.changed.rate);
+        }
+    });
+});
+
 describe('Sync Engine Expanded Entity Types', () => {
     it('snapshot includes all entity types', async () => {
         const res = await req('GET', '/api/sync/snapshot', null, managerToken);
