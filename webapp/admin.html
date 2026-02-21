@@ -876,9 +876,9 @@
     </div>
 
     <script>
-    // Admin Login Gate - requires manager/admin PIN
+    // Admin Login Gate - requires management-level PIN
     (function() {
-        const ADMIN_ROLES = ['admin', 'manager'];
+        const ADMIN_ROLES = ['owner', 'admin', 'general_manager', 'manager', 'assistant_manager'];
         const stored = sessionStorage.getItem('admin-auth');
         if (stored) {
             try {
@@ -893,15 +893,16 @@
         document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg);font-family:Inter,sans-serif;">' +
             '<div style="background:var(--bg-card);padding:32px;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1);text-align:center;width:340px;">' +
             '<h2 style="margin-bottom:16px;color:var(--text);">Admin Login</h2>' +
-            '<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;">Enter manager or admin PIN</p>' +
+            '<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;">Enter management PIN</p>' +
             '<input type="password" id="admin-pin" maxlength="4" inputmode="numeric" pattern="[0-9]*" style="width:100%;padding:12px;text-align:center;font-size:1.2rem;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;">' +
             '<button id="admin-login-btn" style="width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;">Login</button>' +
             '<p id="admin-login-error" style="color:var(--danger);margin-top:8px;font-size:0.85rem;"></p>' +
             '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border-light);">' +
             '<p style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Demo Quick Login</p>' +
-            '<div style="display:flex;gap:6px;justify-content:center;">' +
-            '<button class="demo-login-btn" data-pin="6533" style="padding:8px 14px;border-radius:8px;background:rgba(0,113,227,0.1);color:#0071e3;font-weight:600;font-size:0.8rem;border:none;cursor:pointer;">Admin</button>' +
-            '<button class="demo-login-btn" data-pin="1234" style="padding:8px 14px;border-radius:8px;background:rgba(0,113,227,0.1);color:#0071e3;font-weight:600;font-size:0.8rem;border:none;cursor:pointer;">Maria <small style="font-size:0.65rem;opacity:0.7;">MGR</small></button>' +
+            '<div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">' +
+            '<button class="demo-login-btn" data-pin="6533" style="padding:8px 14px;border-radius:8px;background:rgba(175,82,222,0.1);color:#af52de;font-weight:600;font-size:0.8rem;border:none;cursor:pointer;">Admin <small style="font-size:0.65rem;opacity:0.7;">OWN</small></button>' +
+            '<button class="demo-login-btn" data-pin="1234" style="padding:8px 14px;border-radius:8px;background:rgba(0,113,227,0.1);color:#0071e3;font-weight:600;font-size:0.8rem;border:none;cursor:pointer;">Maria <small style="font-size:0.65rem;opacity:0.7;">GM</small></button>' +
+            '<button class="demo-login-btn" data-pin="7777" style="padding:8px 14px;border-radius:8px;background:rgba(0,122,255,0.1);color:#007aff;font-weight:600;font-size:0.8rem;border:none;cursor:pointer;">David <small style="font-size:0.65rem;opacity:0.7;">AM</small></button>' +
             '</div></div>' +
             '</div></div>';
 
@@ -918,7 +919,7 @@
                     sessionStorage.setItem('admin-auth', JSON.stringify({ role: data.user.role, token: data.token, ts: Date.now() }));
                     location.reload();
                 } else if (data.user) {
-                    document.getElementById('admin-login-error').textContent = 'Access denied. Manager or admin role required.';
+                    document.getElementById('admin-login-error').textContent = 'Access denied. Management role required.';
                 } else {
                     document.getElementById('admin-login-error').textContent = 'Invalid PIN.';
                 }

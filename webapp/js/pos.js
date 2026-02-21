@@ -88,14 +88,35 @@ function doLogin(pin) {
     // Update UI with user info
     $('#current-user').textContent = state.currentUser;
     const roleEl = document.getElementById('current-role');
-    if (roleEl) roleEl.textContent = state.currentRole.charAt(0).toUpperCase() + state.currentRole.slice(1);
+    if (roleEl) roleEl.textContent = ROLE_LABELS[state.currentRole] || state.currentRole;
 
     // Apply role-based permissions
     applyRolePermissions();
 
+    // Route non-POS roles to their appropriate default view
+    const perms = ROLE_PERMISSIONS[state.currentRole] || ROLE_PERMISSIONS.server;
     $('#login-screen').classList.remove('active');
     $('#pos-screen').classList.add('active');
-    newTicket();
+
+    let startView = 'order';
+    if (!perms.pos && perms.kitchen)     startView = 'kitchen';
+    else if (!perms.pos && perms.tables) startView = 'tables';
+    else if (!perms.pos && perms.reports) startView = 'reports';
+
+    if (startView !== 'order') {
+        // Activate the correct tab and view for non-POS roles
+        $$('.tab-btn').forEach(b => b.classList.remove('active'));
+        const targetTab = document.querySelector(`.tab-btn[data-view="${startView}"]`);
+        if (targetTab) targetTab.classList.add('active');
+        $$('.main-view').forEach(v => v.classList.remove('active'));
+        const viewEl = document.getElementById(startView + '-view');
+        if (viewEl) viewEl.classList.add('active');
+        state.currentView = startView;
+        if (startView === 'kitchen') populateKitchen();
+        if (startView === 'reports' && typeof populateReports === 'function') populateReports();
+    } else {
+        newTicket();
+    }
     showToast('Welcome, ' + state.currentUser + '!');
     populateMenu();
     if (typeof populateTables === 'function') populateTables();
@@ -121,25 +142,54 @@ function shakePinDisplay() {
 function applyRolePermissions() {
     const perms = ROLE_PERMISSIONS[state.currentRole] || ROLE_PERMISSIONS.server;
 
-    // Show/hide tabs based on role
+    // Tab visibility based on role
     $$('.tab-btn').forEach(btn => {
         const view = btn.dataset.view;
-        if (view === 'kitchen' && !perms.kitchen) {
-            btn.style.display = 'none';
-        } else if (view === 'reports' && !perms.reports) {
-            btn.style.display = 'none';
-        } else {
-            btn.style.display = '';
-        }
+        const viewPerms = {
+            order:   perms.pos,
+            tables:  perms.tables,
+            kitchen: perms.kitchen,
+            tickets: perms.tickets,
+            reports: perms.reports
+        };
+        btn.style.display = (viewPerms[view] !== false) ? '' : 'none';
     });
 
-    // Show/hide action buttons based on role
-    const discountBtn = $('#btn-discount');
-    if (discountBtn) discountBtn.style.display = perms.discount ? '' : 'none';
+    // Action buttons
+    const toggle = (sel, show) => {
+        const el = typeof sel === 'string' ? $(sel) : sel;
+        if (el) el.style.display = show ? '' : 'none';
+    };
 
-    // Admin settings link visibility
+    toggle('#btn-discount', perms.discount);
+    toggle('#btn-comp', perms.comp);
+    toggle('#btn-void', perms.voidTicket);
+    toggle('#btn-refund', perms.refund);
+
+    // Admin settings link
     const adminLink = document.querySelector('.side-menu-link[href="admin.html"]');
-    if (adminLink) adminLink.style.display = perms.settings ? '' : 'none';
+    toggle(adminLink, perms.settings);
+
+    // Void/refund buttons in ticket list (class-based)
+    $$('.ticket-void-btn').forEach(el => el.style.display = perms.voidTicket ? '' : 'none');
+    $$('.ticket-refund-btn').forEach(el => el.style.display = perms.refund ? '' : 'none');
+
+    // Cash drawer button
+    toggle('#btn-open-drawer', perms.cashDrawer);
+
+    // New order section — hide for non-POS roles
+    toggle('#order-section', perms.pos);
+
+    // Role badge color
+    const badge = document.getElementById('current-role');
+    if (badge) {
+        badge.className = 'role-badge';
+        if (['owner', 'admin'].includes(state.currentRole)) badge.classList.add('role-owner');
+        else if (['general_manager', 'manager'].includes(state.currentRole)) badge.classList.add('role-gm');
+        else if (state.currentRole === 'assistant_manager') badge.classList.add('role-am');
+        else if (['kitchen', 'kitchen_manager'].includes(state.currentRole)) badge.classList.add('role-kitchen');
+        else if (['bookkeeper', 'payroll_admin', 'inventory_admin'].includes(state.currentRole)) badge.classList.add('role-accounting');
+    }
 }
 
 function isAlreadyClockedIn(empId) {
@@ -2053,14 +2103,16 @@ populateTicketsList = function() {
                 ${ticket.status === 'open' ? `
                     <button class="ticket-action-btn pay" onclick="openTicketPayment(${ticket.id})">Pay</button>
                 ` : ''}
-                ${ticket.status === 'open' ? `
+                ${ticket.status === 'open' && (ROLE_PERMISSIONS[state.currentRole] || {}).voidTicket ? `
                     <button class="ticket-action-btn void" onclick="voidTicket(${ticket.id})">Void</button>
                 ` : ''}
-                ${ticket.status === 'paid' ? `
+                ${ticket.status === 'paid' && (ROLE_PERMISSIONS[state.currentRole] || {}).refund ? `
                     <button class="ticket-action-btn void" onclick="refundTicket(${ticket.id})">Refund</button>
                 ` : ''}
                 <button class="ticket-action-btn reprint" onclick="reprintTicket(${ticket.id})">Reprint</button>
-                <button class="ticket-action-btn recall" onclick="recallTicket(${ticket.id})">Recall</button>
+                ${ticket.status === 'open' ? `
+                    <button class="ticket-action-btn recall" onclick="recallTicket(${ticket.id})">Recall</button>
+                ` : ''}
             </div>
         `;
 
@@ -2093,6 +2145,11 @@ function openTicketPayment(ticketId) {
 window.openTicketPayment = openTicketPayment;
 
 function voidTicket(ticketId) {
+    const perms = ROLE_PERMISSIONS[state.currentRole] || {};
+    if (!perms.voidTicket) {
+        showToast('Manager authorization required for voids', 'error');
+        return;
+    }
     if (!confirm('Void ticket #' + ticketId + '?')) return;
     const idx = state.allTickets.findIndex(t => t.id === ticketId);
     if (idx >= 0) {
@@ -2126,7 +2183,7 @@ function refundTicket(ticketId) {
     // Check permissions
     const perms = ROLE_PERMISSIONS[state.currentRole] || {};
     if (!perms.refund) {
-        showToast('Manager authorization required for refunds', 'error');
+        showToast('Authorization required for refunds', 'error');
         return;
     }
 

@@ -97,7 +97,11 @@ describe('EMPLOYEES', () => {
         });
     });
 
-    it('includes new roles (host, kitchen_manager, bookkeeper, assistant_manager)', () => {
+    it('includes new roles via PINs (host, kitchen_manager, bookkeeper, assistant_manager)', () => {
+        assert.ok(EMPLOYEES[hashPin('7777')]); // assistant_manager (David)
+        assert.ok(EMPLOYEES[hashPin('8888')]); // host (Emma)
+        assert.ok(EMPLOYEES[hashPin('9999')]); // kitchen_manager (Rosa)
+        assert.ok(EMPLOYEES[hashPin('2468')]); // bookkeeper (Frank)
         const roles = new Set(Object.values(EMPLOYEES).map(e => e.role));
         assert.ok(roles.has('host'));
         assert.ok(roles.has('kitchen_manager'));

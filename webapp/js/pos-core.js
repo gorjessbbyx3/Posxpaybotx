@@ -193,13 +193,17 @@ function hashPin(pin) {
 
 // Staff keyed by pre-computed PIN hashes - no plaintext PINs in source
 const STAFF = {
-    'ph_7c78c98f': { name: 'Maria G.', role: 'manager', id: 'EMP001', hourlyRate: 28.00 },
+    'ph_7c78c98f': { name: 'Maria G.', role: 'general_manager', id: 'EMP001', hourlyRate: 28.00 },
     'ph_7c78c509': { name: 'John D.', role: 'server', id: 'EMP002', hourlyRate: 12.00 },
     'ph_7c7955cd': { name: 'Sarah K.', role: 'server', id: 'EMP003', hourlyRate: 12.00 },
     'ph_7c79e691': { name: 'Mike R.', role: 'cashier', id: 'EMP004', hourlyRate: 15.00 },
     'ph_7c7a7755': { name: 'Lisa T.', role: 'bartender', id: 'EMP005', hourlyRate: 14.00 },
     'ph_7c7b0819': { name: 'Carlos M.', role: 'kitchen', id: 'EMP006', hourlyRate: 16.00 },
-    'ph_7c7b9436': { name: 'Admin', role: 'admin', id: 'EMP000', hourlyRate: 0 }
+    'ph_7c7b9436': { name: 'Admin', role: 'owner', id: 'EMP000', hourlyRate: 0 },
+    'ph_7c7c29a1': { name: 'David P.', role: 'assistant_manager', id: 'EMP007', hourlyRate: 22.00 },
+    'ph_7c7cba65': { name: 'Emma W.', role: 'host', id: 'EMP008', hourlyRate: 11.00 },
+    'ph_7c7d4b29': { name: 'Rosa L.', role: 'kitchen_manager', id: 'EMP009', hourlyRate: 20.00 },
+    'ph_7c795ed9': { name: 'Frank B.', role: 'bookkeeper', id: 'EMP010', hourlyRate: 25.00 }
 };
 
 // Lookup staff by raw PIN (hashes then looks up)
@@ -207,14 +211,75 @@ function lookupStaffByPin(pin) {
     return STAFF[hashPin(pin)] || null;
 }
 
-// Role permissions
+// Friendly display labels for roles
+const ROLE_LABELS = {
+    owner: 'Owner', admin: 'Owner',
+    general_manager: 'General Manager', manager: 'General Manager',
+    assistant_manager: 'Asst. Manager',
+    server: 'Server', bartender: 'Bartender', host: 'Host', cashier: 'Cashier',
+    kitchen: 'Line Cook', kitchen_manager: 'Kitchen Mgr',
+    bookkeeper: 'Bookkeeper', payroll_admin: 'Payroll Admin',
+    inventory_admin: 'Inventory Admin', online_ordering_admin: 'Online Admin'
+};
+
+// Frontend permission flags per role
+// pos:        Access main POS order screen
+// kitchen:    Access Kitchen Display System
+// tables:     Table management & floor plan
+// tickets:    View/manage ticket list
+// reports:    View reports tab
+// voidTicket: Void a ticket
+// refund:     Process refunds
+// discount:   Apply discounts
+// comp:       Comp items
+// settings:   Access admin settings panel
+// editMenu:   Edit menu items/prices
+// waitlist:   Manage waitlist & reservations
+// cashDrawer: Open/reconcile cash drawer
+// inventory:  Access inventory management
 const ROLE_PERMISSIONS = {
-    admin:     { pos: true, kitchen: true, tables: true, tickets: true, reports: true, voidTicket: true, discount: true, settings: true, refund: true, editMenu: true },
-    manager:   { pos: true, kitchen: true, tables: true, tickets: true, reports: true, voidTicket: true, discount: true, settings: true, refund: true, editMenu: true },
-    server:    { pos: true, kitchen: false, tables: true, tickets: true, reports: false, voidTicket: false, discount: false, settings: false, refund: false, editMenu: false },
-    cashier:   { pos: true, kitchen: false, tables: false, tickets: true, reports: false, voidTicket: false, discount: true, settings: false, refund: false, editMenu: false },
-    bartender: { pos: true, kitchen: false, tables: false, tickets: true, reports: false, voidTicket: false, discount: false, settings: false, refund: false, editMenu: false },
-    kitchen:   { pos: false, kitchen: true, tables: false, tickets: false, reports: false, voidTicket: false, discount: false, settings: false, refund: false, editMenu: false }
+    // ── Owner (Super Admin) ──
+    owner:     { pos: true, kitchen: true, tables: true, tickets: true, reports: true, voidTicket: true, refund: true, discount: true, comp: true, settings: true, editMenu: true, waitlist: true, cashDrawer: true, inventory: true },
+    // Backward compat
+    admin:     { pos: true, kitchen: true, tables: true, tickets: true, reports: true, voidTicket: true, refund: true, discount: true, comp: true, settings: true, editMenu: true, waitlist: true, cashDrawer: true, inventory: true },
+
+    // ── General Manager ──
+    general_manager: { pos: true, kitchen: true, tables: true, tickets: true, reports: true, voidTicket: true, refund: true, discount: true, comp: true, settings: true, editMenu: true, waitlist: true, cashDrawer: true, inventory: true },
+    // Backward compat
+    manager:   { pos: true, kitchen: true, tables: true, tickets: true, reports: true, voidTicket: true, refund: true, discount: true, comp: true, settings: true, editMenu: true, waitlist: true, cashDrawer: true, inventory: true },
+
+    // ── Assistant Manager ──
+    assistant_manager: { pos: true, kitchen: true, tables: true, tickets: true, reports: true, voidTicket: true, refund: true, discount: true, comp: true, settings: false, editMenu: true, waitlist: true, cashDrawer: true, inventory: true },
+
+    // ── Server ──
+    server:    { pos: true, kitchen: false, tables: true, tickets: true, reports: false, voidTicket: false, refund: false, discount: true, comp: false, settings: false, editMenu: false, waitlist: true, cashDrawer: true, inventory: false },
+
+    // ── Bartender ──
+    bartender: { pos: true, kitchen: false, tables: true, tickets: true, reports: false, voidTicket: false, refund: false, discount: true, comp: false, settings: false, editMenu: false, waitlist: true, cashDrawer: true, inventory: false },
+
+    // ── Host ──
+    host:      { pos: false, kitchen: false, tables: true, tickets: false, reports: false, voidTicket: false, refund: false, discount: false, comp: false, settings: false, editMenu: false, waitlist: true, cashDrawer: false, inventory: false },
+
+    // ── Cashier ──
+    cashier:   { pos: true, kitchen: false, tables: false, tickets: true, reports: false, voidTicket: false, refund: false, discount: true, comp: false, settings: false, editMenu: false, waitlist: false, cashDrawer: true, inventory: false },
+
+    // ── Line Cook (KDS only) ──
+    kitchen:   { pos: false, kitchen: true, tables: false, tickets: false, reports: false, voidTicket: false, refund: false, discount: false, comp: false, settings: false, editMenu: false, waitlist: false, cashDrawer: false, inventory: false },
+
+    // ── Kitchen Manager ──
+    kitchen_manager: { pos: false, kitchen: true, tables: false, tickets: false, reports: true, voidTicket: false, refund: false, discount: false, comp: false, settings: false, editMenu: false, waitlist: false, cashDrawer: false, inventory: true },
+
+    // ── Bookkeeper ──
+    bookkeeper: { pos: false, kitchen: false, tables: false, tickets: false, reports: true, voidTicket: false, refund: false, discount: false, comp: false, settings: false, editMenu: false, waitlist: false, cashDrawer: false, inventory: false },
+
+    // ── Payroll Admin ──
+    payroll_admin: { pos: false, kitchen: false, tables: false, tickets: false, reports: true, voidTicket: false, refund: false, discount: false, comp: false, settings: false, editMenu: false, waitlist: false, cashDrawer: false, inventory: false },
+
+    // ── Inventory Admin ──
+    inventory_admin: { pos: false, kitchen: false, tables: false, tickets: false, reports: true, voidTicket: false, refund: false, discount: false, comp: false, settings: false, editMenu: false, waitlist: false, cashDrawer: false, inventory: true },
+
+    // ── Online Ordering Admin ──
+    online_ordering_admin: { pos: false, kitchen: false, tables: false, tickets: false, reports: false, voidTicket: false, refund: false, discount: false, comp: false, settings: false, editMenu: true, waitlist: false, cashDrawer: false, inventory: false }
 };
 
 // Time clock records

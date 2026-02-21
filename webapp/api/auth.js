@@ -33,10 +33,10 @@ const EMPLOYEES = {
     'ph_7c7a7755': { id: 'B001', name: 'Lisa', role: 'bartender' },
     'ph_7c7b0819': { id: 'K001', name: 'Carlos', role: 'kitchen' },
     'ph_7c7b9436': { id: 'A001', name: 'Admin', role: 'owner' },
-    'ph_7c795f1f': { id: 'AM01', name: 'David', role: 'assistant_manager' },
-    'ph_7c78b9c3': { id: 'H001', name: 'Emma', role: 'host' },
-    'ph_7c7a0ddd': { id: 'KM01', name: 'Rosa', role: 'kitchen_manager' },
-    'ph_7c7b3965': { id: 'BK01', name: 'Frank', role: 'bookkeeper' }
+    'ph_7c7c29a1': { id: 'AM01', name: 'David', role: 'assistant_manager' },
+    'ph_7c7cba65': { id: 'H001', name: 'Emma', role: 'host' },
+    'ph_7c7d4b29': { id: 'KM01', name: 'Rosa', role: 'kitchen_manager' },
+    'ph_7c795ed9': { id: 'BK01', name: 'Frank', role: 'bookkeeper' }
 };
 
 // ==========================================
