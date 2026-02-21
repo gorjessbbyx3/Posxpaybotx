@@ -1,0 +1,329 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Posxpaybotx Restaurant POS API",
+    "version": "1.4.0",
+    "description": "REST API for restaurant point-of-sale operations including tickets, payments, kitchen display, inventory, and reporting."
+  },
+  "servers": [
+    { "url": "/api", "description": "POS API server" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" },
+          "requestId": { "type": "string" }
+        }
+      },
+      "Ticket": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/TicketItem" } },
+          "subtotal": { "type": "number" },
+          "tax": { "type": "number" },
+          "total": { "type": "number" },
+          "status": { "type": "string", "enum": ["open", "paid", "voided"] },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "TicketItem": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "price": { "type": "number" },
+          "qty": { "type": "integer" },
+          "modifiers": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["name", "price", "qty"]
+      },
+      "PaymentRequest": {
+        "type": "object",
+        "properties": {
+          "method": { "type": "string", "enum": ["cash", "credit", "debit", "gift_card"] },
+          "amount": { "type": "number" },
+          "tip": { "type": "number" },
+          "idempotencyKey": { "type": "string" }
+        },
+        "required": ["method"]
+      },
+      "PaymentResult": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "transactionId": { "type": "string" },
+          "providerTransactionId": { "type": "string" },
+          "authCode": { "type": "string" },
+          "amount": { "type": "number" },
+          "state": { "type": "string" }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["ok", "degraded", "down"] },
+          "uptime": { "type": "number" },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "checks": { "type": "object" },
+          "memory": { "type": "object" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "summary": "Authenticate with employee PIN",
+        "tags": ["Auth"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "pin": { "type": "string" } },
+                "required": ["pin"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "JWT token returned" },
+          "401": { "description": "Invalid PIN" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "System health check with subsystem statuses",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "Health status",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tickets": {
+      "get": {
+        "summary": "List all tickets",
+        "tags": ["Tickets"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Array of tickets" } }
+      },
+      "post": {
+        "summary": "Create a new ticket",
+        "tags": ["Tickets"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "items": { "type": "array", "items": { "$ref": "#/components/schemas/TicketItem" } },
+                  "tableId": { "type": "integer" },
+                  "guestCount": { "type": "integer" }
+                },
+                "required": ["items"]
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Ticket created" } }
+      }
+    },
+    "/tickets/{id}/pay": {
+      "post": {
+        "summary": "Process payment for a ticket",
+        "tags": ["Payments"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PaymentRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Payment processed" },
+          "404": { "description": "Ticket not found" }
+        }
+      }
+    },
+    "/tickets/{id}/void": {
+      "post": {
+        "summary": "Void a ticket",
+        "tags": ["Tickets"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Ticket voided" } }
+      }
+    },
+    "/tickets/{id}/partial-pay": {
+      "post": {
+        "summary": "Apply partial payment to a ticket",
+        "tags": ["Payments"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Partial payment applied" } }
+      }
+    },
+    "/kitchen": {
+      "get": {
+        "summary": "Get all kitchen orders",
+        "tags": ["Kitchen"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Array of kitchen orders" } }
+      }
+    },
+    "/kitchen/{id}/bump": {
+      "post": {
+        "summary": "Bump a kitchen order (mark complete)",
+        "tags": ["Kitchen"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Order bumped" } }
+      }
+    },
+    "/refunds": {
+      "get": {
+        "summary": "List refund history",
+        "tags": ["Refunds"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Array of refunds" } }
+      },
+      "post": {
+        "summary": "Process a refund",
+        "tags": ["Refunds"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "201": { "description": "Refund processed" } }
+      }
+    },
+    "/payments/ticket/{ticketId}": {
+      "get": {
+        "summary": "Get payment summary for a ticket",
+        "tags": ["Payments"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "ticketId", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Payment summary" } }
+      }
+    },
+    "/payments/batch/settle": {
+      "post": {
+        "summary": "Settle the current payment batch",
+        "tags": ["Payments"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Batch settled" } }
+      }
+    },
+    "/payments/health": {
+      "get": {
+        "summary": "Check payment provider health",
+        "tags": ["Payments"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Provider health status" } }
+      }
+    },
+    "/config/{section}": {
+      "get": {
+        "summary": "Get configuration for a section",
+        "tags": ["Config"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "section", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Configuration object" } }
+      },
+      "put": {
+        "summary": "Update configuration for a section",
+        "tags": ["Config"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "section", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Configuration updated" } }
+      }
+    },
+    "/reports/summary": {
+      "get": {
+        "summary": "Sales summary report",
+        "tags": ["Reports"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Summary data" } }
+      }
+    },
+    "/reports/hourly": {
+      "get": {
+        "summary": "Hourly sales breakdown",
+        "tags": ["Reports"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Hourly data" } }
+      }
+    },
+    "/reports/payment-type": {
+      "get": {
+        "summary": "Payment type breakdown report",
+        "tags": ["Reports"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Payment type data" } }
+      }
+    },
+    "/customers": {
+      "get": {
+        "summary": "List all customers",
+        "tags": ["Customers"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Array of customers" } }
+      },
+      "post": {
+        "summary": "Create a customer profile",
+        "tags": ["Customers"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "201": { "description": "Customer created" } }
+      }
+    },
+    "/gift-cards": {
+      "get": {
+        "summary": "List all gift cards",
+        "tags": ["Gift Cards"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Array of gift cards" } }
+      },
+      "post": {
+        "summary": "Create a gift card",
+        "tags": ["Gift Cards"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "201": { "description": "Gift card created" } }
+      }
+    },
+    "/audit-log": {
+      "get": {
+        "summary": "Get audit log entries",
+        "tags": ["Security"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Array of audit entries" } }
+      }
+    },
+    "/security/encryption-status": {
+      "get": {
+        "summary": "Get encryption status and credential warnings",
+        "tags": ["Security"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Encryption status with credential warnings" } }
+      }
+    }
+  }
+}

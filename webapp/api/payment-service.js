@@ -22,6 +22,7 @@ class PaymentService {
      * @param {import('./payment-provider').PaymentProvider} [options.cashProvider] - Provider for cash/non-terminal
      * @param {Function} [options.auditLogger] - fn(action, user, details) for audit trail
      * @param {Function} [options.paymentLogger] - fn(level, message, data) for payment-specific logs
+     * @param {Object} [options.retryConfig] - Retry configuration for transient failures
      */
     constructor(options = {}) {
         this.cardProvider = options.cardProvider || new InMemoryProvider();
@@ -29,12 +30,87 @@ class PaymentService {
         this.auditLogger = options.auditLogger || (() => {});
         this.paymentLogger = options.paymentLogger || (() => {});
 
+        // Retry configuration for transient failures
+        this.retryConfig = {
+            maxRetries: 3,
+            baseDelay: 1000,
+            maxDelay: 8000,
+            ...options.retryConfig
+        };
+
         // Transaction ledger: idempotencyKey -> transaction
         this._ledger = new Map();
         // Transaction index: transactionId -> transaction
         this._byId = new Map();
         // Ticket index: ticketId -> [transactionId, ...]
         this._byTicket = new Map();
+    }
+
+    /**
+     * Retry a provider call with exponential backoff.
+     * Only retries on transient errors (network/5xx). Business errors (declined, invalid) are NOT retried.
+     * @param {Function} fn - Async function to call
+     * @param {Object} transaction - Transaction record (for logging)
+     * @returns {Promise<Object>} Provider result
+     */
+    async _withRetry(fn, transaction) {
+        const { maxRetries, baseDelay, maxDelay } = this.retryConfig;
+        let lastResult;
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            lastResult = await fn();
+
+            if (lastResult.success) {
+                if (attempt > 0) {
+                    transaction.metadata = transaction.metadata || {};
+                    transaction.metadata.retryCount = attempt;
+                }
+                return lastResult;
+            }
+
+            // Don't retry business errors (declined, invalid amount, etc.)
+            if (this._isBusinessError(lastResult.error)) {
+                return lastResult;
+            }
+
+            // Don't retry if we've exhausted attempts
+            if (attempt >= maxRetries) {
+                break;
+            }
+
+            const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
+            this.paymentLogger('warn', 'Payment retry', {
+                transactionId: transaction.id,
+                attempt: attempt + 1,
+                maxRetries,
+                delay,
+                error: lastResult.error
+            });
+
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+
+        // Exhausted retries
+        transaction.metadata = transaction.metadata || {};
+        transaction.metadata.retryCount = maxRetries;
+        transaction.metadata.retriesExhausted = true;
+        return lastResult;
+    }
+
+    /**
+     * Check if an error is a business error that should NOT be retried.
+     * Business errors: declined, invalid amount, insufficient funds, etc.
+     * Transient errors: timeout, network, 5xx — these ARE retried.
+     */
+    _isBusinessError(errorMessage) {
+        if (!errorMessage) return false;
+        const msg = errorMessage.toLowerCase();
+        const businessPatterns = [
+            'declined', 'invalid', 'insufficient', 'expired',
+            'not found', 'already', 'duplicate', 'exceeds',
+            'must be positive', 'not implemented'
+        ];
+        return businessPatterns.some(p => msg.includes(p));
     }
 
     /**
@@ -147,7 +223,7 @@ class PaymentService {
         });
 
         const provider = this._providerFor(transaction.method);
-        const result = await provider.charge(transaction);
+        const result = await this._withRetry(() => provider.charge(transaction), transaction);
 
         // Update transaction from result
         if (result.success) {
@@ -207,7 +283,7 @@ class PaymentService {
         this._register(transaction);
 
         const provider = this._providerFor(transaction.method);
-        const result = await provider.authorize(transaction);
+        const result = await this._withRetry(() => provider.authorize(transaction), transaction);
 
         if (result.success) {
             transaction.providerTransactionId = result.providerTransactionId || transaction.providerTransactionId;
@@ -249,7 +325,7 @@ class PaymentService {
         }
 
         const provider = this._providerFor(transaction.method);
-        const result = await provider.capture(transaction, amount);
+        const result = await this._withRetry(() => provider.capture(transaction, amount), transaction);
 
         this.auditLogger('payment_captured', user || null, {
             transactionId: transaction.id,

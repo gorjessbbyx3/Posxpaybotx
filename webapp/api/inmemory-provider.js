@@ -17,6 +17,8 @@ class InMemoryProvider extends PaymentProvider {
         this.batches = [];
         this._shouldFail = false;
         this._failMessage = 'Simulated failure';
+        this._transientFailCount = 0;
+        this._transientCallCount = 0;
     }
 
     /**
@@ -27,9 +29,37 @@ class InMemoryProvider extends PaymentProvider {
     setFailMode(fail, message) {
         this._shouldFail = !!fail;
         this._failMessage = message || 'Simulated failure';
+        this._transientFailCount = 0;
+        this._transientCallCount = 0;
+    }
+
+    /**
+     * Test helper: fail the next N calls, then succeed.
+     * Simulates transient errors (network timeout, 5xx) for retry testing.
+     * @param {number} failCount - Number of times to fail before succeeding
+     * @param {string} [message] - Error message (should be a transient error message)
+     */
+    setTransientFailMode(failCount, message) {
+        this._transientFailCount = failCount;
+        this._transientCallCount = 0;
+        this._shouldFail = false;
+        this._failMessage = message || 'Connection timeout';
     }
 
     _checkFail(transaction) {
+        // Transient failure mode: fail N times then succeed
+        if (this._transientFailCount > 0) {
+            this._transientCallCount++;
+            if (this._transientCallCount <= this._transientFailCount) {
+                transaction.error = this._failMessage;
+                return paymentResult(false, {}, this._failMessage);
+            }
+            // Reset after passing the fail threshold
+            this._transientFailCount = 0;
+            this._transientCallCount = 0;
+            return null;
+        }
+
         if (this._shouldFail) {
             if (transaction.state === TransactionState.PENDING) {
                 transitionState(transaction, TransactionState.FAILED, this._failMessage);

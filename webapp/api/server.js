@@ -29,6 +29,13 @@ const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || '').split(',').filter(Boole
 
 app.use(express.json());
 
+// Request ID middleware — propagate or generate unique request ID
+app.use((req, res, next) => {
+    req.id = req.headers['x-request-id'] || crypto.randomUUID();
+    res.setHeader('X-Request-Id', req.id);
+    next();
+});
+
 // CSP headers on all HTML responses
 app.use((req, res, next) => {
     if (req.path.endsWith('.html') || req.path === '/' || !req.path.includes('.')) {
@@ -3484,6 +3491,14 @@ app.get('/api/security/encryption-status', authorize('security'), (req, res) => 
     const security = store.config.security || {};
     const lastRotated = security.lastKeyRotation ? new Date(security.lastKeyRotation) : null;
     const daysSinceRotation = lastRotated ? Math.round((Date.now() - lastRotated.getTime()) / 86400000) : null;
+
+    // Check for missing environment variables
+    const credentialWarnings = [];
+    if (!process.env.JWT_SECRET) credentialWarnings.push('JWT_SECRET not set — using random key (tokens invalidated on restart)');
+    if (!process.env.TOKEN_ENCRYPTION_KEY) credentialWarnings.push('TOKEN_ENCRYPTION_KEY not set — using derived key');
+    if (!process.env.PAYBOTX_MERCHANT_ID) credentialWarnings.push('PAYBOTX_MERCHANT_ID not configured');
+    if (!process.env.PAYBOTX_API_KEY) credentialWarnings.push('PAYBOTX_API_KEY not configured');
+
     res.json({
         databaseEncryption: security.databaseEncryption || false,
         algorithm: 'AES-256-GCM',
@@ -3492,7 +3507,8 @@ app.get('/api/security/encryption-status', authorize('security'), (req, res) => 
         daysSinceRotation,
         rotationNeeded: daysSinceRotation !== null && daysSinceRotation > (security.keyRotationDays || 90),
         keyFingerprint: security.encryptionKey ? crypto.createHash('sha256').update(security.encryptionKey).digest('hex').slice(0, 16) : null,
-        status: security.databaseEncryption ? 'active' : 'inactive'
+        status: security.databaseEncryption ? 'active' : 'inactive',
+        credentialWarnings
     });
 });
 
@@ -4268,18 +4284,28 @@ app.post('/api/deploy', authorize('config'), (req, res) => {
 // Developer Documentation
 // ==========================================
 app.get('/api/developer/docs', (req, res) => {
+    // Return OpenAPI spec when requested
+    if (req.query.format === 'openapi') {
+        try {
+            const spec = JSON.parse(fs.readFileSync(path.join(__dirname, 'openapi.json'), 'utf8'));
+            return res.json(spec);
+        } catch {
+            return res.status(500).json({ error: 'OpenAPI spec not available' });
+        }
+    }
+
     // Dynamically build endpoint documentation from registered Express routes
     const endpoints = {};
     app._router.stack.forEach(layer => {
         if (layer.route) {
             const methods = Object.keys(layer.route.methods).map(m => m.toUpperCase());
-            const path = layer.route.path;
+            const routePath = layer.route.path;
             methods.forEach(method => {
                 // Group by first path segment
-                const parts = path.replace('/api/', '').split('/');
+                const parts = routePath.replace('/api/', '').split('/');
                 const group = parts[0] || 'root';
                 if (!endpoints[group]) endpoints[group] = [];
-                endpoints[group].push(`${method} ${path}`);
+                endpoints[group].push(`${method} ${routePath}`);
             });
         }
     });
@@ -4288,6 +4314,7 @@ app.get('/api/developer/docs', (req, res) => {
 
     res.json({
         version: '1.4', baseUrl: '/api',
+        openApiSpec: '/api/developer/docs?format=openapi',
         authentication: {
             method: 'Bearer JWT token',
             loginEndpoint: 'POST /api/auth/login',
@@ -4433,12 +4460,47 @@ app.get('/api/payments/health', authorize('payment_config'), async (req, res) =>
 // ==========================================
 // Health check (no auth required)
 // ==========================================
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+    const checks = {};
+    let overallStatus = 'ok';
+
+    // Data store check — verify store.json is accessible
+    try {
+        const dataDir = path.dirname(DATA_FILE);
+        fs.accessSync(dataDir, fs.constants.W_OK);
+        checks.dataStore = { status: 'ok', message: 'Data store writable' };
+    } catch {
+        checks.dataStore = { status: 'down', message: 'Data store not writable' };
+        overallStatus = 'down';
+    }
+
+    // Payment providers check
+    try {
+        const health = await paymentService.healthCheck();
+        checks.paymentProviders = {
+            status: health.healthy ? 'ok' : 'degraded',
+            cardProvider: health.cardProvider,
+            cashProvider: health.cashProvider
+        };
+        if (!health.healthy) overallStatus = overallStatus === 'down' ? 'down' : 'degraded';
+    } catch {
+        checks.paymentProviders = { status: 'degraded', message: 'Health check failed' };
+        if (overallStatus !== 'down') overallStatus = 'degraded';
+    }
+
+    const mem = process.memoryUsage();
     res.json({
-        status: 'ok',
+        status: overallStatus,
         uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+        checks,
         tickets: store.tickets.length,
-        activeKitchenOrders: store.kitchenOrders.filter(o => o.status !== 'bumped').length
+        activeKitchenOrders: store.kitchenOrders.filter(o => o.status !== 'bumped').length,
+        memory: {
+            rss: Math.round(mem.rss / 1024 / 1024),
+            heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
+            heapTotal: Math.round(mem.heapTotal / 1024 / 1024)
+        }
     });
 });
 
@@ -4447,6 +4509,23 @@ app.get('/api/health', (req, res) => {
 // ==========================================
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'index.html'));
+});
+
+// ==========================================
+// Global Error Handler
+// ==========================================
+app.use((err, req, res, _next) => {
+    const statusCode = err.statusCode || 500;
+    logAudit('server_error', req.user ? req.user : null, {
+        requestId: req.id,
+        method: req.method,
+        path: req.path,
+        error: err.message
+    });
+    res.status(statusCode).json({
+        error: statusCode === 500 ? 'Internal server error' : err.message,
+        requestId: req.id
+    });
 });
 
 // ==========================================
