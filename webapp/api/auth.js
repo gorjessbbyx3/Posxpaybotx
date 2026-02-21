@@ -190,6 +190,70 @@ function authorize(permission) {
     };
 }
 
+/**
+ * Get all employees (safe for listing - no PIN hashes exposed).
+ */
+function getEmployeeList() {
+    return Object.values(EMPLOYEES).map(e => ({
+        id: e.id,
+        name: e.name,
+        role: e.role
+    }));
+}
+
+/**
+ * Add a new employee with a PIN.
+ * @param {string} pin - 4-digit PIN
+ * @param {Object} info - { id, name, role }
+ * @returns {Object|null} Employee or null if PIN already taken
+ */
+function addEmployee(pin, info) {
+    const hashed = hashPin(pin);
+    if (EMPLOYEES[hashed]) return null; // PIN collision
+    EMPLOYEES[hashed] = { id: info.id, name: info.name, role: info.role };
+    return { id: info.id, name: info.name, role: info.role };
+}
+
+/**
+ * Remove an employee by ID.
+ * @param {string} employeeId
+ * @returns {boolean} true if removed
+ */
+function removeEmployee(employeeId) {
+    for (const [hash, emp] of Object.entries(EMPLOYEES)) {
+        if (emp.id === employeeId) {
+            delete EMPLOYEES[hash];
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Update an employee (name, role). Optionally update PIN.
+ * @param {string} employeeId
+ * @param {Object} updates - { name, role, pin }
+ * @returns {Object|null}
+ */
+function updateEmployee(employeeId, updates) {
+    for (const [hash, emp] of Object.entries(EMPLOYEES)) {
+        if (emp.id === employeeId) {
+            if (updates.name) emp.name = updates.name;
+            if (updates.role) emp.role = updates.role;
+            if (updates.pin) {
+                const newHash = hashPin(updates.pin);
+                if (newHash !== hash && EMPLOYEES[newHash]) return null; // New PIN already taken
+                if (newHash !== hash) {
+                    EMPLOYEES[newHash] = emp;
+                    delete EMPLOYEES[hash];
+                }
+            }
+            return { id: emp.id, name: emp.name, role: emp.role };
+        }
+    }
+    return null;
+}
+
 module.exports = {
     loginHandler,
     authenticate,
@@ -198,5 +262,9 @@ module.exports = {
     verifyToken,
     hashPin,
     EMPLOYEES,
-    ROLE_PERMISSIONS
+    ROLE_PERMISSIONS,
+    getEmployeeList,
+    addEmployee,
+    removeEmployee,
+    updateEmployee
 };
