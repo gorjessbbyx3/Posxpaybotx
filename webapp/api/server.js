@@ -1056,7 +1056,6 @@ function getActiveHappyHourRules() {
     const config = store.config.happyHour;
     if (!config || !config.enabled || !Array.isArray(config.rules)) return [];
     const now = new Date();
-    const currentDay = now.toLocaleDateString('en-US', { weekday: 'lowercase' });
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     const dayMap = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
     const currentDayNum = now.getDay();
