@@ -23,7 +23,7 @@ import java.awt.event.FocusListener;
 import javax.swing.JTextField;
 import javax.swing.text.Document;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 public class FocusedTextField extends JTextField implements FocusListener {
 

@@ -19,8 +19,8 @@ package com.floreantpos.model;
 
 import java.util.HashMap;
 
-import org.apache.commons.lang.StringUtils;
-import org.apache.commons.lang.math.NumberUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.math.NumberUtils;
 
 import com.floreantpos.config.CardConfig;
 import com.floreantpos.model.base.BasePosTransaction;

@@ -3,7 +3,7 @@ package com.floreantpos.model;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import com.floreantpos.model.base.BaseShopFloorTemplate;
 import com.floreantpos.util.POSUtil;

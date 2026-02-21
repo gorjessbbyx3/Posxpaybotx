@@ -1,6 +1,6 @@
 package com.floreantpos.model;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import com.floreantpos.model.base.BaseMenuItemSize;
 

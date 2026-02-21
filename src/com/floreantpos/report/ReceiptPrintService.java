@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.hibernate.Session;
@@ -67,14 +67,14 @@ import com.floreantpos.util.PrintServiceUtil;
 import net.sf.jasperreports.engine.JRDataSource;
 import net.sf.jasperreports.engine.JREmptyDataSource;
 import net.sf.jasperreports.engine.JRException;
-import net.sf.jasperreports.engine.JRExporterParameter;
 import net.sf.jasperreports.engine.JRParameter;
 import net.sf.jasperreports.engine.JasperFillManager;
 import net.sf.jasperreports.engine.JasperPrint;
 import net.sf.jasperreports.engine.JasperReport;
 import net.sf.jasperreports.engine.data.JRTableModelDataSource;
 import net.sf.jasperreports.engine.export.JRPrintServiceExporter;
-import net.sf.jasperreports.engine.export.JRPrintServiceExporterParameter;
+import net.sf.jasperreports.export.SimpleExporterInput;
+import net.sf.jasperreports.export.SimplePrintServiceExporterConfiguration;
 import us.fatehi.magnetictrack.bankcard.BankCardMagneticTrack;
 
 public class ReceiptPrintService {
@@ -1003,9 +1003,10 @@ public class ReceiptPrintService {
 	public static void printQuitely(JasperPrint jasperPrint) throws JRException {
 		try {
 			JRPrintServiceExporter exporter = new JRPrintServiceExporter();
-			exporter.setParameter(JRExporterParameter.JASPER_PRINT, jasperPrint);
-			exporter.setParameter(JRPrintServiceExporterParameter.PRINT_SERVICE,
-					PrintServiceUtil.getPrintServiceForPrinter(jasperPrint.getProperty(PROP_PRINTER_NAME)));
+			exporter.setExporterInput(new SimpleExporterInput(jasperPrint));
+			SimplePrintServiceExporterConfiguration printConfig = new SimplePrintServiceExporterConfiguration();
+			printConfig.setPrintService(PrintServiceUtil.getPrintServiceForPrinter(jasperPrint.getProperty(PROP_PRINTER_NAME)));
+			exporter.setConfiguration(printConfig);
 			exporter.exportReport();
 		} catch (Exception x) {
 			String msg = "No print selected\n";

@@ -27,7 +27,7 @@ import net.authorize.aim.cardpresent.Result;
 import net.authorize.data.creditcard.CardType;
 import net.authorize.data.creditcard.CreditCard;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import us.fatehi.magnetictrack.bankcard.BankCardMagneticTrack;
 
