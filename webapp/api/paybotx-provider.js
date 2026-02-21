@@ -283,6 +283,10 @@ class PaybotXProvider extends PaymentProvider {
     }
 
     async adjustTip(transaction, newTip) {
+        // Validate tip amount (item 2: reject negative or invalid tips)
+        if (typeof newTip !== 'number' || !isFinite(newTip) || newTip < 0) {
+            return paymentResult(false, {}, 'Tip must be a non-negative number');
+        }
         try {
             const xml = this._buildRequest('TipAdjust', transaction, {
                 TipAmount: newTip.toFixed(2)

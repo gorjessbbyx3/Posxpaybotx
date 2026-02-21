@@ -443,6 +443,14 @@ class PaymentService {
                 result: paymentResult(false, {}, `Cannot adjust tip: transaction is ${transaction.state}`)
             };
         }
+        // Validate tip (item 2: reject negative, zero, or non-numeric tips)
+        const parsedTip = parseFloat(newTip);
+        if (typeof newTip !== 'number' || !isFinite(parsedTip) || parsedTip < 0) {
+            return {
+                transaction,
+                result: paymentResult(false, {}, 'Tip must be a non-negative number')
+            };
+        }
 
         const oldTip = transaction.tip;
         const provider = this._providerFor(transaction.method);

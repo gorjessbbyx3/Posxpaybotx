@@ -135,6 +135,9 @@ class InMemoryProvider extends PaymentProvider {
     }
 
     async adjustTip(transaction, newTip) {
+        if (typeof newTip !== 'number' || !isFinite(newTip) || newTip < 0) {
+            return paymentResult(false, {}, 'Tip must be a non-negative number');
+        }
         transaction.tip = Math.round(newTip * 100) / 100;
         transaction.updatedAt = new Date().toISOString();
         return paymentResult(true, {

@@ -26,6 +26,19 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, '..', 'data', 'store.json');
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || '').split(',').filter(Boolean);
+const DATA_DIR = path.dirname(DATA_FILE);
+
+// Validate required environment variables at startup (item 18)
+if (process.env.NODE_ENV === 'production') {
+    const required = ['CORS_ORIGINS'];
+    const missing = required.filter(k => !process.env[k]);
+    if (missing.length > 0) {
+        console.warn('WARNING: Missing recommended env vars:', missing.join(', '));
+    }
+}
+
+// In-flight payment deduplication map (items 9, 24)
+const _paymentInFlight = new Map();
 
 app.use(express.json());
 
@@ -305,6 +318,8 @@ function nextPrefixId(arr, prefix, pad = 4) {
 // Audit Log Helper
 // ==========================================
 function logAudit(action, user, details) {
+    // Wrap in try/catch to never block the main flow (item 17)
+    try {
     store.auditLog.push({
         id: nextId(store.auditLog),
         action,
@@ -314,6 +329,10 @@ function logAudit(action, user, details) {
         time: new Date().toISOString()
     });
     scheduleSave();
+    } catch (e) {
+        // Audit logging should never crash the main request
+        console.error('Audit log error:', e.message);
+    }
 }
 
 // ==========================================
@@ -427,9 +446,17 @@ app.get('/api/tickets/:id', authorize('tickets'), (req, res) => {
 app.post('/api/tickets', authorize('tickets'), (req, res) => {
     const { items, type, server: serverName, table, discount, deliveryFee: reqDeliveryFee, deliveryAddress, note } = req.body;
 
+    // Sanitize items: reject negative prices, clamp qty, sanitize names (items 21, 22)
+    const sanitizedItems = (Array.isArray(items) ? items : []).map(item => ({
+        ...item,
+        name: String(item.name || 'Unknown Item').substring(0, 200),
+        price: Math.max(0, parseFloat(item.price) || 0),
+        qty: Math.max(1, parseInt(item.qty, 10) || 1)
+    }));
+
     const ticket = {
         id: store.nextTicketId++,
-        items: Array.isArray(items) ? items : [],
+        items: sanitizedItems,
         type: type || 'dine-in',
         server: serverName || (req.user ? req.user.name : 'unknown'),
         table: table || null,
@@ -476,6 +503,15 @@ app.patch('/api/tickets/:id', authorize('tickets'), (req, res) => {
     const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
+    // Optimistic locking: reject if client's version is stale (items 8, 20)
+    if (req.body.updatedAt && ticket.updatedAt && req.body.updatedAt < ticket.updatedAt) {
+        return res.status(409).json({
+            error: 'Conflict: ticket was modified by another terminal',
+            serverUpdatedAt: ticket.updatedAt,
+            clientUpdatedAt: req.body.updatedAt
+        });
+    }
+
     // Whitelist allowed fields to prevent mass assignment
     TICKET_PATCH_FIELDS.forEach(field => {
         if (req.body[field] !== undefined) {
@@ -515,9 +551,17 @@ app.patch('/api/tickets/:id', authorize('tickets'), (req, res) => {
 // Pay a ticket (full or partial) — routed through PaymentService
 app.post('/api/tickets/:id/pay', authorize('tickets'), async (req, res) => {
     try {
-        const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
-        if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-        if (ticket.status === 'paid') return res.status(400).json({ error: 'Already paid' });
+        const ticketId = parseInt(req.params.id);
+        // Debounce: reject rapid duplicate payment submissions (items 9, 24)
+        const flightKey = 'pay-' + ticketId;
+        if (_paymentInFlight.has(flightKey)) {
+            return res.status(429).json({ error: 'Payment already in progress for this ticket' });
+        }
+        _paymentInFlight.set(flightKey, Date.now());
+
+        const ticket = store.tickets.find(t => t.id === ticketId);
+        if (!ticket) { _paymentInFlight.delete(flightKey); return res.status(404).json({ error: 'Ticket not found' }); }
+        if (ticket.status === 'paid') { _paymentInFlight.delete(flightKey); return res.status(400).json({ error: 'Already paid' }); }
 
         const tip = Math.round((parseFloat(req.body.tip) || 0) * 100) / 100;
         const method = req.body.method || 'cash';
@@ -637,8 +681,10 @@ app.post('/api/tickets/:id/pay', authorize('tickets'), async (req, res) => {
             }
         }
         scheduleSave();
+        _paymentInFlight.delete(flightKey);
         res.json(ticket);
     } catch (err) {
+        _paymentInFlight.delete('pay-' + req.params.id);
         res.status(500).json({ error: 'Payment processing error', details: err.message });
     }
 });
@@ -1791,6 +1837,20 @@ app.get('/api/tickets/:id/receipt', (req, res) => {
         cdNotice: config.cashDiscount.enabled ? config.receipt.cdNotice : null,
         generatedAt: new Date().toISOString()
     };
+
+    // Add state-specific disclosure if configured (item 5)
+    const restaurantState = (config.restaurant.state || '').toUpperCase();
+    if (config.cashDiscount.enabled && restaurantState.length === 2 && config.cashDiscount.stateRules) {
+        const stateRule = config.cashDiscount.stateRules[restaurantState];
+        if (stateRule && stateRule.label) {
+            receipt.stateDisclosure = stateRule.label;
+        }
+        if (stateRule && !stateRule.allowed) {
+            // State doesn't allow surcharging — override the notice
+            receipt.cdNotice = null;
+            receipt.stateDisclosure = 'Cash discount/surcharge not permitted in ' + restaurantState;
+        }
+    }
 
     // Add dual pricing info if enabled
     if (config.cashDiscount.enabled && config.cashDiscount.showDualPricing) {
