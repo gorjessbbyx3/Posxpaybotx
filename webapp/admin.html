@@ -656,12 +656,18 @@
 
         // Block page content and show login
         document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg);font-family:Inter,sans-serif;">' +
-            '<div style="background:var(--bg-card);padding:32px;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1);text-align:center;width:300px;">' +
+            '<div style="background:var(--bg-card);padding:32px;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1);text-align:center;width:340px;">' +
             '<h2 style="margin-bottom:16px;color:var(--text);">Admin Login</h2>' +
             '<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;">Enter manager or admin PIN</p>' +
             '<input type="password" id="admin-pin" maxlength="4" inputmode="numeric" pattern="[0-9]*" style="width:100%;padding:12px;text-align:center;font-size:1.2rem;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;">' +
             '<button id="admin-login-btn" style="width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;">Login</button>' +
             '<p id="admin-login-error" style="color:var(--danger);margin-top:8px;font-size:0.85rem;"></p>' +
+            '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border-light);">' +
+            '<p style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Demo Quick Login</p>' +
+            '<div style="display:flex;gap:6px;justify-content:center;">' +
+            '<button class="demo-login-btn" data-pin="6533" style="padding:8px 14px;border-radius:8px;background:rgba(0,113,227,0.1);color:#0071e3;font-weight:600;font-size:0.8rem;border:none;cursor:pointer;">Admin</button>' +
+            '<button class="demo-login-btn" data-pin="1234" style="padding:8px 14px;border-radius:8px;background:rgba(0,113,227,0.1);color:#0071e3;font-weight:600;font-size:0.8rem;border:none;cursor:pointer;">Maria <small style="font-size:0.65rem;opacity:0.7;">MGR</small></button>' +
+            '</div></div>' +
             '</div></div>';
 
         document.getElementById('admin-login-btn').addEventListener('click', function() {
@@ -689,6 +695,14 @@
 
         document.getElementById('admin-pin').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') document.getElementById('admin-login-btn').click();
+        });
+
+        // Demo quick login buttons
+        document.querySelectorAll('.demo-login-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                document.getElementById('admin-pin').value = btn.dataset.pin;
+                document.getElementById('admin-login-btn').click();
+            });
         });
 
         throw new Error('Admin auth required'); // Stop further script execution
@@ -1094,8 +1108,32 @@
                     <td>${emp.id}</td>
                     <td>${emp.name}</td>
                     <td style="text-transform:capitalize">${emp.role}</td>
-                    <td><button class="btn-danger" style="padding:4px 10px; font-size:0.75rem">Remove</button></td>
+                    <td style="display:flex;gap:4px;">
+                        <button class="btn-reset-pin" style="padding:4px 10px;font-size:0.75rem;border-radius:6px;background:rgba(0,113,227,0.1);color:#0071e3;font-weight:600;border:1px solid #0071e3;cursor:pointer;">Reset PIN</button>
+                        <button class="btn-danger" style="padding:4px 10px; font-size:0.75rem">Remove</button>
+                    </td>
                 `;
+                // Reset PIN handler
+                tr.querySelector('.btn-reset-pin').addEventListener('click', () => {
+                    const newPin = prompt('Enter new 4-digit PIN for ' + emp.name + ':');
+                    if (!newPin) return;
+                    if (!/^\d{4}$/.test(newPin)) {
+                        showToast('PIN must be exactly 4 digits', 'error');
+                        return;
+                    }
+                    fetch('/api/employees/' + emp.id, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getAuthToken() },
+                        body: JSON.stringify({ pin: newPin })
+                    }).then(r => r.json().then(data => ({ ok: r.ok, data }))).then(({ ok, data }) => {
+                        if (ok) {
+                            showToast('PIN reset for ' + emp.name);
+                        } else {
+                            showToast(data.error || 'Failed to reset PIN', 'error');
+                        }
+                    }).catch(() => showToast('Server unavailable', 'error'));
+                });
+                // Remove handler
                 tr.querySelector('.btn-danger').addEventListener('click', () => {
                     if (!confirm('Remove ' + emp.name + '?')) return;
                     fetch('/api/employees/' + emp.id, {

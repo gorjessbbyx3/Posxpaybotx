@@ -37,10 +37,15 @@ $$('#login-numpad .numpad-btn').forEach(btn => {
 
 $$('.quick-login-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        const role = btn.dataset.user;
-        // Find a staff member with this role
-        const pinMap = { 'server': '1111', 'cashier': '3333', 'manager': '1234' };
-        doLogin(pinMap[role] || '1111');
+        const pin = btn.dataset.pin;
+        if (pin) {
+            doLogin(pin);
+        } else {
+            // Fallback for buttons without data-pin
+            const role = btn.dataset.user;
+            const pinMap = { 'server': '1111', 'cashier': '3333', 'manager': '1234', 'admin': '6533' };
+            doLogin(pinMap[role] || '1111');
+        }
     });
 });
 
