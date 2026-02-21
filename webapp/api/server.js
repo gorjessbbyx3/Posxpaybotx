@@ -137,6 +137,10 @@ const store = {
             serialNumber: '',
             autoSettle: true,
             settleTime: '23:30'
+        },
+        happyHour: {
+            enabled: false,
+            rules: []
         }
     },
     nextTicketId: 1001
@@ -439,6 +443,14 @@ app.post('/api/tickets', authorize('tickets'), (req, res) => {
         createdAt: new Date().toISOString(),
         createdBy: req.user ? req.user.name : 'unknown'
     };
+
+    // Apply happy hour pricing if active
+    const pricedItems = applyHappyHourPricing(ticket.items);
+    const happyHourApplied = pricedItems.some(i => i.happyHourApplied);
+    if (happyHourApplied) {
+        ticket.items = pricedItems;
+        ticket.happyHourApplied = true;
+    }
 
     // Calculate totals
     if (ticket.items.length > 0) {
@@ -952,11 +964,18 @@ app.put('/api/employees/:id', authorize('employees'), (req, res) => {
     if (pin && !/^\d{4}$/.test(pin)) {
         return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
     }
+    // Capture before state for audit trail
+    const employees = getEmployeeList();
+    const before = employees.find(e => e.id === req.params.id);
     const updated = updateEmployee(req.params.id, { name, role, pin });
     if (!updated) {
         return res.status(404).json({ error: 'Employee not found or PIN conflict' });
     }
-    logAudit('employee_updated', req.user, { employeeId: req.params.id, name, role });
+    logAudit('employee_updated', req.user, {
+        employeeId: req.params.id,
+        before: before ? { name: before.name, role: before.role } : null,
+        after: { name: updated.name, role: updated.role }
+    });
     res.json(updated);
 });
 
@@ -980,8 +999,66 @@ const CONFIG_ALLOWED_FIELDS = {
     tax: ['rate', 'inclusive', 'alcoholSeparate', 'alcoholRate'],
     restaurant: ['name', 'address1', 'address2', 'city', 'state', 'zip', 'phone', 'email'],
     receipt: ['customerCopy', 'merchantCopy', 'showDualPrices', 'showTipLine', 'footer', 'cdNotice'],
-    terminal: ['terminalId', 'model', 'ipAddress', 'port', 'merchantId', 'apiKey', 'gatewayUrl', 'serialNumber', 'autoSettle', 'settleTime']
+    terminal: ['terminalId', 'model', 'ipAddress', 'port', 'merchantId', 'apiKey', 'gatewayUrl', 'serialNumber', 'autoSettle', 'settleTime'],
+    happyHour: ['enabled', 'rules']
 };
+
+// ==========================================
+// Happy Hour / Time-Based Pricing Helper
+// ==========================================
+function getActiveHappyHourRules() {
+    const config = store.config.happyHour;
+    if (!config || !config.enabled || !Array.isArray(config.rules)) return [];
+    const now = new Date();
+    const currentDay = now.toLocaleDateString('en-US', { weekday: 'lowercase' });
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const dayMap = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+    const currentDayNum = now.getDay();
+
+    return config.rules.filter(rule => {
+        if (!rule.active) return false;
+        // Check day of week
+        if (rule.days && rule.days.length > 0) {
+            const ruleDays = rule.days.map(d => dayMap[d.toLowerCase()] !== undefined ? dayMap[d.toLowerCase()] : -1);
+            if (!ruleDays.includes(currentDayNum)) return false;
+        }
+        // Check time range (HH:MM format)
+        if (rule.startTime && rule.endTime) {
+            const [sh, sm] = rule.startTime.split(':').map(Number);
+            const [eh, em] = rule.endTime.split(':').map(Number);
+            const startMin = sh * 60 + sm;
+            const endMin = eh * 60 + em;
+            if (currentMinutes < startMin || currentMinutes >= endMin) return false;
+        }
+        return true;
+    });
+}
+
+function applyHappyHourPricing(items) {
+    const rules = getActiveHappyHourRules();
+    if (rules.length === 0) return items;
+    return items.map(item => {
+        for (const rule of rules) {
+            const match = !rule.categories || rule.categories.length === 0 ||
+                (item.category && rule.categories.includes(item.category));
+            if (!match) continue;
+
+            const adjusted = { ...item };
+            if (rule.discountType === 'percent') {
+                const pct = parseFloat(rule.discountValue) || 0;
+                adjusted.price = Math.round(item.price * (1 - pct / 100) * 100) / 100;
+            } else if (rule.discountType === 'fixed') {
+                adjusted.price = Math.round(Math.max(0, item.price - (parseFloat(rule.discountValue) || 0)) * 100) / 100;
+            } else if (rule.discountType === 'price') {
+                adjusted.price = Math.round((parseFloat(rule.discountValue) || item.price) * 100) / 100;
+            }
+            adjusted.happyHourApplied = rule.name || 'Happy Hour';
+            adjusted.originalPrice = item.price;
+            return adjusted;
+        }
+        return item;
+    });
+}
 
 app.get('/api/config', authorize('config'), (req, res) => {
     res.json(store.config);
@@ -1337,13 +1414,14 @@ app.put('/api/config/cashDiscount/state-rules/:state', authorize('payment_config
     if (!store.config.cashDiscount.stateRules) {
         store.config.cashDiscount.stateRules = {};
     }
+    const beforeRule = store.config.cashDiscount.stateRules[state] ? { ...store.config.cashDiscount.stateRules[state] } : null;
     store.config.cashDiscount.stateRules[state] = {
         maxRate: maxRate !== undefined ? parseFloat(maxRate) : null,
         allowed: allowed !== undefined ? !!allowed : true,
         mode: mode || null,
         label: label || null
     };
-    logAudit('state_rule_change', req.user, { state, rule: store.config.cashDiscount.stateRules[state] });
+    logAudit('state_rule_change', req.user, { state, before: beforeRule, after: store.config.cashDiscount.stateRules[state] });
     scheduleSave();
     res.json({ state, rule: store.config.cashDiscount.stateRules[state] });
 });
@@ -1358,6 +1436,82 @@ app.delete('/api/config/cashDiscount/state-rules/:state', authorize('payment_con
     logAudit('state_rule_deleted', req.user, { state });
     scheduleSave();
     res.json({ state, removed });
+});
+
+// ==========================================
+// Happy Hour / Time-Based Pricing Endpoints
+// ==========================================
+app.get('/api/happy-hour', authorize('config'), (req, res) => {
+    if (!store.config.happyHour) store.config.happyHour = { enabled: false, rules: [] };
+    const active = getActiveHappyHourRules();
+    res.json({
+        ...store.config.happyHour,
+        activeRules: active.map(r => r.name || 'Unnamed rule'),
+        isActive: active.length > 0
+    });
+});
+
+app.post('/api/happy-hour/rules', authorize('config'), (req, res) => {
+    if (!store.config.happyHour) store.config.happyHour = { enabled: false, rules: [] };
+    const { name, days, startTime, endTime, discountType, discountValue, categories } = req.body;
+    if (!name || !startTime || !endTime || !discountType || discountValue === undefined) {
+        return res.status(400).json({ error: 'Required: name, startTime, endTime, discountType, discountValue' });
+    }
+    if (!['percent', 'fixed', 'price'].includes(discountType)) {
+        return res.status(400).json({ error: 'discountType must be percent, fixed, or price' });
+    }
+    const rule = {
+        id: nextId(store.config.happyHour.rules),
+        name,
+        days: days || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+        startTime,
+        endTime,
+        discountType,
+        discountValue: parseFloat(discountValue),
+        categories: categories || [],
+        active: true,
+        createdAt: new Date().toISOString()
+    };
+    store.config.happyHour.rules.push(rule);
+    logAudit('happy_hour_rule_created', req.user, { ruleId: rule.id, name, discountType, discountValue: rule.discountValue });
+    scheduleSave();
+    res.status(201).json(rule);
+});
+
+app.put('/api/happy-hour/rules/:id', authorize('config'), (req, res) => {
+    if (!store.config.happyHour || !store.config.happyHour.rules) {
+        return res.status(404).json({ error: 'Rule not found' });
+    }
+    const rule = store.config.happyHour.rules.find(r => r.id === parseInt(req.params.id));
+    if (!rule) return res.status(404).json({ error: 'Rule not found' });
+    const before = { ...rule };
+    const allowed = ['name', 'days', 'startTime', 'endTime', 'discountType', 'discountValue', 'categories', 'active'];
+    allowed.forEach(f => { if (req.body[f] !== undefined) rule[f] = req.body[f]; });
+    if (rule.discountValue !== undefined) rule.discountValue = parseFloat(rule.discountValue);
+    logAudit('happy_hour_rule_updated', req.user, { ruleId: rule.id, before, after: { ...rule } });
+    scheduleSave();
+    res.json(rule);
+});
+
+app.delete('/api/happy-hour/rules/:id', authorize('config'), (req, res) => {
+    if (!store.config.happyHour || !store.config.happyHour.rules) {
+        return res.status(404).json({ error: 'Rule not found' });
+    }
+    const idx = store.config.happyHour.rules.findIndex(r => r.id === parseInt(req.params.id));
+    if (idx === -1) return res.status(404).json({ error: 'Rule not found' });
+    const removed = store.config.happyHour.rules.splice(idx, 1)[0];
+    logAudit('happy_hour_rule_deleted', req.user, { ruleId: removed.id, name: removed.name });
+    scheduleSave();
+    res.json({ success: true, removed });
+});
+
+app.put('/api/happy-hour/toggle', authorize('config'), (req, res) => {
+    if (!store.config.happyHour) store.config.happyHour = { enabled: false, rules: [] };
+    const before = store.config.happyHour.enabled;
+    store.config.happyHour.enabled = req.body.enabled !== false;
+    logAudit('happy_hour_toggled', req.user, { before, after: store.config.happyHour.enabled });
+    scheduleSave();
+    res.json({ enabled: store.config.happyHour.enabled });
 });
 
 // ==========================================
@@ -3422,6 +3576,96 @@ app.post('/api/backups/:id/restore', authorize('backups'), (req, res) => {
 });
 
 // ==========================================
+// Scheduled Backup System
+// ==========================================
+let backupScheduleTimer = null;
+
+function performScheduledBackup() {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `auto-backup-${timestamp}.json`;
+    const backupDir = path.join(__dirname, '..', 'data', 'backups');
+    const backupData = JSON.stringify(store, null, 2);
+
+    try {
+        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+        const backupPath = path.join(backupDir, filename);
+
+        // Encrypt if encryption is enabled
+        if (store.config.security && store.config.security.databaseEncryption && store.config.security.encryptionKey) {
+            const iv = crypto.randomBytes(16);
+            const cipher = crypto.createCipheriv('aes-256-gcm', Buffer.from(store.config.security.encryptionKey, 'hex'), iv);
+            const encrypted = Buffer.concat([cipher.update(backupData, 'utf8'), cipher.final()]);
+            const tag = cipher.getAuthTag();
+            fs.writeFileSync(backupPath, JSON.stringify({ iv: iv.toString('hex'), tag: tag.toString('hex'), data: encrypted.toString('hex') }));
+        } else {
+            fs.writeFileSync(backupPath, backupData);
+        }
+
+        const stats = fs.statSync(backupPath);
+        const backup = {
+            id: nextId(store.backups),
+            filename, path: backupPath,
+            size: stats.size,
+            encrypted: !!(store.config.security && store.config.security.databaseEncryption),
+            hash: crypto.createHash('sha256').update(fs.readFileSync(backupPath)).digest('hex'),
+            createdAt: new Date().toISOString(),
+            createdBy: 'scheduler',
+            type: 'scheduled',
+            status: 'completed'
+        };
+        store.backups.push(backup);
+
+        // Prune old auto-backups (keep last 7)
+        const autoBackups = store.backups.filter(b => b.type === 'scheduled' && b.status === 'completed');
+        if (autoBackups.length > 7) {
+            const toRemove = autoBackups.slice(0, autoBackups.length - 7);
+            toRemove.forEach(old => {
+                try { if (old.path && fs.existsSync(old.path)) fs.unlinkSync(old.path); } catch {}
+                const idx = store.backups.indexOf(old);
+                if (idx !== -1) store.backups.splice(idx, 1);
+            });
+        }
+
+        logAudit('scheduled_backup', null, { filename, size: stats.size, encrypted: backup.encrypted });
+        scheduleSave();
+    } catch (err) {
+        logAudit('scheduled_backup_failed', null, { error: err.message });
+    }
+}
+
+function startBackupSchedule(intervalHours) {
+    if (backupScheduleTimer) clearInterval(backupScheduleTimer);
+    const ms = (intervalHours || 24) * 60 * 60 * 1000;
+    backupScheduleTimer = setInterval(performScheduledBackup, ms);
+}
+
+app.get('/api/backups/schedule', authorize('backups'), (req, res) => {
+    res.json({
+        enabled: !!backupScheduleTimer,
+        intervalHours: store.config.backupSchedule ? store.config.backupSchedule.intervalHours : 24,
+        lastScheduledBackup: (store.backups.filter(b => b.type === 'scheduled').pop() || {}).createdAt || null
+    });
+});
+
+app.put('/api/backups/schedule', authorize('backups'), (req, res) => {
+    const { enabled, intervalHours } = req.body;
+    if (!store.config.backupSchedule) store.config.backupSchedule = { enabled: false, intervalHours: 24 };
+    store.config.backupSchedule.enabled = enabled !== false;
+    store.config.backupSchedule.intervalHours = parseInt(intervalHours, 10) || 24;
+
+    if (store.config.backupSchedule.enabled) {
+        startBackupSchedule(store.config.backupSchedule.intervalHours);
+    } else if (backupScheduleTimer) {
+        clearInterval(backupScheduleTimer);
+        backupScheduleTimer = null;
+    }
+
+    logAudit('backup_schedule_changed', req.user, { enabled: store.config.backupSchedule.enabled, intervalHours: store.config.backupSchedule.intervalHours });
+    scheduleSave();
+    res.json(store.config.backupSchedule);
+});
+
+// ==========================================
 // Two-Factor Authentication
 // ==========================================
 app.post('/api/auth/2fa/setup', authorize('config'), (req, res) => {
@@ -4093,8 +4337,23 @@ app.post('/api/sync/push', authorize('config'), (req, res) => {
     });
 
     scheduleSave();
-    logAudit('sync_push', req.user, { applied: applied.length, conflicts: conflicts.length, errors: errors.length });
-    res.json({ applied, conflicts, errors, serverVersion: Date.now() });
+
+    // Reconciliation verification: compute checksums for client verification
+    const verification = {
+        ticketCount: store.tickets.length,
+        ticketChecksum: store.tickets.reduce((h, t) => h + t.id, 0),
+        customerCount: store.customers.length,
+        ingredientCount: store.ingredients.length,
+        syncedAt: new Date().toISOString()
+    };
+
+    logAudit('sync_push', req.user, {
+        applied: applied.length,
+        conflicts: conflicts.length,
+        errors: errors.length,
+        verification
+    });
+    res.json({ applied, conflicts, errors, serverVersion: Date.now(), verification });
 });
 
 app.post('/api/sync/resync', authorize('config'), (req, res) => {
@@ -4114,6 +4373,53 @@ app.post('/api/sync/resync', authorize('config'), (req, res) => {
         changes,
         currentVersion: Date.now(), fullResync: !lastSyncVersion
     });
+});
+
+// ==========================================
+// Offline Reconciliation Verification
+// ==========================================
+app.post('/api/sync/reconcile', authorize('config'), (req, res) => {
+    const { clientCounts } = req.body;
+    if (!clientCounts || typeof clientCounts !== 'object') {
+        return res.status(400).json({ error: 'clientCounts object required' });
+    }
+
+    const serverCounts = {
+        tickets: store.tickets.length,
+        customers: store.customers.length,
+        ingredients: store.ingredients.length,
+        giftCards: store.giftCards.length,
+        promoCodes: store.promoCodes.length,
+        heldOrders: store.heldOrders.length,
+        refunds: store.refunds.length
+    };
+
+    const mismatches = [];
+    Object.keys(serverCounts).forEach(entity => {
+        if (clientCounts[entity] !== undefined && clientCounts[entity] !== serverCounts[entity]) {
+            mismatches.push({
+                entity,
+                clientCount: clientCounts[entity],
+                serverCount: serverCounts[entity],
+                diff: serverCounts[entity] - clientCounts[entity]
+            });
+        }
+    });
+
+    const result = {
+        reconciled: mismatches.length === 0,
+        serverCounts,
+        mismatches,
+        reconciledAt: new Date().toISOString()
+    };
+
+    logAudit('sync_reconcile', req.user, {
+        reconciled: result.reconciled,
+        mismatchCount: mismatches.length,
+        mismatches
+    });
+
+    res.json(result);
 });
 
 // ==========================================

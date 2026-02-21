@@ -1,0 +1,333 @@
+{
+  "info": {
+    "name": "Posxpaybotx Restaurant POS API",
+    "description": "REST API collection for the Posxpaybotx restaurant POS system. Set the {{baseUrl}} and {{token}} variables before use.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.4.0"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "type": "string" },
+    { "key": "token", "value": "", "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login with PIN",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/auth/login",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"pin\": \"1234\"}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "System Health Check",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/health" }
+        },
+        {
+          "name": "Payment Provider Health",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/payments/health" }
+        }
+      ]
+    },
+    {
+      "name": "Tickets",
+      "item": [
+        {
+          "name": "List Tickets",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/tickets" }
+        },
+        {
+          "name": "Create Ticket",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/tickets",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"items\": [{\"name\": \"Burger\", \"price\": 12.99, \"qty\": 1}], \"type\": \"dine-in\", \"table\": 5}" }
+          }
+        },
+        {
+          "name": "Update Ticket",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/tickets/1001",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"items\": [{\"name\": \"Burger\", \"price\": 12.99, \"qty\": 2}]}" }
+          }
+        },
+        {
+          "name": "Pay Ticket",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/tickets/1001/pay",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"method\": \"credit\", \"tip\": 3.00}" }
+          }
+        },
+        {
+          "name": "Void Ticket",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/tickets/1001/void",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"reason\": \"Customer changed mind\"}" }
+          }
+        },
+        {
+          "name": "Partial Payment",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/tickets/1001/partial-pay",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"method\": \"cash\", \"amount\": 10.00}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Ticket Payment Summary",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/payments/ticket/1001" }
+        },
+        {
+          "name": "Settle Batch",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/payments/batch/settle",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Payment Logs",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/payments/log" }
+        }
+      ]
+    },
+    {
+      "name": "Kitchen",
+      "item": [
+        {
+          "name": "List Kitchen Orders",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/kitchen" }
+        },
+        {
+          "name": "Bump Order",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/kitchen/1/bump",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Refunds",
+      "item": [
+        {
+          "name": "List Refunds",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/refunds" }
+        },
+        {
+          "name": "Process Refund",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/refunds",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"ticketId\": 1001, \"amount\": 5.00, \"reason\": \"Food quality\"}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Config",
+      "item": [
+        {
+          "name": "Get All Config",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/config" }
+        },
+        {
+          "name": "Get Config Section",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/config/cashDiscount" }
+        },
+        {
+          "name": "Update Config Section",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/config/cashDiscount",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"rate\": 4.0, \"enabled\": true}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Happy Hour",
+      "item": [
+        {
+          "name": "Get Happy Hour Status",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/happy-hour" }
+        },
+        {
+          "name": "Create Happy Hour Rule",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/happy-hour/rules",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"name\": \"Weekday Happy Hour\", \"days\": [\"monday\",\"tuesday\",\"wednesday\",\"thursday\",\"friday\"], \"startTime\": \"15:00\", \"endTime\": \"18:00\", \"discountType\": \"percent\", \"discountValue\": 20, \"categories\": [\"drinks\"]}" }
+          }
+        },
+        {
+          "name": "Toggle Happy Hour",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/happy-hour/toggle",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"enabled\": true}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "item": [
+        {
+          "name": "Sales Summary",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/reports/summary" }
+        },
+        {
+          "name": "Hourly Report",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/reports/hourly" }
+        },
+        {
+          "name": "Payment Type Breakdown",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/reports/payment-type" }
+        },
+        {
+          "name": "Surcharge Report",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/reports/surcharge" }
+        },
+        {
+          "name": "Hourly Heatmap",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/reports/hourly-heatmap" }
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "List Customers",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/customers" }
+        },
+        {
+          "name": "Create Customer",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/customers",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"name\": \"John Doe\", \"email\": \"john@example.com\", \"phone\": \"555-0100\"}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Security",
+      "item": [
+        {
+          "name": "Encryption Status",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/security/encryption-status" }
+        },
+        {
+          "name": "Audit Log",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/audit-log" }
+        }
+      ]
+    },
+    {
+      "name": "Backups",
+      "item": [
+        {
+          "name": "List Backups",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/backups" }
+        },
+        {
+          "name": "Create Backup",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/backups",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Get Backup Schedule",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/backups/schedule" }
+        },
+        {
+          "name": "Set Backup Schedule",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/backups/schedule",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"enabled\": true, \"intervalHours\": 24}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sync",
+      "item": [
+        {
+          "name": "Get Snapshot",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/sync/snapshot" }
+        },
+        {
+          "name": "Push Changes",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/sync/push",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"changes\": [{\"type\": \"ticket\", \"action\": \"create\", \"data\": {\"items\": [{\"name\": \"Test\", \"price\": 5, \"qty\": 1}]}}]}" }
+          }
+        },
+        {
+          "name": "Reconcile",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/sync/reconcile",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"clientCounts\": {\"tickets\": 10, \"customers\": 5}}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Developer",
+      "item": [
+        {
+          "name": "API Documentation",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/developer/docs" }
+        },
+        {
+          "name": "OpenAPI Spec",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/developer/docs?format=openapi" }
+        }
+      ]
+    }
+  ]
+}
