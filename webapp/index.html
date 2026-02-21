@@ -21,37 +21,78 @@
                 <h1>Restaurant POS</h1>
                 <p class="subtitle">PaybotX Terminal Integration</p>
             </div>
-            <div class="pin-display">
-                <div class="pin-dots">
-                    <span class="pin-dot"></span>
-                    <span class="pin-dot"></span>
-                    <span class="pin-dot"></span>
-                    <span class="pin-dot"></span>
+
+            <!-- Tab switcher -->
+            <div class="login-tabs">
+                <button class="login-tab active" data-login-tab="login">Login</button>
+                <button class="login-tab" data-login-tab="timeclock">Clock In / Out</button>
+            </div>
+
+            <!-- Login Tab -->
+            <div id="login-tab-login" class="login-tab-content active">
+                <div class="pin-display">
+                    <div class="pin-dots">
+                        <span class="pin-dot"></span>
+                        <span class="pin-dot"></span>
+                        <span class="pin-dot"></span>
+                        <span class="pin-dot"></span>
+                    </div>
+                </div>
+                <div class="numpad" id="login-numpad">
+                    <button class="numpad-btn" data-num="1">1</button>
+                    <button class="numpad-btn" data-num="2">2</button>
+                    <button class="numpad-btn" data-num="3">3</button>
+                    <button class="numpad-btn" data-num="4">4</button>
+                    <button class="numpad-btn" data-num="5">5</button>
+                    <button class="numpad-btn" data-num="6">6</button>
+                    <button class="numpad-btn" data-num="7">7</button>
+                    <button class="numpad-btn" data-num="8">8</button>
+                    <button class="numpad-btn" data-num="9">9</button>
+                    <button class="numpad-btn numpad-clear" data-num="clear">C</button>
+                    <button class="numpad-btn" data-num="0">0</button>
+                    <button class="numpad-btn numpad-enter" data-num="enter">&#x2192;</button>
                 </div>
             </div>
-            <div class="numpad" id="login-numpad">
-                <button class="numpad-btn" data-num="1">1</button>
-                <button class="numpad-btn" data-num="2">2</button>
-                <button class="numpad-btn" data-num="3">3</button>
-                <button class="numpad-btn" data-num="4">4</button>
-                <button class="numpad-btn" data-num="5">5</button>
-                <button class="numpad-btn" data-num="6">6</button>
-                <button class="numpad-btn" data-num="7">7</button>
-                <button class="numpad-btn" data-num="8">8</button>
-                <button class="numpad-btn" data-num="9">9</button>
-                <button class="numpad-btn numpad-clear" data-num="clear">C</button>
-                <button class="numpad-btn" data-num="0">0</button>
-                <button class="numpad-btn numpad-enter" data-num="enter">&#x2192;</button>
+
+            <!-- Clock In/Out Tab -->
+            <div id="login-tab-timeclock" class="login-tab-content">
+                <p class="timeclock-instruction">Enter your PIN to clock in or out</p>
+                <div class="pin-display" id="clock-pin-display">
+                    <div class="pin-dots clock-pin-dots">
+                        <span class="pin-dot"></span>
+                        <span class="pin-dot"></span>
+                        <span class="pin-dot"></span>
+                        <span class="pin-dot"></span>
+                    </div>
+                </div>
+                <div class="numpad" id="clock-numpad">
+                    <button class="numpad-btn" data-num="1">1</button>
+                    <button class="numpad-btn" data-num="2">2</button>
+                    <button class="numpad-btn" data-num="3">3</button>
+                    <button class="numpad-btn" data-num="4">4</button>
+                    <button class="numpad-btn" data-num="5">5</button>
+                    <button class="numpad-btn" data-num="6">6</button>
+                    <button class="numpad-btn" data-num="7">7</button>
+                    <button class="numpad-btn" data-num="8">8</button>
+                    <button class="numpad-btn" data-num="9">9</button>
+                    <button class="numpad-btn numpad-clear" data-num="clear">C</button>
+                    <button class="numpad-btn" data-num="0">0</button>
+                    <button class="numpad-btn numpad-enter" data-num="enter">&#x2192;</button>
+                </div>
+                <!-- Result area shown after PIN entry -->
+                <div id="clock-result" class="clock-result" style="display:none;">
+                    <div class="clock-employee-name" id="clock-emp-name"></div>
+                    <div class="clock-employee-role" id="clock-emp-role"></div>
+                    <div class="clock-status" id="clock-status"></div>
+                    <div class="clock-actions">
+                        <button id="btn-clock-in" class="clock-action-btn clock-in-btn">Clock In</button>
+                        <button id="btn-clock-out" class="clock-action-btn clock-out-btn">Clock Out</button>
+                    </div>
+                    <button id="btn-clock-back" class="clock-back-btn">Back</button>
+                </div>
             </div>
-            <div class="demo-mode-label" style="text-align:center;font-size:0.75rem;color:#6e6e73;margin-top:12px;letter-spacing:0.5px;text-transform:uppercase;">Demo Quick Login</div>
-            <div class="quick-login" style="flex-wrap:wrap;justify-content:center;">
-                <button class="quick-login-btn" data-pin="6533" data-user="admin" title="PIN: 6533">Admin</button>
-                <button class="quick-login-btn" data-pin="1234" data-user="manager" title="PIN: 1234">Maria <small>MGR</small></button>
-                <button class="quick-login-btn" data-pin="1111" data-user="server" title="PIN: 1111">John <small>SVR</small></button>
-                <button class="quick-login-btn" data-pin="3333" data-user="cashier" title="PIN: 3333">Mike <small>CSH</small></button>
-                <button class="quick-login-btn" data-pin="4444" data-user="bartender" title="PIN: 4444">Lisa <small>BAR</small></button>
-                <button class="quick-login-btn" data-pin="5555" data-user="kitchen" title="PIN: 5555">Carlos <small>KIT</small></button>
-            </div>
+
+            <a href="demo.html" class="demo-link">Demo Mode</a>
         </div>
     </div>
 

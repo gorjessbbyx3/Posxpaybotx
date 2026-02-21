@@ -844,12 +844,29 @@
                     <div class="form-group">
                         <label class="form-label">Role</label>
                         <select class="form-select" id="new-emp-role">
-                            <option value="server">Server</option>
-                            <option value="cashier">Cashier</option>
-                            <option value="bartender">Bartender</option>
-                            <option value="kitchen">Kitchen</option>
-                            <option value="manager">Manager</option>
-                            <option value="admin">Admin</option>
+                            <optgroup label="Admin / Ownership">
+                                <option value="owner">Owner</option>
+                                <option value="general_manager">General Manager</option>
+                                <option value="assistant_manager">Assistant Manager</option>
+                            </optgroup>
+                            <optgroup label="Front of House">
+                                <option value="server" selected>Server</option>
+                                <option value="bartender">Bartender</option>
+                                <option value="host">Host</option>
+                                <option value="cashier">Cashier</option>
+                            </optgroup>
+                            <optgroup label="Back of House">
+                                <option value="kitchen">Line Cook</option>
+                                <option value="kitchen_manager">Kitchen Manager</option>
+                            </optgroup>
+                            <optgroup label="Accounting">
+                                <option value="bookkeeper">Bookkeeper</option>
+                            </optgroup>
+                            <optgroup label="Specialized">
+                                <option value="payroll_admin">Payroll Admin</option>
+                                <option value="inventory_admin">Inventory Admin</option>
+                                <option value="online_ordering_admin">Online Ordering Admin</option>
+                            </optgroup>
                         </select>
                     </div>
                     <button class="btn-save" id="btn-add-employee">Add Employee</button>
@@ -859,9 +876,9 @@
     </div>
 
     <script>
-    // Admin Login Gate - requires manager/admin PIN
+    // Admin Login Gate - requires management-level PIN
     (function() {
-        const ADMIN_ROLES = ['admin', 'manager'];
+        const ADMIN_ROLES = ['owner', 'admin', 'general_manager', 'manager', 'assistant_manager'];
         const stored = sessionStorage.getItem('admin-auth');
         if (stored) {
             try {
@@ -876,16 +893,13 @@
         document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg);font-family:Inter,sans-serif;">' +
             '<div style="background:var(--bg-card);padding:32px;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1);text-align:center;width:340px;">' +
             '<h2 style="margin-bottom:16px;color:var(--text);">Admin Login</h2>' +
-            '<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;">Enter manager or admin PIN</p>' +
+            '<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;">Enter management PIN</p>' +
             '<input type="password" id="admin-pin" maxlength="4" inputmode="numeric" pattern="[0-9]*" style="width:100%;padding:12px;text-align:center;font-size:1.2rem;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;">' +
             '<button id="admin-login-btn" style="width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;">Login</button>' +
             '<p id="admin-login-error" style="color:var(--danger);margin-top:8px;font-size:0.85rem;"></p>' +
             '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border-light);">' +
-            '<p style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Demo Quick Login</p>' +
-            '<div style="display:flex;gap:6px;justify-content:center;">' +
-            '<button class="demo-login-btn" data-pin="6533" style="padding:8px 14px;border-radius:8px;background:rgba(0,113,227,0.1);color:#0071e3;font-weight:600;font-size:0.8rem;border:none;cursor:pointer;">Admin</button>' +
-            '<button class="demo-login-btn" data-pin="1234" style="padding:8px 14px;border-radius:8px;background:rgba(0,113,227,0.1);color:#0071e3;font-weight:600;font-size:0.8rem;border:none;cursor:pointer;">Maria <small style="font-size:0.65rem;opacity:0.7;">MGR</small></button>' +
-            '</div></div>' +
+            '<a href="demo.html" style="font-size:0.7rem;color:var(--text-muted);text-decoration:none;letter-spacing:0.5px;text-transform:uppercase;opacity:0.7;">Demo Mode &rarr;</a>' +
+            '</div>' +
             '</div></div>';
 
         document.getElementById('admin-login-btn').addEventListener('click', function() {
@@ -901,7 +915,7 @@
                     sessionStorage.setItem('admin-auth', JSON.stringify({ role: data.user.role, token: data.token, ts: Date.now() }));
                     location.reload();
                 } else if (data.user) {
-                    document.getElementById('admin-login-error').textContent = 'Access denied. Manager or admin role required.';
+                    document.getElementById('admin-login-error').textContent = 'Access denied. Management role required.';
                 } else {
                     document.getElementById('admin-login-error').textContent = 'Invalid PIN.';
                 }
@@ -913,14 +927,6 @@
 
         document.getElementById('admin-pin').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') document.getElementById('admin-login-btn').click();
-        });
-
-        // Demo quick login buttons
-        document.querySelectorAll('.demo-login-btn').forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                document.getElementById('admin-pin').value = btn.dataset.pin;
-                document.getElementById('admin-login-btn').click();
-            });
         });
 
         throw new Error('Admin auth required'); // Stop further script execution
@@ -1538,6 +1544,15 @@
     // ==========================================
     // Employee Management
     // ==========================================
+    const ROLE_LABELS = {
+        owner: 'Owner', general_manager: 'General Manager', assistant_manager: 'Asst. Manager',
+        server: 'Server', bartender: 'Bartender', host: 'Host', cashier: 'Cashier',
+        kitchen: 'Line Cook', kitchen_manager: 'Kitchen Mgr', bookkeeper: 'Bookkeeper',
+        payroll_admin: 'Payroll Admin', inventory_admin: 'Inventory Admin',
+        online_ordering_admin: 'Online Admin',
+        admin: 'Owner', manager: 'General Manager'
+    };
+
     function loadEmployees() {
         fetch('/api/employees', {
             headers: { 'Authorization': 'Bearer ' + getAuthToken() }
@@ -1549,7 +1564,7 @@
                 tr.innerHTML = `
                     <td>${emp.id}</td>
                     <td>${emp.name}</td>
-                    <td style="text-transform:capitalize">${emp.role}</td>
+                    <td>${ROLE_LABELS[emp.role] || emp.role}</td>
                     <td style="display:flex;gap:4px;">
                         <button class="btn-reset-pin" style="padding:4px 10px;font-size:0.75rem;border-radius:6px;background:rgba(0,113,227,0.1);color:#0071e3;font-weight:600;border:1px solid #0071e3;cursor:pointer;">Reset PIN</button>
                         <button class="btn-danger" style="padding:4px 10px; font-size:0.75rem">Remove</button>

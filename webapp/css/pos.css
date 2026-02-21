@@ -186,36 +186,159 @@ button {
 }
 .numpad-enter:hover { background: var(--accent-hover); }
 
-.quick-login {
+/* Login tabs */
+.login-tabs {
     display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    justify-content: center;
-    margin-top: 4px;
-}
-
-.quick-login-btn {
-    padding: 8px 12px;
+    background: var(--bg-secondary);
     border-radius: var(--radius-md);
-    background: var(--accent-light);
-    color: var(--accent);
-    font-weight: 600;
-    font-size: 0.8rem;
+    padding: 3px;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--border-light);
+}
+
+.login-tab {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: calc(var(--radius-md) - 2px);
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
     transition: all var(--transition);
-    min-width: 70px;
 }
 
-.quick-login-btn small {
+.login-tab.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    font-weight: 600;
+}
+
+.login-tab:hover:not(.active) {
+    color: var(--text-primary);
+}
+
+.login-tab-content {
+    display: none;
+}
+
+.login-tab-content.active {
     display: block;
-    font-size: 0.6rem;
-    font-weight: 400;
-    opacity: 0.7;
-    margin-top: 2px;
 }
 
-.quick-login-btn:hover {
-    background: var(--accent);
+/* Clock In/Out tab */
+.timeclock-instruction {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: 1.5rem;
+}
+
+.clock-result {
+    text-align: center;
+    padding: 1.5rem 0;
+}
+
+.clock-employee-name {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.clock-employee-role {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.clock-status {
+    font-size: 0.9rem;
+    font-weight: 500;
+    padding: 6px 16px;
+    border-radius: 20px;
+    display: inline-block;
+    margin-bottom: 16px;
+}
+
+.clock-status.clocked-in {
+    background: rgba(52, 199, 89, 0.12);
+    color: #34c759;
+}
+
+.clock-status.clocked-out {
+    background: rgba(142, 142, 147, 0.12);
+    color: var(--text-secondary);
+}
+
+.clock-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 12px;
+}
+
+.clock-action-btn {
+    padding: 12px 24px;
+    border-radius: var(--radius-md);
+    font-size: 1rem;
+    font-weight: 600;
+    transition: all var(--transition);
+    min-width: 120px;
+}
+
+.clock-in-btn {
+    background: #34c759;
     color: white;
+}
+
+.clock-in-btn:hover {
+    background: #2db84e;
+}
+
+.clock-out-btn {
+    background: var(--danger);
+    color: white;
+}
+
+.clock-out-btn:hover {
+    background: var(--danger-hover, #e8383d);
+}
+
+.clock-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.clock-back-btn {
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    transition: all var(--transition);
+}
+
+.clock-back-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* Demo link */
+.demo-link {
+    display: inline-block;
+    margin-top: 1rem;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    text-decoration: none;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    opacity: 0.7;
+    transition: all var(--transition);
+}
+
+.demo-link:hover {
+    color: var(--accent);
+    opacity: 1;
 }
 
 /* ========== TOP BAR ========== */
@@ -311,6 +434,11 @@ button {
     background: var(--accent-light);
     color: var(--accent);
 }
+.role-badge.role-owner { background: rgba(175,82,222,0.12); color: #af52de; }
+.role-badge.role-gm { background: rgba(0,113,227,0.12); color: #0071e3; }
+.role-badge.role-am { background: rgba(0,122,255,0.1); color: #007aff; }
+.role-badge.role-kitchen { background: rgba(255,149,0,0.12); color: #ff9500; }
+.role-badge.role-accounting { background: rgba(88,86,214,0.12); color: #5856d6; }
 
 /* ========== TICKET SEARCH ========== */
 .tickets-search {

@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#0071e3">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self';">
+    <title>Demo Login - Restaurant POS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f5f5f7;
+            --bg-card: #ffffff;
+            --text: #1d1d1f;
+            --text-dim: #6e6e73;
+            --text-muted: #86868b;
+            --accent: #0071e3;
+            --accent-hover: #0077ED;
+            --border: #d2d2d7;
+            --border-light: #e5e5ea;
+            --radius: 12px;
+            --shadow: 0 2px 12px rgba(0,0,0,0.08);
+        }
+
+        [data-theme="dark"] {
+            --bg: #1d1d1f;
+            --bg-card: #2c2c2e;
+            --text: #f5f5f7;
+            --text-dim: #98989d;
+            --text-muted: #6e6e73;
+            --accent: #0a84ff;
+            --accent-hover: #409cff;
+            --border: #38383a;
+            --border-light: #48484a;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .demo-container {
+            background: var(--bg-card);
+            border-radius: 20px;
+            box-shadow: var(--shadow);
+            padding: 2.5rem;
+            max-width: 480px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .demo-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            margin-bottom: 1rem;
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            margin-bottom: 0.25rem;
+        }
+
+        .subtitle {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-bottom: 2rem;
+        }
+
+        .role-group {
+            margin-bottom: 1.5rem;
+            text-align: left;
+        }
+
+        .role-group-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            padding-left: 4px;
+        }
+
+        .role-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 8px;
+        }
+
+        .demo-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 12px 8px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border-light);
+            background: var(--bg-card);
+            color: var(--text);
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .demo-btn:hover {
+            border-color: var(--accent);
+            background: rgba(0, 113, 227, 0.05);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .demo-btn:active {
+            transform: scale(0.97);
+        }
+
+        .demo-btn .role-tag {
+            font-size: 0.6rem;
+            font-weight: 400;
+            color: var(--text-dim);
+            margin-top: 2px;
+        }
+
+        .demo-btn .pin-hint {
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+            font-family: monospace;
+        }
+
+        /* Color accents per group */
+        .group-admin .demo-btn { border-left: 3px solid #af52de; }
+        .group-foh .demo-btn { border-left: 3px solid #34c759; }
+        .group-boh .demo-btn { border-left: 3px solid #ff9500; }
+        .group-acct .demo-btn { border-left: 3px solid #5856d6; }
+        .group-spec .demo-btn { border-left: 3px solid #007aff; }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 1.5rem;
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .back-link:hover { text-decoration: underline; }
+
+        .target-select {
+            margin-top: 1.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-light);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        .target-select select {
+            padding: 4px 8px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            color: var(--text);
+            font-size: 0.8rem;
+        }
+
+        .theme-toggle {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            padding: 8px;
+            cursor: pointer;
+            color: var(--text);
+        }
+    </style>
+</head>
+<body>
+    <button class="theme-toggle" id="theme-toggle" title="Toggle Dark Mode">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+    </button>
+
+    <div class="demo-container">
+        <span class="demo-badge">Demo Mode</span>
+        <h1>Restaurant POS</h1>
+        <p class="subtitle">Quick login with pre-configured demo accounts</p>
+
+        <!-- Admin / Ownership -->
+        <div class="role-group group-admin">
+            <div class="role-group-label">Admin / Ownership</div>
+            <div class="role-grid">
+                <button class="demo-btn" data-pin="6533">
+                    Admin
+                    <span class="role-tag">Owner</span>
+                    <span class="pin-hint">PIN: 6533</span>
+                </button>
+                <button class="demo-btn" data-pin="1234">
+                    Maria
+                    <span class="role-tag">General Manager</span>
+                    <span class="pin-hint">PIN: 1234</span>
+                </button>
+                <button class="demo-btn" data-pin="7777">
+                    David
+                    <span class="role-tag">Asst. Manager</span>
+                    <span class="pin-hint">PIN: 7777</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Front of House -->
+        <div class="role-group group-foh">
+            <div class="role-group-label">Front of House</div>
+            <div class="role-grid">
+                <button class="demo-btn" data-pin="1111">
+                    John
+                    <span class="role-tag">Server</span>
+                    <span class="pin-hint">PIN: 1111</span>
+                </button>
+                <button class="demo-btn" data-pin="4444">
+                    Lisa
+                    <span class="role-tag">Bartender</span>
+                    <span class="pin-hint">PIN: 4444</span>
+                </button>
+                <button class="demo-btn" data-pin="8888">
+                    Emma
+                    <span class="role-tag">Host</span>
+                    <span class="pin-hint">PIN: 8888</span>
+                </button>
+                <button class="demo-btn" data-pin="3333">
+                    Mike
+                    <span class="role-tag">Cashier</span>
+                    <span class="pin-hint">PIN: 3333</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Back of House -->
+        <div class="role-group group-boh">
+            <div class="role-group-label">Back of House</div>
+            <div class="role-grid">
+                <button class="demo-btn" data-pin="5555">
+                    Carlos
+                    <span class="role-tag">Line Cook</span>
+                    <span class="pin-hint">PIN: 5555</span>
+                </button>
+                <button class="demo-btn" data-pin="9999">
+                    Rosa
+                    <span class="role-tag">Kitchen Manager</span>
+                    <span class="pin-hint">PIN: 9999</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Accounting / Specialized -->
+        <div class="role-group group-acct">
+            <div class="role-group-label">Accounting / Specialized</div>
+            <div class="role-grid">
+                <button class="demo-btn" data-pin="2468">
+                    Frank
+                    <span class="role-tag">Bookkeeper</span>
+                    <span class="pin-hint">PIN: 2468</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="target-select">
+            <label for="target">Open in:</label>
+            <select id="target">
+                <option value="pos" selected>POS Terminal</option>
+                <option value="admin">Admin Panel</option>
+            </select>
+        </div>
+
+        <a href="index.html" class="back-link">&larr; Back to POS Login</a>
+    </div>
+
+    <script>
+        // Theme toggle
+        const savedTheme = localStorage.getItem('pos-theme') || 'light';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        document.getElementById('theme-toggle').addEventListener('click', function() {
+            const current = document.documentElement.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('pos-theme', next);
+        });
+
+        // Demo login buttons
+        document.querySelectorAll('.demo-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var pin = btn.dataset.pin;
+                var target = document.getElementById('target').value;
+                var targetPage = target === 'admin' ? 'admin.html' : 'index.html';
+
+                // Authenticate via API first, then redirect with session
+                fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin: pin })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.token) {
+                        // Store auth for the target page to pick up
+                        sessionStorage.setItem('demo-auth', JSON.stringify({
+                            pin: pin,
+                            token: data.token,
+                            user: data.user,
+                            ts: Date.now()
+                        }));
+                        if (target === 'admin') {
+                            sessionStorage.setItem('admin-auth', JSON.stringify({
+                                role: data.user.role,
+                                token: data.token,
+                                ts: Date.now()
+                            }));
+                        }
+                        window.location.href = targetPage;
+                    } else {
+                        alert('Login failed: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(function() {
+                    // API unavailable — redirect anyway for local-only mode
+                    sessionStorage.setItem('demo-auth', JSON.stringify({ pin: pin, ts: Date.now() }));
+                    window.location.href = targetPage;
+                });
+            });
+        });
+    </script>
+</body>
+</html>

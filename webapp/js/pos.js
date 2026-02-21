@@ -19,6 +19,31 @@
 // ==========================================
 // Login System
 // ==========================================
+// ── Login Tab Switching ──
+$$('.login-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        $$('.login-tab').forEach(t => t.classList.remove('active'));
+        $$('.login-tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        const target = document.getElementById('login-tab-' + tab.dataset.loginTab);
+        if (target) target.classList.add('active');
+        // Reset state when switching tabs
+        state.pin = '';
+        state.clockPin = '';
+        updatePinDots();
+        updateClockPinDots();
+        const clockResult = document.getElementById('clock-result');
+        if (clockResult) clockResult.style.display = 'none';
+        const clockNumpad = document.getElementById('clock-numpad');
+        if (clockNumpad) clockNumpad.style.display = '';
+        const clockPinDisplay = document.getElementById('clock-pin-display');
+        if (clockPinDisplay) clockPinDisplay.style.display = '';
+        const clockInstruction = document.querySelector('.timeclock-instruction');
+        if (clockInstruction) clockInstruction.style.display = '';
+    });
+});
+
+// ── Login Numpad ──
 $$('#login-numpad .numpad-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         const num = btn.dataset.num;
@@ -35,26 +60,179 @@ $$('#login-numpad .numpad-btn').forEach(btn => {
     });
 });
 
-$$('.quick-login-btn').forEach(btn => {
+// ── Clock In/Out Numpad ──
+state.clockPin = '';
+
+$$('#clock-numpad .numpad-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        const pin = btn.dataset.pin;
-        if (pin) {
-            doLogin(pin);
-        } else {
-            // Fallback for buttons without data-pin
-            const role = btn.dataset.user;
-            const pinMap = { 'server': '1111', 'cashier': '3333', 'manager': '1234', 'admin': '6533' };
-            doLogin(pinMap[role] || '1111');
+        const num = btn.dataset.num;
+        if (num === 'clear') {
+            state.clockPin = '';
+        } else if (num === 'enter') {
+            if (state.clockPin.length === 4) {
+                handleClockPinEntry(state.clockPin);
+            }
+        } else if (state.clockPin.length < 4) {
+            state.clockPin += num;
         }
+        updateClockPinDots();
     });
 });
 
 function updatePinDots() {
-    const dots = $$('.pin-dot');
+    const dots = $$('#login-tab-login .pin-dot');
     dots.forEach((dot, i) => {
         dot.classList.toggle('filled', i < state.pin.length);
     });
 }
+
+function updateClockPinDots() {
+    const dots = $$('.clock-pin-dots .pin-dot');
+    dots.forEach((dot, i) => {
+        dot.classList.toggle('filled', i < state.clockPin.length);
+    });
+}
+
+function handleClockPinEntry(pin) {
+    const staff = lookupStaffByPin(pin);
+    if (!staff) {
+        showToast('Invalid PIN', 'error');
+        state.clockPin = '';
+        updateClockPinDots();
+        const pinDisplay = document.getElementById('clock-pin-display');
+        if (pinDisplay) {
+            pinDisplay.classList.add('shake');
+            setTimeout(() => pinDisplay.classList.remove('shake'), 500);
+        }
+        return;
+    }
+
+    // Show employee info and clock status
+    const clockResult = document.getElementById('clock-result');
+    const clockNumpad = document.getElementById('clock-numpad');
+    const clockPinDisplay = document.getElementById('clock-pin-display');
+    const clockInstruction = document.querySelector('.timeclock-instruction');
+
+    if (clockNumpad) clockNumpad.style.display = 'none';
+    if (clockPinDisplay) clockPinDisplay.style.display = 'none';
+    if (clockInstruction) clockInstruction.style.display = 'none';
+    if (clockResult) clockResult.style.display = '';
+
+    document.getElementById('clock-emp-name').textContent = staff.name;
+    document.getElementById('clock-emp-role').textContent = ROLE_LABELS[staff.role] || staff.role;
+
+    const isClockedIn = isAlreadyClockedIn(staff.id);
+    const statusEl = document.getElementById('clock-status');
+    const btnIn = document.getElementById('btn-clock-in');
+    const btnOut = document.getElementById('btn-clock-out');
+
+    if (isClockedIn) {
+        const record = timeClock.filter(r => r.empId === staff.id && !r.clockOut).pop();
+        const clockInTime = record ? new Date(record.clockIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+        statusEl.textContent = 'Clocked in since ' + clockInTime;
+        statusEl.className = 'clock-status clocked-in';
+        btnIn.disabled = true;
+        btnOut.disabled = false;
+    } else {
+        statusEl.textContent = 'Not clocked in';
+        statusEl.className = 'clock-status clocked-out';
+        btnIn.disabled = false;
+        btnOut.disabled = true;
+    }
+
+    // Store ref to this staff for clock actions
+    state._clockStaff = staff;
+    state._clockPin = pin;
+}
+
+// Clock In button on login screen
+document.getElementById('btn-clock-in').addEventListener('click', () => {
+    const staff = state._clockStaff;
+    if (!staff) return;
+
+    const record = {
+        empId: staff.id,
+        empName: staff.name,
+        role: staff.role,
+        clockIn: new Date(),
+        clockOut: null
+    };
+    timeClock.push(record);
+
+    // Sync to API
+    if (typeof APIClient !== 'undefined') {
+        APIClient.login(state._clockPin).then(res => {
+            if (res && res.token) {
+                APIClient.setToken(res.token);
+                APIClient.clockIn(staff.id, staff.name, staff.role).catch(() => {});
+            }
+        }).catch(() => {});
+    }
+
+    showToast(staff.name + ' clocked in at ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+
+    // Update display
+    document.getElementById('clock-status').textContent = 'Clocked in since ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('clock-status').className = 'clock-status clocked-in';
+    document.getElementById('btn-clock-in').disabled = true;
+    document.getElementById('btn-clock-out').disabled = false;
+});
+
+// Clock Out button on login screen
+document.getElementById('btn-clock-out').addEventListener('click', () => {
+    const staff = state._clockStaff;
+    if (!staff) return;
+
+    const record = timeClock.filter(r => r.empId === staff.id && !r.clockOut).pop();
+    if (record) {
+        record.clockOut = new Date();
+        const hours = ((record.clockOut - record.clockIn) / 3600000).toFixed(2);
+
+        // Sync to API
+        if (typeof APIClient !== 'undefined') {
+            APIClient.login(state._clockPin).then(res => {
+                if (res && res.token) {
+                    APIClient.setToken(res.token);
+                    APIClient.clockOut(staff.id).catch(() => {});
+                }
+            }).catch(() => {});
+        }
+
+        showToast(staff.name + ' clocked out. Shift: ' + hours + ' hours');
+
+        document.getElementById('clock-status').textContent = 'Clocked out (' + hours + ' hrs)';
+        document.getElementById('clock-status').className = 'clock-status clocked-out';
+        document.getElementById('btn-clock-in').disabled = false;
+        document.getElementById('btn-clock-out').disabled = true;
+    }
+});
+
+// Back button on clock result
+document.getElementById('btn-clock-back').addEventListener('click', () => {
+    state.clockPin = '';
+    state._clockStaff = null;
+    state._clockPin = '';
+    updateClockPinDots();
+    document.getElementById('clock-result').style.display = 'none';
+    document.getElementById('clock-numpad').style.display = '';
+    document.getElementById('clock-pin-display').style.display = '';
+    const clockInstruction = document.querySelector('.timeclock-instruction');
+    if (clockInstruction) clockInstruction.style.display = '';
+});
+
+// ── Demo auth pickup (from demo.html) ──
+(function checkDemoAuth() {
+    const raw = sessionStorage.getItem('demo-auth');
+    if (raw) {
+        sessionStorage.removeItem('demo-auth');
+        try {
+            const data = JSON.parse(raw);
+            if (data.pin && (Date.now() - data.ts) < 30000) {
+                doLogin(data.pin);
+            }
+        } catch (e) { /* ignore */ }
+    }
+})();
 
 function doLogin(pin) {
     const staff = lookupStaffByPin(pin);
@@ -88,14 +266,35 @@ function doLogin(pin) {
     // Update UI with user info
     $('#current-user').textContent = state.currentUser;
     const roleEl = document.getElementById('current-role');
-    if (roleEl) roleEl.textContent = state.currentRole.charAt(0).toUpperCase() + state.currentRole.slice(1);
+    if (roleEl) roleEl.textContent = ROLE_LABELS[state.currentRole] || state.currentRole;
 
     // Apply role-based permissions
     applyRolePermissions();
 
+    // Route non-POS roles to their appropriate default view
+    const perms = ROLE_PERMISSIONS[state.currentRole] || ROLE_PERMISSIONS.server;
     $('#login-screen').classList.remove('active');
     $('#pos-screen').classList.add('active');
-    newTicket();
+
+    let startView = 'order';
+    if (!perms.pos && perms.kitchen)     startView = 'kitchen';
+    else if (!perms.pos && perms.tables) startView = 'tables';
+    else if (!perms.pos && perms.reports) startView = 'reports';
+
+    if (startView !== 'order') {
+        // Activate the correct tab and view for non-POS roles
+        $$('.tab-btn').forEach(b => b.classList.remove('active'));
+        const targetTab = document.querySelector(`.tab-btn[data-view="${startView}"]`);
+        if (targetTab) targetTab.classList.add('active');
+        $$('.main-view').forEach(v => v.classList.remove('active'));
+        const viewEl = document.getElementById(startView + '-view');
+        if (viewEl) viewEl.classList.add('active');
+        state.currentView = startView;
+        if (startView === 'kitchen') populateKitchen();
+        if (startView === 'reports' && typeof populateReports === 'function') populateReports();
+    } else {
+        newTicket();
+    }
     showToast('Welcome, ' + state.currentUser + '!');
     populateMenu();
     if (typeof populateTables === 'function') populateTables();
@@ -121,25 +320,54 @@ function shakePinDisplay() {
 function applyRolePermissions() {
     const perms = ROLE_PERMISSIONS[state.currentRole] || ROLE_PERMISSIONS.server;
 
-    // Show/hide tabs based on role
+    // Tab visibility based on role
     $$('.tab-btn').forEach(btn => {
         const view = btn.dataset.view;
-        if (view === 'kitchen' && !perms.kitchen) {
-            btn.style.display = 'none';
-        } else if (view === 'reports' && !perms.reports) {
-            btn.style.display = 'none';
-        } else {
-            btn.style.display = '';
-        }
+        const viewPerms = {
+            order:   perms.pos,
+            tables:  perms.tables,
+            kitchen: perms.kitchen,
+            tickets: perms.tickets,
+            reports: perms.reports
+        };
+        btn.style.display = (viewPerms[view] !== false) ? '' : 'none';
     });
 
-    // Show/hide action buttons based on role
-    const discountBtn = $('#btn-discount');
-    if (discountBtn) discountBtn.style.display = perms.discount ? '' : 'none';
+    // Action buttons
+    const toggle = (sel, show) => {
+        const el = typeof sel === 'string' ? $(sel) : sel;
+        if (el) el.style.display = show ? '' : 'none';
+    };
 
-    // Admin settings link visibility
+    toggle('#btn-discount', perms.discount);
+    toggle('#btn-comp', perms.comp);
+    toggle('#btn-void', perms.voidTicket);
+    toggle('#btn-refund', perms.refund);
+
+    // Admin settings link
     const adminLink = document.querySelector('.side-menu-link[href="admin.html"]');
-    if (adminLink) adminLink.style.display = perms.settings ? '' : 'none';
+    toggle(adminLink, perms.settings);
+
+    // Void/refund buttons in ticket list (class-based)
+    $$('.ticket-void-btn').forEach(el => el.style.display = perms.voidTicket ? '' : 'none');
+    $$('.ticket-refund-btn').forEach(el => el.style.display = perms.refund ? '' : 'none');
+
+    // Cash drawer button
+    toggle('#btn-open-drawer', perms.cashDrawer);
+
+    // New order section — hide for non-POS roles
+    toggle('#order-section', perms.pos);
+
+    // Role badge color
+    const badge = document.getElementById('current-role');
+    if (badge) {
+        badge.className = 'role-badge';
+        if (['owner', 'admin'].includes(state.currentRole)) badge.classList.add('role-owner');
+        else if (['general_manager', 'manager'].includes(state.currentRole)) badge.classList.add('role-gm');
+        else if (state.currentRole === 'assistant_manager') badge.classList.add('role-am');
+        else if (['kitchen', 'kitchen_manager'].includes(state.currentRole)) badge.classList.add('role-kitchen');
+        else if (['bookkeeper', 'payroll_admin', 'inventory_admin'].includes(state.currentRole)) badge.classList.add('role-accounting');
+    }
 }
 
 function isAlreadyClockedIn(empId) {
@@ -2053,14 +2281,16 @@ populateTicketsList = function() {
                 ${ticket.status === 'open' ? `
                     <button class="ticket-action-btn pay" onclick="openTicketPayment(${ticket.id})">Pay</button>
                 ` : ''}
-                ${ticket.status === 'open' ? `
+                ${ticket.status === 'open' && (ROLE_PERMISSIONS[state.currentRole] || {}).voidTicket ? `
                     <button class="ticket-action-btn void" onclick="voidTicket(${ticket.id})">Void</button>
                 ` : ''}
-                ${ticket.status === 'paid' ? `
+                ${ticket.status === 'paid' && (ROLE_PERMISSIONS[state.currentRole] || {}).refund ? `
                     <button class="ticket-action-btn void" onclick="refundTicket(${ticket.id})">Refund</button>
                 ` : ''}
                 <button class="ticket-action-btn reprint" onclick="reprintTicket(${ticket.id})">Reprint</button>
-                <button class="ticket-action-btn recall" onclick="recallTicket(${ticket.id})">Recall</button>
+                ${ticket.status === 'open' ? `
+                    <button class="ticket-action-btn recall" onclick="recallTicket(${ticket.id})">Recall</button>
+                ` : ''}
             </div>
         `;
 
@@ -2093,6 +2323,11 @@ function openTicketPayment(ticketId) {
 window.openTicketPayment = openTicketPayment;
 
 function voidTicket(ticketId) {
+    const perms = ROLE_PERMISSIONS[state.currentRole] || {};
+    if (!perms.voidTicket) {
+        showToast('Manager authorization required for voids', 'error');
+        return;
+    }
     if (!confirm('Void ticket #' + ticketId + '?')) return;
     const idx = state.allTickets.findIndex(t => t.id === ticketId);
     if (idx >= 0) {
@@ -2126,7 +2361,7 @@ function refundTicket(ticketId) {
     // Check permissions
     const perms = ROLE_PERMISSIONS[state.currentRole] || {};
     if (!perms.refund) {
-        showToast('Manager authorization required for refunds', 'error');
+        showToast('Authorization required for refunds', 'error');
         return;
     }
 

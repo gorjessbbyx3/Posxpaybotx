@@ -17,7 +17,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { loginHandler, authenticate, authorize, getEmployeeList, addEmployee, removeEmployee, updateEmployee } = require('./auth');
+const { loginHandler, authenticate, authorize, getEmployeeList, addEmployee, removeEmployee, updateEmployee, ROLES } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -814,13 +814,17 @@ app.post('/api/timeclock/clock-out', authorize('timeclock'), (req, res) => {
 });
 
 // ==========================================
-// Employee Management Endpoints (requires config permission)
+// Employee Management Endpoints
 // ==========================================
-app.get('/api/employees', authorize('config'), (req, res) => {
+app.get('/api/roles', authorize('employees'), (req, res) => {
+    res.json(ROLES);
+});
+
+app.get('/api/employees', authorize('employees'), (req, res) => {
     res.json(getEmployeeList());
 });
 
-app.post('/api/employees', authorize('config'), (req, res) => {
+app.post('/api/employees', authorize('employees'), (req, res) => {
     const { pin, name, role } = req.body;
     if (!pin || !name || !role) {
         return res.status(400).json({ error: 'pin, name, and role are required' });
@@ -828,7 +832,7 @@ app.post('/api/employees', authorize('config'), (req, res) => {
     if (!/^\d{4}$/.test(pin)) {
         return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
     }
-    const validRoles = ['admin', 'manager', 'server', 'cashier', 'bartender', 'kitchen'];
+    const validRoles = Object.keys(ROLES);
     if (!validRoles.includes(role)) {
         return res.status(400).json({ error: 'Invalid role. Must be one of: ' + validRoles.join(', ') });
     }
@@ -841,9 +845,9 @@ app.post('/api/employees', authorize('config'), (req, res) => {
     res.status(201).json(employee);
 });
 
-app.put('/api/employees/:id', authorize('config'), (req, res) => {
+app.put('/api/employees/:id', authorize('employees'), (req, res) => {
     const { name, role, pin } = req.body;
-    const validRoles = ['admin', 'manager', 'server', 'cashier', 'bartender', 'kitchen'];
+    const validRoles = Object.keys(ROLES);
     if (role && !validRoles.includes(role)) {
         return res.status(400).json({ error: 'Invalid role' });
     }
@@ -858,7 +862,7 @@ app.put('/api/employees/:id', authorize('config'), (req, res) => {
     res.json(updated);
 });
 
-app.delete('/api/employees/:id', authorize('config'), (req, res) => {
+app.delete('/api/employees/:id', authorize('employees'), (req, res) => {
     if (req.user && req.user.id === req.params.id) {
         return res.status(400).json({ error: 'Cannot delete your own account' });
     }
@@ -1090,9 +1094,9 @@ app.get('/api/reports/server-performance', authorize('reports'), (req, res) => {
 });
 
 // ==========================================
-// Audit Log Endpoints (requires reports permission)
+// Audit Log Endpoints
 // ==========================================
-app.get('/api/audit-log', authorize('reports'), (req, res) => {
+app.get('/api/audit-log', authorize('audit'), (req, res) => {
     let logs = store.auditLog;
     const { action, user, from, to, limit: limitParam } = req.query;
 
@@ -1226,7 +1230,7 @@ app.get('/api/config/cashDiscount/state-rules', authorize('config'), (req, res) 
     res.json({ stateRules: store.config.cashDiscount.stateRules || {} });
 });
 
-app.put('/api/config/cashDiscount/state-rules/:state', authorize('config'), (req, res) => {
+app.put('/api/config/cashDiscount/state-rules/:state', authorize('payment_config'), (req, res) => {
     const state = req.params.state.toUpperCase();
     if (state.length !== 2) {
         return res.status(400).json({ error: 'State must be a 2-letter code' });
@@ -1246,7 +1250,7 @@ app.put('/api/config/cashDiscount/state-rules/:state', authorize('config'), (req
     res.json({ state, rule: store.config.cashDiscount.stateRules[state] });
 });
 
-app.delete('/api/config/cashDiscount/state-rules/:state', authorize('config'), (req, res) => {
+app.delete('/api/config/cashDiscount/state-rules/:state', authorize('payment_config'), (req, res) => {
     const state = req.params.state.toUpperCase();
     if (!store.config.cashDiscount.stateRules || !store.config.cashDiscount.stateRules[state]) {
         return res.status(404).json({ error: 'State rule not found' });
@@ -2021,7 +2025,7 @@ function checkFraudPatterns(ticket, user) {
     return alerts;
 }
 
-app.get('/api/fraud-alerts', authorize('reports'), (req, res) => {
+app.get('/api/fraud-alerts', authorize('fraud'), (req, res) => {
     let alerts = store.fraudAlerts;
     const { severity, resolved } = req.query;
 
@@ -2032,7 +2036,7 @@ app.get('/api/fraud-alerts', authorize('reports'), (req, res) => {
     res.json({ alerts: [...alerts].reverse(), total: alerts.length });
 });
 
-app.post('/api/fraud-alerts/scan', authorize('reports'), (req, res) => {
+app.post('/api/fraud-alerts/scan', authorize('fraud'), (req, res) => {
     // Manual scan: check all recent activity for fraud patterns
     const now = new Date();
     const initialCount = store.fraudAlerts.length;
@@ -2090,7 +2094,7 @@ app.post('/api/fraud-alerts/scan', authorize('reports'), (req, res) => {
     res.json({ scanned: true, newAlerts, totalAlerts: store.fraudAlerts.length });
 });
 
-app.post('/api/fraud-alerts/:id/resolve', authorize('reports'), (req, res) => {
+app.post('/api/fraud-alerts/:id/resolve', authorize('fraud'), (req, res) => {
     const alert = store.fraudAlerts.find(a => a.id === parseInt(req.params.id));
     if (!alert) return res.status(404).json({ error: 'Alert not found' });
 
@@ -2194,7 +2198,7 @@ app.get('/api/reports/food-cost', authorize('reports'), (req, res) => {
 // ==========================================
 const INGREDIENT_FIELDS = ['name', 'unit', 'stock', 'lowThreshold', 'cost', 'supplier', 'category'];
 
-app.get('/api/ingredients', authorize('config'), (req, res) => {
+app.get('/api/ingredients', authorize('inventory'), (req, res) => {
     let ingredients = store.ingredients;
     const { search, lowStock } = req.query;
     if (search) {
@@ -2207,7 +2211,7 @@ app.get('/api/ingredients', authorize('config'), (req, res) => {
     res.json({ ingredients, total: ingredients.length });
 });
 
-app.post('/api/ingredients', authorize('config'), (req, res) => {
+app.post('/api/ingredients', authorize('inventory'), (req, res) => {
     const { name, unit, stock, lowThreshold, cost, costPerUnit, supplier, category, barcode, quantity, lowStockThreshold } = req.body;
     if (!name) return res.status(400).json({ error: 'Ingredient name required' });
 
@@ -2233,7 +2237,7 @@ app.post('/api/ingredients', authorize('config'), (req, res) => {
     res.status(201).json(ingredient);
 });
 
-app.patch('/api/ingredients/:id', authorize('config'), (req, res) => {
+app.patch('/api/ingredients/:id', authorize('inventory'), (req, res) => {
     const ingredient = store.ingredients.find(i => i.id === parseInt(req.params.id));
     if (!ingredient) return res.status(404).json({ error: 'Ingredient not found' });
 
@@ -2245,7 +2249,7 @@ app.patch('/api/ingredients/:id', authorize('config'), (req, res) => {
     res.json(ingredient);
 });
 
-app.delete('/api/ingredients/:id', authorize('config'), (req, res) => {
+app.delete('/api/ingredients/:id', authorize('inventory'), (req, res) => {
     const idx = store.ingredients.findIndex(i => i.id === parseInt(req.params.id));
     if (idx === -1) return res.status(404).json({ error: 'Ingredient not found' });
     const removed = store.ingredients.splice(idx, 1)[0];
@@ -2257,7 +2261,7 @@ app.delete('/api/ingredients/:id', authorize('config'), (req, res) => {
 // ==========================================
 // Inventory Depletion Tracking
 // ==========================================
-app.post('/api/ingredients/:id/adjust', authorize('config'), (req, res) => {
+app.post('/api/ingredients/:id/adjust', authorize('inventory'), (req, res) => {
     const ingredient = store.ingredients.find(i => i.id === parseInt(req.params.id));
     if (!ingredient) return res.status(404).json({ error: 'Ingredient not found' });
 
@@ -2328,7 +2332,7 @@ app.get('/api/reports/inventory-depletion', authorize('reports'), (req, res) => 
 // ==========================================
 // Low-Stock Alerts
 // ==========================================
-app.get('/api/alerts/low-stock', authorize('config'), (req, res) => {
+app.get('/api/alerts/low-stock', authorize('inventory'), (req, res) => {
     const lowStock = store.ingredients.filter(i => i.stock <= (i.lowThreshold || 0));
     const outOfStock = store.ingredients.filter(i => i.stock <= 0);
 
@@ -2516,11 +2520,11 @@ const WEBHOOK_EVENTS = [
     'qr_order.created', 'email_campaign.sent'
 ];
 
-app.get('/api/webhooks', authorize('config'), (req, res) => {
+app.get('/api/webhooks', authorize('integrations'), (req, res) => {
     res.json({ webhooks: store.webhooks, supportedEvents: WEBHOOK_EVENTS });
 });
 
-app.post('/api/webhooks', authorize('config'), (req, res) => {
+app.post('/api/webhooks', authorize('integrations'), (req, res) => {
     const { url, events, secret } = req.body;
     if (!url) return res.status(400).json({ error: 'URL required' });
     if (!Array.isArray(events) || events.length === 0) {
@@ -2547,7 +2551,7 @@ app.post('/api/webhooks', authorize('config'), (req, res) => {
     res.status(201).json(webhook);
 });
 
-app.delete('/api/webhooks/:id', authorize('config'), (req, res) => {
+app.delete('/api/webhooks/:id', authorize('integrations'), (req, res) => {
     const idx = store.webhooks.findIndex(w => w.id === parseInt(req.params.id));
     if (idx === -1) return res.status(404).json({ error: 'Webhook not found' });
 
@@ -2560,11 +2564,11 @@ app.delete('/api/webhooks/:id', authorize('config'), (req, res) => {
 // ==========================================
 // Recipe Costing
 // ==========================================
-app.get('/api/recipes', authorize('config'), (req, res) => {
+app.get('/api/recipes', authorize('recipes'), (req, res) => {
     res.json(store.recipes);
 });
 
-app.post('/api/recipes', authorize('config'), (req, res) => {
+app.post('/api/recipes', authorize('recipes'), (req, res) => {
     const { name, ingredients, prepTime, yield: recipeYield } = req.body;
     if (!name) return res.status(400).json({ error: 'Recipe name required' });
     const totalCost = (ingredients || []).reduce((sum, ing) => {
@@ -2584,7 +2588,7 @@ app.post('/api/recipes', authorize('config'), (req, res) => {
     res.status(201).json(recipe);
 });
 
-app.put('/api/recipes/:id', authorize('config'), (req, res) => {
+app.put('/api/recipes/:id', authorize('recipes'), (req, res) => {
     const recipe = store.recipes.find(r => r.id === parseInt(req.params.id));
     if (!recipe) return res.status(404).json({ error: 'Recipe not found' });
     const { name, ingredients, prepTime, yield: recipeYield } = req.body;
@@ -2604,7 +2608,7 @@ app.put('/api/recipes/:id', authorize('config'), (req, res) => {
     res.json(recipe);
 });
 
-app.delete('/api/recipes/:id', authorize('config'), (req, res) => {
+app.delete('/api/recipes/:id', authorize('recipes'), (req, res) => {
     const idx = store.recipes.findIndex(r => r.id === parseInt(req.params.id));
     if (idx === -1) return res.status(404).json({ error: 'Recipe not found' });
     const removed = store.recipes.splice(idx, 1)[0];
@@ -2615,11 +2619,11 @@ app.delete('/api/recipes/:id', authorize('config'), (req, res) => {
 // ==========================================
 // Vendor Tracking
 // ==========================================
-app.get('/api/vendors', authorize('config'), (req, res) => {
+app.get('/api/vendors', authorize('vendors'), (req, res) => {
     res.json(store.vendors);
 });
 
-app.post('/api/vendors', authorize('config'), (req, res) => {
+app.post('/api/vendors', authorize('vendors'), (req, res) => {
     const { name, contact, email, phone, category } = req.body;
     if (!name) return res.status(400).json({ error: 'Vendor name required' });
     const vendor = {
@@ -2632,7 +2636,7 @@ app.post('/api/vendors', authorize('config'), (req, res) => {
     res.status(201).json(vendor);
 });
 
-app.put('/api/vendors/:id', authorize('config'), (req, res) => {
+app.put('/api/vendors/:id', authorize('vendors'), (req, res) => {
     const vendor = store.vendors.find(v => v.id === parseInt(req.params.id));
     if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
     const { name, contact, email, phone, category } = req.body;
@@ -2646,7 +2650,7 @@ app.put('/api/vendors/:id', authorize('config'), (req, res) => {
     res.json(vendor);
 });
 
-app.delete('/api/vendors/:id', authorize('config'), (req, res) => {
+app.delete('/api/vendors/:id', authorize('vendors'), (req, res) => {
     const idx = store.vendors.findIndex(v => v.id === parseInt(req.params.id));
     if (idx === -1) return res.status(404).json({ error: 'Vendor not found' });
     const removed = store.vendors.splice(idx, 1)[0];
@@ -2657,11 +2661,11 @@ app.delete('/api/vendors/:id', authorize('config'), (req, res) => {
 // ==========================================
 // Purchase Order Generation
 // ==========================================
-app.get('/api/purchase-orders', authorize('config'), (req, res) => {
+app.get('/api/purchase-orders', authorize('purchase_orders'), (req, res) => {
     res.json(store.purchaseOrders);
 });
 
-app.post('/api/purchase-orders', authorize('config'), (req, res) => {
+app.post('/api/purchase-orders', authorize('purchase_orders'), (req, res) => {
     const { vendorId, items, notes } = req.body;
     if (!vendorId || !items || !items.length) return res.status(400).json({ error: 'Vendor ID and items required' });
     const total = items.reduce((sum, item) => sum + Math.round((item.quantity || 0) * (item.unitCost || 0) * 100) / 100, 0);
@@ -2680,7 +2684,7 @@ app.post('/api/purchase-orders', authorize('config'), (req, res) => {
 });
 
 // Purchase order status transitions: pending -> approved -> ordered -> received (or cancelled at any point)
-app.post('/api/purchase-orders/:id/approve', authorize('config'), (req, res) => {
+app.post('/api/purchase-orders/:id/approve', authorize('purchase_orders'), (req, res) => {
     const po = store.purchaseOrders.find(p => p.id === req.params.id);
     if (!po) return res.status(404).json({ error: 'Purchase order not found' });
     if (po.status !== 'pending') return res.status(400).json({ error: 'Can only approve pending orders' });
@@ -2691,7 +2695,7 @@ app.post('/api/purchase-orders/:id/approve', authorize('config'), (req, res) => 
     res.json(po);
 });
 
-app.post('/api/purchase-orders/:id/order', authorize('config'), (req, res) => {
+app.post('/api/purchase-orders/:id/order', authorize('purchase_orders'), (req, res) => {
     const po = store.purchaseOrders.find(p => p.id === req.params.id);
     if (!po) return res.status(404).json({ error: 'Purchase order not found' });
     if (po.status !== 'approved') return res.status(400).json({ error: 'Must be approved before ordering' });
@@ -2701,7 +2705,7 @@ app.post('/api/purchase-orders/:id/order', authorize('config'), (req, res) => {
     res.json(po);
 });
 
-app.post('/api/purchase-orders/:id/receive', authorize('config'), (req, res) => {
+app.post('/api/purchase-orders/:id/receive', authorize('purchase_orders'), (req, res) => {
     const po = store.purchaseOrders.find(p => p.id === req.params.id);
     if (!po) return res.status(404).json({ error: 'Purchase order not found' });
     if (po.status !== 'ordered') return res.status(400).json({ error: 'Can only receive ordered items' });
@@ -2721,7 +2725,7 @@ app.post('/api/purchase-orders/:id/receive', authorize('config'), (req, res) => 
     res.json(po);
 });
 
-app.post('/api/purchase-orders/:id/cancel', authorize('config'), (req, res) => {
+app.post('/api/purchase-orders/:id/cancel', authorize('purchase_orders'), (req, res) => {
     const po = store.purchaseOrders.find(p => p.id === req.params.id);
     if (!po) return res.status(404).json({ error: 'Purchase order not found' });
     if (po.status === 'received') return res.status(400).json({ error: 'Cannot cancel received orders' });
@@ -2739,7 +2743,7 @@ app.get('/api/waste-log', authorize('reports'), (req, res) => {
     res.json(store.wasteLog);
 });
 
-app.post('/api/waste-log', authorize('config'), (req, res) => {
+app.post('/api/waste-log', authorize('waste_log'), (req, res) => {
     const { ingredientId, quantity, reason, cost } = req.body;
     if (!ingredientId || !quantity) return res.status(400).json({ error: 'Ingredient ID and quantity required' });
 
@@ -2798,7 +2802,7 @@ app.post('/api/waitlist', (req, res) => {
     res.status(201).json(entry);
 });
 
-app.patch('/api/waitlist/:id', authorize('tickets'), (req, res) => {
+app.patch('/api/waitlist/:id', authorize('waitlist'), (req, res) => {
     const entry = store.waitlist.find(w => w.id === parseInt(req.params.id));
     if (!entry) return res.status(404).json({ error: 'Waitlist entry not found' });
     if (req.body.status) entry.status = req.body.status;
@@ -2830,7 +2834,7 @@ app.post('/api/reservations', (req, res) => {
     res.status(201).json(reservation);
 });
 
-app.put('/api/reservations/:id', authorize('tickets'), (req, res) => {
+app.put('/api/reservations/:id', authorize('waitlist'), (req, res) => {
     const reservation = store.reservations.find(r => r.id === parseInt(req.params.id));
     if (!reservation) return res.status(404).json({ error: 'Reservation not found' });
     const { name, partySize, date, time, phone, email, status } = req.body;
@@ -2850,7 +2854,7 @@ app.put('/api/reservations/:id', authorize('tickets'), (req, res) => {
     res.json(reservation);
 });
 
-app.delete('/api/reservations/:id', authorize('tickets'), (req, res) => {
+app.delete('/api/reservations/:id', authorize('waitlist'), (req, res) => {
     const idx = store.reservations.findIndex(r => r.id === parseInt(req.params.id));
     if (idx === -1) return res.status(404).json({ error: 'Reservation not found' });
     const removed = store.reservations.splice(idx, 1)[0];
@@ -3009,7 +3013,7 @@ app.post('/api/qr-orders/:id/complete', authorize('tickets'), (req, res) => {
 // ==========================================
 // Delivery Integrations
 // ==========================================
-app.get('/api/delivery-integrations', authorize('config'), (req, res) => {
+app.get('/api/delivery-integrations', authorize('integrations'), (req, res) => {
     // Mask API keys — never return full keys
     res.json(store.deliveryIntegrations.map(d => ({
         ...d,
@@ -3018,7 +3022,7 @@ app.get('/api/delivery-integrations', authorize('config'), (req, res) => {
     })));
 });
 
-app.post('/api/delivery-integrations', authorize('config'), (req, res) => {
+app.post('/api/delivery-integrations', authorize('integrations'), (req, res) => {
     const { platform, apiKey, storeId, enabled } = req.body;
     if (!platform) return res.status(400).json({ error: 'Platform name required' });
     const validPlatforms = ['doordash', 'ubereats', 'grubhub', 'postmates', 'custom'];
@@ -3047,7 +3051,7 @@ app.post('/api/delivery-integrations', authorize('config'), (req, res) => {
     });
 });
 
-app.post('/api/delivery-integrations/:id/test', authorize('config'), (req, res) => {
+app.post('/api/delivery-integrations/:id/test', authorize('integrations'), (req, res) => {
     const integration = store.deliveryIntegrations.find(d => d.id === parseInt(req.params.id));
     if (!integration) return res.status(404).json({ error: 'Integration not found' });
     if (!integration.apiKey) {
@@ -3062,7 +3066,7 @@ app.post('/api/delivery-integrations/:id/test', authorize('config'), (req, res) 
     res.json({ status: 'connected', platform: integration.platform, testedAt: integration.lastTestedAt });
 });
 
-app.put('/api/delivery-integrations/:id', authorize('config'), (req, res) => {
+app.put('/api/delivery-integrations/:id', authorize('integrations'), (req, res) => {
     const integration = store.deliveryIntegrations.find(d => d.id === parseInt(req.params.id));
     if (!integration) return res.status(404).json({ error: 'Integration not found' });
     const { apiKey, storeId, enabled } = req.body;
@@ -3156,7 +3160,7 @@ app.post('/api/tickets/:id/partial-pay', authorize('tickets'), (req, res) => {
 // ==========================================
 // QuickBooks Export
 // ==========================================
-app.get('/api/export/quickbooks', authorize('reports'), (req, res) => {
+app.get('/api/export/quickbooks', authorize('export'), (req, res) => {
     const date = req.query.date || new Date().toISOString().split('T')[0];
     const dayTickets = store.tickets.filter(t => t.status === 'paid' && t.paidAt && t.paidAt.startsWith(date));
     const totalSales = dayTickets.reduce((sum, t) => sum + (t.total || 0), 0);
@@ -3194,11 +3198,11 @@ app.post('/api/email-reports', authorize('config'), (req, res) => {
 // ==========================================
 // Backup Automation
 // ==========================================
-app.get('/api/backups', authorize('config'), (req, res) => {
+app.get('/api/backups', authorize('backups'), (req, res) => {
     res.json(store.backups);
 });
 
-app.post('/api/backups', authorize('config'), (req, res) => {
+app.post('/api/backups', authorize('backups'), (req, res) => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `backup-${timestamp}.json`;
     const backupDir = path.join(__dirname, '..', 'data', 'backups');
@@ -3254,7 +3258,7 @@ app.post('/api/backups', authorize('config'), (req, res) => {
     }
 });
 
-app.post('/api/backups/:id/restore', authorize('config'), (req, res) => {
+app.post('/api/backups/:id/restore', authorize('backups'), (req, res) => {
     const backup = store.backups.find(b => b.id === parseInt(req.params.id));
     if (!backup) return res.status(404).json({ error: 'Backup not found' });
     if (backup.status !== 'completed') return res.status(400).json({ error: 'Cannot restore from failed backup' });
@@ -3364,7 +3368,7 @@ app.post('/api/auth/2fa/verify', authorize('config'), (req, res) => {
 // ==========================================
 // Encrypted Database Config
 // ==========================================
-app.get('/api/security/encryption-status', authorize('config'), (req, res) => {
+app.get('/api/security/encryption-status', authorize('security'), (req, res) => {
     const security = store.config.security || {};
     const lastRotated = security.lastKeyRotation ? new Date(security.lastKeyRotation) : null;
     const daysSinceRotation = lastRotated ? Math.round((Date.now() - lastRotated.getTime()) / 86400000) : null;
@@ -3380,7 +3384,7 @@ app.get('/api/security/encryption-status', authorize('config'), (req, res) => {
     });
 });
 
-app.put('/api/security/encryption', authorize('config'), (req, res) => {
+app.put('/api/security/encryption', authorize('security'), (req, res) => {
     if (!store.config.security) store.config.security = {};
     const enabled = req.body.enabled !== false;
     store.config.security.databaseEncryption = enabled;
@@ -3402,7 +3406,7 @@ app.put('/api/security/encryption', authorize('config'), (req, res) => {
     });
 });
 
-app.post('/api/security/rotate-key', authorize('config'), (req, res) => {
+app.post('/api/security/rotate-key', authorize('security'), (req, res) => {
     if (!store.config.security || !store.config.security.databaseEncryption) {
         return res.status(400).json({ error: 'Encryption is not enabled' });
     }
@@ -3634,7 +3638,7 @@ app.get('/api/locations', authorize('reports'), (req, res) => {
     })));
 });
 
-app.post('/api/locations', authorize('config'), (req, res) => {
+app.post('/api/locations', authorize('locations'), (req, res) => {
     const { name, address, phone, email } = req.body;
     if (!name) return res.status(400).json({ error: 'Location name required' });
     if (!store.config.locations) store.config.locations = [];
@@ -3649,7 +3653,7 @@ app.post('/api/locations', authorize('config'), (req, res) => {
     res.status(201).json(location);
 });
 
-app.put('/api/locations/:id', authorize('config'), (req, res) => {
+app.put('/api/locations/:id', authorize('locations'), (req, res) => {
     if (!store.config.locations) return res.status(404).json({ error: 'Location not found' });
     const location = store.config.locations.find(l => l.id === parseInt(req.params.id));
     if (!location) return res.status(404).json({ error: 'Location not found' });
@@ -3665,7 +3669,7 @@ app.put('/api/locations/:id', authorize('config'), (req, res) => {
     res.json(location);
 });
 
-app.delete('/api/locations/:id', authorize('config'), (req, res) => {
+app.delete('/api/locations/:id', authorize('locations'), (req, res) => {
     if (!store.config.locations) return res.status(404).json({ error: 'Location not found' });
     const idx = store.config.locations.findIndex(l => l.id === parseInt(req.params.id));
     if (idx === -1) return res.status(404).json({ error: 'Location not found' });
@@ -3719,7 +3723,7 @@ app.get('/api/reports/payment-breakdown', authorize('reports'), (req, res) => {
 // ==========================================
 // Surcharge Cap Logic
 // ==========================================
-app.get('/api/surcharge-cap', authorize('config'), (req, res) => {
+app.get('/api/surcharge-cap', authorize('payment_config'), (req, res) => {
     var cd = store.config.cashDiscount || {};
     res.json({
         maxRate: cd.maxSurchargeRate || 3.0,
@@ -3728,7 +3732,7 @@ app.get('/api/surcharge-cap', authorize('config'), (req, res) => {
     });
 });
 
-app.put('/api/surcharge-cap', authorize('config'), (req, res) => {
+app.put('/api/surcharge-cap', authorize('payment_config'), (req, res) => {
     const { maxRate } = req.body;
     if (maxRate === undefined) return res.status(400).json({ error: 'Max rate required' });
     if (!store.config.cashDiscount) store.config.cashDiscount = {};
@@ -3740,11 +3744,11 @@ app.put('/api/surcharge-cap', authorize('config'), (req, res) => {
 // ==========================================
 // Hardware: Printers
 // ==========================================
-app.get('/api/hardware/printers', authorize('config'), (req, res) => {
+app.get('/api/hardware/printers', authorize('hardware'), (req, res) => {
     res.json((store.config.hardware && store.config.hardware.printers) || []);
 });
 
-app.post('/api/hardware/printers', authorize('config'), (req, res) => {
+app.post('/api/hardware/printers', authorize('hardware'), (req, res) => {
     const { name, ipAddress, type, model } = req.body;
     if (!name) return res.status(400).json({ error: 'Printer name required' });
     if (!store.config.hardware) store.config.hardware = {};
@@ -3763,7 +3767,7 @@ app.post('/api/hardware/printers', authorize('config'), (req, res) => {
 // ==========================================
 // Hardware: Cash Drawer
 // ==========================================
-app.post('/api/hardware/cash-drawer/open', authorize('tickets'), (req, res) => {
+app.post('/api/hardware/cash-drawer/open', authorize('cash_drawer'), (req, res) => {
     logAudit('cash_drawer_opened', req.user, { reason: req.body.reason || 'sale' });
     res.json({ success: true, opened: true, timestamp: new Date().toISOString() });
 });
@@ -3785,7 +3789,7 @@ app.post('/api/hardware/barcode-scan', authorize('tickets'), (req, res) => {
 // ==========================================
 // Hardware: KDS Displays
 // ==========================================
-app.get('/api/hardware/kds-displays', authorize('config'), (req, res) => {
+app.get('/api/hardware/kds-displays', authorize('hardware'), (req, res) => {
     if (!store.config.hardware) store.config.hardware = {};
     if (!store.config.hardware.kdsDisplays) {
         store.config.hardware.kdsDisplays = [
@@ -3802,7 +3806,7 @@ app.get('/api/hardware/kds-displays', authorize('config'), (req, res) => {
     res.json(store.config.hardware.kdsDisplays);
 });
 
-app.post('/api/hardware/kds-displays', authorize('config'), (req, res) => {
+app.post('/api/hardware/kds-displays', authorize('hardware'), (req, res) => {
     if (!store.config.hardware) store.config.hardware = {};
     if (!store.config.hardware.kdsDisplays) store.config.hardware.kdsDisplays = [];
     const { name, station, ipAddress } = req.body;
@@ -3834,7 +3838,7 @@ app.get('/api/tables', (req, res) => {
     res.json(store.config.tables || []);
 });
 
-app.put('/api/tables', authorize('config'), (req, res) => {
+app.put('/api/tables', authorize('tables'), (req, res) => {
     const { tables } = req.body;
     if (!Array.isArray(tables)) return res.status(400).json({ error: 'Tables array required' });
     store.config.tables = tables.map(t => ({
@@ -4239,7 +4243,7 @@ app.get('/api/menu', (req, res) => {
     res.json(store.config.menu || { categories: [], items: [] });
 });
 
-app.put('/api/menu', authorize('config'), (req, res) => {
+app.put('/api/menu', authorize('menu'), (req, res) => {
     const { categories, items } = req.body;
     if (!store.config.menu) store.config.menu = { categories: [], items: [] };
     if (categories !== undefined) store.config.menu.categories = categories;

@@ -26,23 +26,183 @@ function hashPin(pin) {
 
 // Employee database keyed by pre-computed PIN hashes - no plaintext PINs
 const EMPLOYEES = {
-    'ph_7c78c98f': { id: 'M001', name: 'Maria', role: 'manager' },
+    'ph_7c78c98f': { id: 'M001', name: 'Maria', role: 'general_manager' },
     'ph_7c78c509': { id: 'S001', name: 'John', role: 'server' },
     'ph_7c7955cd': { id: 'S002', name: 'Sarah', role: 'server' },
     'ph_7c79e691': { id: 'C001', name: 'Mike', role: 'cashier' },
     'ph_7c7a7755': { id: 'B001', name: 'Lisa', role: 'bartender' },
     'ph_7c7b0819': { id: 'K001', name: 'Carlos', role: 'kitchen' },
-    'ph_7c7b9436': { id: 'A001', name: 'Admin', role: 'admin' }
+    'ph_7c7b9436': { id: 'A001', name: 'Admin', role: 'owner' },
+    'ph_7c7c29a1': { id: 'AM01', name: 'David', role: 'assistant_manager' },
+    'ph_7c7cba65': { id: 'H001', name: 'Emma', role: 'host' },
+    'ph_7c7d4b29': { id: 'KM01', name: 'Rosa', role: 'kitchen_manager' },
+    'ph_7c795ed9': { id: 'BK01', name: 'Frank', role: 'bookkeeper' }
 };
+
+// ==========================================
+// Granular Permission Keys (31 total)
+// ==========================================
+// Financial:  tickets, void, refund, comp, discounts, cash_drawer, close_day
+// Reports:    reports, export, audit, fraud
+// Operations: menu, tables, waitlist, kitchen, online_orders
+// System:     config, payment_config, security, hardware, locations, integrations
+// Labor:      employees, payroll, timeclock
+// Inventory:  inventory, vendors, recipes, purchase_orders, waste_log
+// Admin:      backups
+
+const _allPerms = [
+    'tickets', 'void', 'refund', 'comp', 'discounts', 'cash_drawer', 'close_day',
+    'reports', 'export', 'audit', 'fraud',
+    'menu', 'tables', 'waitlist', 'kitchen', 'online_orders',
+    'config', 'payment_config', 'security', 'hardware', 'locations', 'integrations',
+    'employees', 'payroll', 'timeclock',
+    'inventory', 'vendors', 'recipes', 'purchase_orders', 'waste_log',
+    'backups'
+];
+const _allTrue  = Object.fromEntries(_allPerms.map(k => [k, true]));
+const _allFalse = Object.fromEntries(_allPerms.map(k => [k, false]));
 
 // Role-based permissions
 const ROLE_PERMISSIONS = {
-    admin:     { tickets: true, void: true, refund: true, kitchen: true, config: true, reports: true, timeclock: true },
-    manager:   { tickets: true, void: true, refund: true, kitchen: true, config: true, reports: true, timeclock: true },
-    server:    { tickets: true, void: false, refund: false, kitchen: false, config: false, reports: false, timeclock: true },
-    cashier:   { tickets: true, void: false, refund: false, kitchen: false, config: false, reports: false, timeclock: true },
-    bartender: { tickets: true, void: false, refund: false, kitchen: false, config: false, reports: false, timeclock: true },
-    kitchen:   { tickets: false, void: false, refund: false, kitchen: true, config: false, reports: false, timeclock: true }
+
+    // ── 1. Owner (Super Admin) ── full system access
+    //    Controls surcharge/cash discount setup, payment processor, security.
+    owner: { ..._allTrue },
+
+    // Backward-compat alias for 'owner'
+    admin: { ..._allTrue },
+
+    // ── 2. General Manager ── 80-95% access
+    //    Cannot change payment processor or merchant account settings.
+    //    Cannot alter security settings.
+    general_manager: {
+        ..._allTrue,
+        payment_config: false,
+        security: false
+    },
+
+    // Backward-compat alias for 'general_manager'
+    manager: {
+        ..._allTrue,
+        payment_config: false,
+        security: false
+    },
+
+    // ── 3. Assistant Manager / Shift Manager ──
+    //    Void checks, limited comps/refunds, cash drawer reconciliation,
+    //    close shifts, manage tables, adjust orders, 86 items.
+    //    No payment processing settings or system-level financial exports.
+    assistant_manager: {
+        ..._allFalse,
+        tickets: true, void: true, refund: true, comp: true, discounts: true,
+        cash_drawer: true, close_day: true,
+        reports: true,
+        menu: true, tables: true, waitlist: true, kitchen: true, online_orders: true,
+        timeclock: true,
+        inventory: true, waste_log: true
+    },
+
+    // ── FRONT OF HOUSE ──
+
+    // ── 4. Server ──
+    //    Open/close checks, pre-set discounts, transfer tables, print receipts,
+    //    split checks, add tips. No voids, refunds, or reporting.
+    server: {
+        ..._allFalse,
+        tickets: true, discounts: true, tables: true, waitlist: true,
+        cash_drawer: true, timeclock: true
+    },
+
+    // ── 5. Bartender ── same as Server + bar tabs, cash drawer
+    bartender: {
+        ..._allFalse,
+        tickets: true, discounts: true, tables: true, waitlist: true,
+        cash_drawer: true, timeclock: true
+    },
+
+    // ── 6. Host ── table & waitlist management only, no financial access
+    host: {
+        ..._allFalse,
+        tables: true, waitlist: true, timeclock: true
+    },
+
+    // ── 7. Cashier (Quick Service) ──
+    //    Process payments, cash/card, limited discounts. No reporting or config.
+    cashier: {
+        ..._allFalse,
+        tickets: true, discounts: true, cash_drawer: true, timeclock: true
+    },
+
+    // ── BACK OF HOUSE ──
+
+    // ── 8. Line Cook (KDS Only) ──
+    //    View tickets, bump orders, mark items ready. No financials or POS.
+    kitchen: {
+        ..._allFalse,
+        kitchen: true, timeclock: true
+    },
+
+    // ── 9. Kitchen Manager ──
+    //    Inventory, waste logging, recipe management, food cost reporting,
+    //    vendor management. Limited POS financial access.
+    kitchen_manager: {
+        ..._allFalse,
+        kitchen: true, reports: true, timeclock: true,
+        inventory: true, vendors: true, recipes: true,
+        purchase_orders: true, waste_log: true
+    },
+
+    // ── ACCOUNTING / ADMIN ──
+
+    // ── 10. Bookkeeper / Accountant ──
+    //    View reports, export sales data, access payout/tax/labor reports.
+    //    Cannot operate POS, void/comp, or change settings.
+    bookkeeper: {
+        ..._allFalse,
+        reports: true, export: true, audit: true, timeclock: true
+    },
+
+    // ── SPECIALIZED MODULE ROLES ──
+
+    // ── 11. Payroll Admin ──
+    //    Process payroll, edit pay rates, manage employee records.
+    payroll_admin: {
+        ..._allFalse,
+        employees: true, payroll: true, reports: true, export: true, timeclock: true
+    },
+
+    // ── 12. Inventory Admin ──
+    //    Manage vendors, cost recipes, food cost analytics, receive POs.
+    inventory_admin: {
+        ..._allFalse,
+        reports: true, timeclock: true,
+        inventory: true, vendors: true, recipes: true,
+        purchase_orders: true, waste_log: true
+    },
+
+    // ── 13. Online Ordering Admin ──
+    //    Manage digital menus, online pricing, delivery zones, service fees.
+    online_ordering_admin: {
+        ..._allFalse,
+        menu: true, online_orders: true, integrations: true, timeclock: true
+    }
+};
+
+// Role metadata for UI display
+const ROLES = {
+    owner:                  { label: 'Owner',                  category: 'Admin / Ownership' },
+    general_manager:        { label: 'General Manager',        category: 'Admin / Ownership' },
+    assistant_manager:      { label: 'Assistant Manager',      category: 'Admin / Ownership' },
+    server:                 { label: 'Server',                 category: 'Front of House' },
+    bartender:              { label: 'Bartender',              category: 'Front of House' },
+    host:                   { label: 'Host',                   category: 'Front of House' },
+    cashier:                { label: 'Cashier',                category: 'Front of House' },
+    kitchen:                { label: 'Line Cook',              category: 'Back of House' },
+    kitchen_manager:        { label: 'Kitchen Manager',        category: 'Back of House' },
+    bookkeeper:             { label: 'Bookkeeper',             category: 'Accounting' },
+    payroll_admin:          { label: 'Payroll Admin',          category: 'Specialized' },
+    inventory_admin:        { label: 'Inventory Admin',        category: 'Specialized' },
+    online_ordering_admin:  { label: 'Online Ordering Admin',  category: 'Specialized' }
 };
 
 /**
@@ -263,6 +423,7 @@ module.exports = {
     hashPin,
     EMPLOYEES,
     ROLE_PERMISSIONS,
+    ROLES,
     getEmployeeList,
     addEmployee,
     removeEmployee,
