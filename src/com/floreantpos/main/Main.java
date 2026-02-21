@@ -28,6 +28,7 @@ import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.Options;
 
+import com.floreantpos.config.DeserializationSecurity;
 import com.floreantpos.config.TerminalConfig;
 
 public class Main {
@@ -36,9 +37,11 @@ public class Main {
 
 	/**
 	 * @param args
-	 * @throws Exception 
+	 * @throws Exception
 	 */
 	public static void main(String[] args) throws Exception {
+		DeserializationSecurity.install();
+
 		Options options = new Options();
 		options.addOption(DEVELOPMENT_MODE, true, "State if this is developmentMode"); //$NON-NLS-1$
 		CommandLineParser parser = new BasicParser();

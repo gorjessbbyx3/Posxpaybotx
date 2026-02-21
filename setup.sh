@@ -24,11 +24,19 @@ check_prereqs() {
 
     if command -v java &> /dev/null; then
         JAVA_VER=$(java -version 2>&1 | head -n1 | awk -F '"' '{print $2}')
+        JAVA_MAJOR=$(echo "$JAVA_VER" | awk -F'.' '{print $1}')
         echo -e "  ${GREEN}✓${NC} Java: $JAVA_VER"
+        if [ "$JAVA_MAJOR" -lt 17 ] 2>/dev/null; then
+            echo -e "  ${RED}✗${NC} Java 17+ is required (CVE-2025-10492: JasperReports deserialization vulnerability)"
+            echo "    Your version ($JAVA_VER) is vulnerable. Please upgrade:"
+            echo "    Ubuntu: sudo apt install openjdk-17-jdk"
+            echo "    Mac:    brew install openjdk@17"
+            exit 1
+        fi
     else
-        echo -e "  ${RED}✗${NC} Java not found. Please install JDK 11+"
-        echo "    Ubuntu: sudo apt install openjdk-11-jdk"
-        echo "    Mac:    brew install openjdk@11"
+        echo -e "  ${RED}✗${NC} Java not found. Please install JDK 17+ (required for CVE-2025-10492 mitigation)"
+        echo "    Ubuntu: sudo apt install openjdk-17-jdk"
+        echo "    Mac:    brew install openjdk@17"
         exit 1
     fi
 

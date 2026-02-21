@@ -10,7 +10,7 @@ services:
       - pos-data:/opt/floreantpos/data
       - ./config:/opt/floreantpos/config
     environment:
-      - JAVA_OPTS=-Xmx512m
+      - JAVA_OPTS=-Xmx512m -Djdk.serialFilter=!org.apache.commons.collections.functors.*;!org.apache.xalan.*;!com.sun.org.apache.xalan.*;!org.codehaus.groovy.runtime.*;!org.springframework.*;!javax.management.*;maxdepth=5;maxarray=1000
       - DB_TYPE=DERBY           # DERBY (embedded), MYSQL, or POSTGRESQL
       - DB_HOST=db
       - DB_PORT=3306

@@ -40,7 +40,7 @@ cd Posxpaybotx
 ### Option 3: Manual
 
 ```bash
-# Prerequisites: JDK 11+, Maven 3.6+
+# Prerequisites: JDK 17+, Maven 3.6+
 mvn package -DskipTests
 java -cp target/classes:local-lib/* com.floreantpos.main.Application
 ```
@@ -340,7 +340,7 @@ docker-compose down
 
 ```bash
 # Prerequisites
-# - JDK 11+
+# - JDK 17+
 # - Maven 3.6+
 
 # Build
