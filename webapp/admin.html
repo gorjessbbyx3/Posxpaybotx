@@ -199,23 +199,146 @@
             to { transform: translateY(0); opacity: 1; }
         }
 
+        /* Dashboard Styles */
+        .dash-kpis {
+            display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 20px;
+        }
+        .dash-kpi {
+            background: var(--bg); border-radius: 10px; padding: 16px; text-align: center;
+            border: 1px solid var(--border-light);
+        }
+        .dash-kpi-label {
+            font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.5px; color: var(--text-dim); margin-bottom: 6px;
+        }
+        .dash-kpi-value {
+            font-size: 1.5rem; font-weight: 700; color: var(--text);
+            font-variant-numeric: tabular-nums;
+        }
+        .dash-kpi-sub {
+            font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;
+        }
+        .dash-kpi-alert .dash-kpi-value { color: var(--danger); }
+
+        .dash-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+        }
+        .dash-card {
+            background: var(--bg); border-radius: 10px; padding: 16px;
+            border: 1px solid var(--border-light);
+        }
+        .dash-card-wide { grid-column: 1 / -1; }
+        .dash-card-title {
+            font-size: 0.85rem; font-weight: 700; margin-bottom: 12px;
+            color: var(--text); padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-light);
+        }
+        .dash-empty {
+            color: var(--text-muted); font-size: 0.85rem;
+            text-align: center; padding: 20px 0;
+        }
+
+        /* Payment bars */
+        .dash-pay-bar-row {
+            display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+        }
+        .dash-pay-label { width: 50px; font-size: 0.78rem; font-weight: 600; color: var(--text-dim); text-align: right; }
+        .dash-pay-track {
+            flex: 1; height: 24px; background: var(--border-light); border-radius: 6px;
+            overflow: hidden; position: relative;
+        }
+        .dash-pay-fill {
+            height: 100%; border-radius: 6px; transition: width 0.6s ease;
+            display: flex; align-items: center; padding-left: 8px;
+            font-size: 0.72rem; font-weight: 600; color: white; min-width: 0;
+        }
+        .dash-pay-fill.cash { background: var(--cash-green); }
+        .dash-pay-fill.card { background: var(--card-blue); }
+        .dash-pay-amount {
+            font-size: 0.78rem; font-weight: 600; color: var(--text); width: 80px; text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+        .dash-payment-legend {
+            display: flex; gap: 16px; justify-content: center; margin-top: 10px;
+            font-size: 0.75rem; color: var(--text-dim);
+        }
+        .dash-legend-dot {
+            display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+            margin-right: 4px; vertical-align: middle;
+        }
+
+        /* Top items */
+        .dash-top-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 0; border-bottom: 1px solid var(--border-light);
+        }
+        .dash-top-item:last-child { border-bottom: none; }
+        .dash-top-rank {
+            width: 22px; height: 22px; border-radius: 50%; background: var(--accent-light);
+            color: var(--accent); font-size: 0.7rem; font-weight: 700;
+            display: flex; align-items: center; justify-content: center; margin-right: 10px;
+        }
+        .dash-top-name { flex: 1; font-size: 0.85rem; font-weight: 500; }
+        .dash-top-qty { font-size: 0.78rem; color: var(--text-dim); margin-right: 12px; }
+        .dash-top-rev { font-size: 0.85rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+        /* Labor */
+        .dash-labor-stat {
+            display: flex; justify-content: space-between; padding: 8px 0;
+            border-bottom: 1px solid var(--border-light); font-size: 0.85rem;
+        }
+        .dash-labor-stat:last-child { border-bottom: none; }
+        .dash-labor-label { color: var(--text-dim); font-weight: 500; }
+        .dash-labor-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+        .dash-labor-pct {
+            display: inline-block; padding: 2px 8px; border-radius: 8px;
+            font-size: 0.75rem; font-weight: 700;
+        }
+        .dash-labor-pct.good { background: var(--success-bg); color: var(--success); }
+        .dash-labor-pct.warn { background: rgba(255,149,0,0.1); color: var(--warning); }
+        .dash-labor-pct.bad { background: var(--danger-bg); color: var(--danger); }
+
+        /* Activity feed */
+        .dash-activity { max-height: 220px; overflow-y: auto; }
+        .dash-activity-item {
+            display: flex; gap: 10px; padding: 8px 0;
+            border-bottom: 1px solid var(--border-light); font-size: 0.82rem;
+        }
+        .dash-activity-item:last-child { border-bottom: none; }
+        .dash-activity-time {
+            font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; min-width: 50px;
+        }
+        .dash-activity-icon {
+            width: 24px; height: 24px; border-radius: 6px; display: flex;
+            align-items: center; justify-content: center; font-size: 0.7rem; flex-shrink: 0;
+        }
+        .dash-activity-icon.sale { background: var(--success-bg); color: var(--success); }
+        .dash-activity-icon.refund { background: var(--danger-bg); color: var(--danger); }
+        .dash-activity-icon.void { background: rgba(255,149,0,0.1); color: var(--warning); }
+        .dash-activity-icon.other { background: var(--accent-light); color: var(--accent); }
+        .dash-activity-text { flex: 1; color: var(--text); }
+        .dash-activity-amount { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
         @media (max-width: 768px) {
             .admin-layout { flex-direction: column; padding: 12px; }
             .admin-nav { width: 100%; display: flex; overflow-x: auto; gap: 4px; }
             .form-row, .form-row-3 { grid-template-columns: 1fr; }
             .discount-reasons { grid-template-columns: repeat(2, 1fr); }
+            .dash-kpis { grid-template-columns: repeat(3, 1fr); }
+            .dash-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
     <div class="admin-header">
-        <h1>Admin Settings</h1>
+        <h1>Admin Panel</h1>
         <a href="index.html" class="back-link">Back to POS</a>
     </div>
 
     <div class="admin-layout">
         <nav class="admin-nav">
-            <button class="nav-item active" data-panel="cash-discount">Cash Discount</button>
+            <button class="nav-item active" data-panel="dashboard">Dashboard</button>
+            <button class="nav-item" data-panel="cash-discount">Cash Discount</button>
             <button class="nav-item" data-panel="terminal">PaybotX Terminal</button>
             <button class="nav-item" data-panel="menu">Menu Management</button>
             <button class="nav-item" data-panel="tax">Tax Settings</button>
@@ -225,8 +348,103 @@
         </nav>
 
         <div class="admin-content">
+            <!-- Dashboard Overview -->
+            <div class="settings-panel active" id="panel-dashboard">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                    <h2 class="panel-title" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">Dashboard Overview</h2>
+                    <button class="btn-test" id="btn-refresh-dashboard" style="font-size:0.8rem;padding:6px 14px;">Refresh</button>
+                </div>
+
+                <!-- KPI Cards -->
+                <div class="dash-kpis">
+                    <div class="dash-kpi">
+                        <div class="dash-kpi-label">Today's Sales</div>
+                        <div class="dash-kpi-value" id="kpi-sales">$0.00</div>
+                        <div class="dash-kpi-sub" id="kpi-sales-sub">0 tickets</div>
+                    </div>
+                    <div class="dash-kpi">
+                        <div class="dash-kpi-label">Avg Ticket</div>
+                        <div class="dash-kpi-value" id="kpi-avg">$0.00</div>
+                        <div class="dash-kpi-sub" id="kpi-avg-sub">&nbsp;</div>
+                    </div>
+                    <div class="dash-kpi">
+                        <div class="dash-kpi-label">Open Orders</div>
+                        <div class="dash-kpi-value" id="kpi-open">0</div>
+                        <div class="dash-kpi-sub" id="kpi-kitchen">0 in kitchen</div>
+                    </div>
+                    <div class="dash-kpi">
+                        <div class="dash-kpi-label">Staff On Duty</div>
+                        <div class="dash-kpi-value" id="kpi-staff">0</div>
+                        <div class="dash-kpi-sub" id="kpi-staff-sub">&nbsp;</div>
+                    </div>
+                    <div class="dash-kpi">
+                        <div class="dash-kpi-label">Online Orders</div>
+                        <div class="dash-kpi-value" id="kpi-online">0</div>
+                        <div class="dash-kpi-sub" id="kpi-online-sub">pending</div>
+                    </div>
+                    <div class="dash-kpi dash-kpi-alert">
+                        <div class="dash-kpi-label">Alerts</div>
+                        <div class="dash-kpi-value" id="kpi-alerts">0</div>
+                        <div class="dash-kpi-sub" id="kpi-alerts-sub">fraud / low stock</div>
+                    </div>
+                </div>
+
+                <!-- Two-column layout -->
+                <div class="dash-grid">
+                    <!-- Payment Breakdown -->
+                    <div class="dash-card">
+                        <h3 class="dash-card-title">Payment Breakdown</h3>
+                        <div id="dash-payment-bars"></div>
+                        <div class="dash-payment-legend" id="dash-payment-legend"></div>
+                    </div>
+
+                    <!-- Top Items -->
+                    <div class="dash-card">
+                        <h3 class="dash-card-title">Top Items (7 days)</h3>
+                        <div id="dash-top-items">
+                            <div class="dash-empty">No data yet</div>
+                        </div>
+                    </div>
+
+                    <!-- Server Performance -->
+                    <div class="dash-card">
+                        <h3 class="dash-card-title">Server Performance</h3>
+                        <table class="menu-table" id="dash-server-table">
+                            <thead>
+                                <tr>
+                                    <th>Server</th>
+                                    <th>Tickets</th>
+                                    <th>Sales</th>
+                                    <th>Tips</th>
+                                    <th>Avg</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dash-server-body">
+                                <tr><td colspan="5" class="dash-empty">No data yet</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Labor Cost -->
+                    <div class="dash-card">
+                        <h3 class="dash-card-title">Labor Cost</h3>
+                        <div class="dash-labor" id="dash-labor">
+                            <div class="dash-empty">No data yet</div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <div class="dash-card dash-card-wide">
+                        <h3 class="dash-card-title">Recent Activity</h3>
+                        <div class="dash-activity" id="dash-activity">
+                            <div class="dash-empty">No recent activity</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Cash Discount Settings -->
-            <div class="settings-panel active" id="panel-cash-discount">
+            <div class="settings-panel" id="panel-cash-discount">
                 <h2 class="panel-title">Cash Discount / Surcharge Settings</h2>
 
                 <div class="toggle-row">
@@ -809,6 +1027,230 @@
     }
 
     loadConfig();
+
+    // ==========================================
+    // Dashboard
+    // ==========================================
+    function $(sel) { return document.querySelector(sel); }
+    function fmt(n) { return '$' + (n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+    function loadDashboard() {
+        const token = getAuthToken();
+        const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+
+        // Fetch all dashboard data in parallel
+        Promise.allSettled([
+            fetch('/api/admin/summary', { headers }).then(r => r.ok ? r.json() : null),
+            fetch('/api/reports/payment-type', { headers }).then(r => r.ok ? r.json() : null),
+            fetch('/api/analytics/owner?days=7', { headers }).then(r => r.ok ? r.json() : null),
+            fetch('/api/reports/server-performance', { headers }).then(r => r.ok ? r.json() : null),
+            fetch('/api/reports/labor-cost', { headers }).then(r => r.ok ? r.json() : null),
+            fetch('/api/live-feed', { headers }).then(r => r.ok ? r.json() : null),
+        ]).then(([sumRes, payRes, ownerRes, serverRes, laborRes, feedRes]) => {
+            const summary = sumRes.status === 'fulfilled' ? sumRes.value : null;
+            const payment = payRes.status === 'fulfilled' ? payRes.value : null;
+            const owner = ownerRes.status === 'fulfilled' ? ownerRes.value : null;
+            const servers = serverRes.status === 'fulfilled' ? serverRes.value : null;
+            const labor = laborRes.status === 'fulfilled' ? laborRes.value : null;
+            const feed = feedRes.status === 'fulfilled' ? feedRes.value : null;
+
+            renderKPIs(summary);
+            renderPayment(payment);
+            renderTopItems(owner);
+            renderServers(servers);
+            renderLabor(labor);
+            renderActivity(feed);
+        });
+    }
+
+    function renderKPIs(data) {
+        if (!data) return;
+        $('#kpi-sales').textContent = fmt(data.todaySales);
+        $('#kpi-sales-sub').textContent = (data.ticketCount || 0) + ' tickets';
+        const avg = data.ticketCount > 0 ? data.todaySales / data.ticketCount : 0;
+        $('#kpi-avg').textContent = fmt(avg);
+        $('#kpi-open').textContent = data.openTickets || 0;
+        $('#kpi-kitchen').textContent = (data.activeKitchenOrders || 0) + ' in kitchen';
+        $('#kpi-staff').textContent = data.activeStaffCount || 0;
+        const waitlist = data.waitlistCount || 0;
+        const reservations = data.reservationsToday || 0;
+        $('#kpi-staff-sub').textContent = waitlist + ' waitlist / ' + reservations + ' reservations';
+        $('#kpi-online').textContent = data.pendingOnlineOrders || 0;
+        $('#kpi-online-sub').textContent = 'pending';
+        const alertCount = (data.lowStockAlerts || 0) + (data.recentFraudAlerts || 0);
+        $('#kpi-alerts').textContent = alertCount;
+        $('#kpi-alerts-sub').textContent = (data.recentFraudAlerts || 0) + ' fraud / ' + (data.lowStockAlerts || 0) + ' stock';
+    }
+
+    function renderPayment(data) {
+        const container = document.getElementById('dash-payment-bars');
+        const legend = document.getElementById('dash-payment-legend');
+        if (!data || !data.breakdown) {
+            container.innerHTML = '<div class="dash-empty">No payment data yet</div>';
+            legend.innerHTML = '';
+            return;
+        }
+        const bd = data.breakdown;
+        const cashAmt = bd.cash ? bd.cash.sales : 0;
+        const cardAmt = bd.card ? bd.card.sales : 0;
+        const total = cashAmt + cardAmt || 1;
+        const cashPct = Math.round(cashAmt / total * 100);
+        const cardPct = Math.round(cardAmt / total * 100);
+
+        container.innerHTML = `
+            <div class="dash-pay-bar-row">
+                <div class="dash-pay-label">Cash</div>
+                <div class="dash-pay-track">
+                    <div class="dash-pay-fill cash" style="width:${cashPct}%">${cashPct > 10 ? cashPct + '%' : ''}</div>
+                </div>
+                <div class="dash-pay-amount">${fmt(cashAmt)}</div>
+            </div>
+            <div class="dash-pay-bar-row">
+                <div class="dash-pay-label">Card</div>
+                <div class="dash-pay-track">
+                    <div class="dash-pay-fill card" style="width:${cardPct}%">${cardPct > 10 ? cardPct + '%' : ''}</div>
+                </div>
+                <div class="dash-pay-amount">${fmt(cardAmt)}</div>
+            </div>
+        `;
+        const cashCount = bd.cash ? bd.cash.count : 0;
+        const cardCount = bd.card ? bd.card.count : 0;
+        legend.innerHTML = `
+            <span><span class="dash-legend-dot" style="background:var(--cash-green)"></span>Cash (${cashCount} txns)</span>
+            <span><span class="dash-legend-dot" style="background:var(--card-blue)"></span>Card (${cardCount} txns)</span>
+        `;
+    }
+
+    function renderTopItems(data) {
+        const container = document.getElementById('dash-top-items');
+        if (!data || !data.topItems || data.topItems.length === 0) {
+            container.innerHTML = '<div class="dash-empty">No item data yet</div>';
+            return;
+        }
+        container.innerHTML = data.topItems.slice(0, 5).map((item, i) => `
+            <div class="dash-top-item">
+                <div class="dash-top-rank">${i + 1}</div>
+                <div class="dash-top-name">${item.name}</div>
+                <div class="dash-top-qty">${item.quantity || item.qty || 0} sold</div>
+            </div>
+        `).join('');
+    }
+
+    function renderServers(data) {
+        const tbody = document.getElementById('dash-server-body');
+        if (!data || !data.servers || data.servers.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="dash-empty">No server data yet</td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.servers.slice(0, 6).map(s => `
+            <tr>
+                <td>${s.name}</td>
+                <td>${s.tickets || 0}</td>
+                <td class="price-col">${fmt(s.sales)}</td>
+                <td class="price-col" style="color:var(--success)">${fmt(s.tips)}</td>
+                <td class="price-col">${fmt(s.avgTicket)}</td>
+            </tr>
+        `).join('');
+    }
+
+    function renderLabor(data) {
+        const container = document.getElementById('dash-labor');
+        if (!data) {
+            container.innerHTML = '<div class="dash-empty">No labor data yet</div>';
+            return;
+        }
+        const pct = data.laborPct || 0;
+        let pctClass = 'good';
+        if (pct > 35) pctClass = 'bad';
+        else if (pct > 25) pctClass = 'warn';
+
+        let rolesHtml = '';
+        if (data.byRole) {
+            rolesHtml = Object.entries(data.byRole).map(([role, info]) => `
+                <div class="dash-labor-stat">
+                    <span class="dash-labor-label" style="text-transform:capitalize">${role}</span>
+                    <span class="dash-labor-val">${info.employees || 0} staff / ${(info.hours || 0).toFixed(1)}h / ${fmt(info.cost)}</span>
+                </div>
+            `).join('');
+        }
+
+        container.innerHTML = `
+            <div class="dash-labor-stat">
+                <span class="dash-labor-label">Total Hours</span>
+                <span class="dash-labor-val">${(data.totalHours || 0).toFixed(1)}h</span>
+            </div>
+            <div class="dash-labor-stat">
+                <span class="dash-labor-label">Total Labor Cost</span>
+                <span class="dash-labor-val">${fmt(data.totalCost)}</span>
+            </div>
+            <div class="dash-labor-stat">
+                <span class="dash-labor-label">Labor % of Sales</span>
+                <span class="dash-labor-pct ${pctClass}">${pct.toFixed(1)}%</span>
+            </div>
+            ${rolesHtml}
+        `;
+    }
+
+    function renderActivity(data) {
+        const container = document.getElementById('dash-activity');
+        const entries = [];
+
+        if (data && data.tickets) {
+            data.tickets.slice(0, 15).forEach(t => {
+                entries.push({
+                    time: t.createdAt || t.paidAt || '',
+                    type: t.status === 'voided' ? 'void' : t.status === 'refunded' ? 'refund' : 'sale',
+                    text: '#' + (t.id || '?') + ' ' + (t.status || 'open'),
+                    amount: t.total || 0
+                });
+            });
+        }
+        if (data && data.refunds) {
+            data.refunds.slice(0, 5).forEach(r => {
+                entries.push({
+                    time: r.timestamp || '',
+                    type: 'refund',
+                    text: 'Refund #' + (r.ticketId || '?') + ' - ' + (r.reason || ''),
+                    amount: r.amount || 0
+                });
+            });
+        }
+
+        if (entries.length === 0) {
+            container.innerHTML = '<div class="dash-empty">No recent activity</div>';
+            return;
+        }
+
+        entries.sort((a, b) => (b.time || '').localeCompare(a.time || ''));
+
+        container.innerHTML = entries.slice(0, 12).map(e => {
+            const timeStr = e.time ? new Date(e.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--';
+            const icons = { sale: 'S', refund: 'R', void: 'V', other: '?' };
+            return `
+                <div class="dash-activity-item">
+                    <div class="dash-activity-time">${timeStr}</div>
+                    <div class="dash-activity-icon ${e.type}">${icons[e.type] || '?'}</div>
+                    <div class="dash-activity-text">${e.text}</div>
+                    <div class="dash-activity-amount">${fmt(e.amount)}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // Load dashboard on page open and on refresh click
+    loadDashboard();
+    document.getElementById('btn-refresh-dashboard').addEventListener('click', () => {
+        showToast('Refreshing...');
+        loadDashboard();
+    });
+
+    // Auto-refresh every 60 seconds when dashboard is visible
+    setInterval(() => {
+        const panel = document.getElementById('panel-dashboard');
+        if (panel && panel.classList.contains('active')) {
+            loadDashboard();
+        }
+    }, 60000);
 
     // Cash discount dual pricing calculation
     function getDualPrices(price) {
