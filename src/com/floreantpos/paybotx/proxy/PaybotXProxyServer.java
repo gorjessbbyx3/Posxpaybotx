@@ -48,6 +48,7 @@ import com.floreantpos.model.dao.UserDAO;
 import com.floreantpos.services.PosTransactionService;
 import com.floreantpos.cashdiscount.CashDiscountService;
 import com.floreantpos.cashdiscount.CashDiscountCalculator;
+import com.floreantpos.config.DeserializationSecurity;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -100,6 +101,8 @@ public class PaybotXProxyServer implements HttpHandler {
 	}
 
 	public static void main(String[] args) throws Exception {
+		DeserializationSecurity.install();
+
 		PaybotXProxyServer proxyServer;
 		if (args.length > 0) {
 			proxyServer = new PaybotXProxyServer(Integer.parseInt(args[0]));

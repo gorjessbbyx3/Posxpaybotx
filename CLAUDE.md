@@ -75,7 +75,7 @@ Posxpaybotx/
 ├── plugins/                       # Plugin directory (extensible framework)
 ├── docker-compose.yml             # Multi-container orchestration (pos, db, nginx)
 ├── Dockerfile                     # Multi-stage container build
-├── pom.xml                        # Maven build (Java 11, 46 dependencies)
+├── pom.xml                        # Maven build (Java 17, 46 dependencies)
 ├── setup.sh                       # Interactive setup script
 ├── .env.example                   # Environment variable template
 └── README.md                      # Project documentation
@@ -87,7 +87,7 @@ Posxpaybotx/
 
 | Layer | Technology | Notes |
 |-------|-----------|-------|
-| **Java Backend** | Java 11+, Hibernate 3.2.6, Maven 3.6+ | Core POS, payment processing, ORM |
+| **Java Backend** | Java 17+, Hibernate 3.2.6, Maven 3.6+ | Core POS, payment processing, ORM |
 | **Web Frontend** | HTML5, CSS3, vanilla JavaScript | Touch-optimized, no framework |
 | **Web API** | Node.js 18+, Express 4.18 | Lightweight REST server with JWT auth |
 | **Database** | Derby (embedded), MySQL 8.0, PostgreSQL 9.5+ | Multi-DB support |
@@ -429,7 +429,7 @@ cashDiscount.minCardAmount=0.00
 - Hibernate ORM for persistence via DAO pattern (e.g., `TicketDAO`)
 - Plugin architecture: payment gateways implement `CardProcessor` interface
 - Service layer pattern for business logic
-- Java source level: 1.7 (compiler), runtime: 11+
+- Java source level: 17 (compiler + runtime) — required for CVE-2025-10492 mitigation
 
 ### JavaScript (Web Frontend)
 
@@ -720,4 +720,4 @@ Features already implemented are marked with checkmarks. This is the full compet
 - **Log4j version mixing**: Log4j2 in pom.xml but Log4j1-style `log4j.properties` in resources
 - **Local JARs** in `local-lib/` instead of Maven Central (MigLayout, JSPF, PAX PosLink, etc.)
 - **No Java test suite** — testing is entirely on the Node.js side
-- **Compiler source/target mismatch**: pom.xml properties say Java 11, compiler plugin says 1.7
+- **CVE-2025-10492**: JasperReports 7.0.3 has a deserialization vulnerability with no community edition fix. Mitigated by Java 17+ runtime and `DeserializationSecurity` filter (see `src/com/floreantpos/config/DeserializationSecurity.java`)
