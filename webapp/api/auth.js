@@ -32,7 +32,7 @@ const EMPLOYEES = {
     'ph_7c79e691': { id: 'C001', name: 'Mike', role: 'cashier' },
     'ph_7c7a7755': { id: 'B001', name: 'Lisa', role: 'bartender' },
     'ph_7c7b0819': { id: 'K001', name: 'Carlos', role: 'kitchen' },
-    'ph_7c7d4b29': { id: 'A001', name: 'Admin', role: 'admin' }
+    'ph_7c7b9436': { id: 'A001', name: 'Admin', role: 'admin' }
 };
 
 // Role-based permissions

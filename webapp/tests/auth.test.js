@@ -74,7 +74,7 @@ describe('EMPLOYEES', () => {
     it('has all expected employees via hashed PINs', () => {
         assert.ok(EMPLOYEES[hashPin('1234')]); // manager
         assert.ok(EMPLOYEES[hashPin('1111')]); // server
-        assert.ok(EMPLOYEES[hashPin('9999')]); // admin
+        assert.ok(EMPLOYEES[hashPin('6533')]); // admin
     });
 
     it('keys are hashed (no plaintext PINs)', () => {

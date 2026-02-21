@@ -199,7 +199,7 @@ const STAFF = {
     'ph_7c79e691': { name: 'Mike R.', role: 'cashier', id: 'EMP004', hourlyRate: 15.00 },
     'ph_7c7a7755': { name: 'Lisa T.', role: 'bartender', id: 'EMP005', hourlyRate: 14.00 },
     'ph_7c7b0819': { name: 'Carlos M.', role: 'kitchen', id: 'EMP006', hourlyRate: 16.00 },
-    'ph_7c7d4b29': { name: 'Admin', role: 'admin', id: 'EMP000', hourlyRate: 0 }
+    'ph_7c7b9436': { name: 'Admin', role: 'admin', id: 'EMP000', hourlyRate: 0 }
 };
 
 // Lookup staff by raw PIN (hashes then looks up)
