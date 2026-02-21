@@ -16,6 +16,7 @@ let server;
 let port;
 
 // Tokens for different roles
+const ownerToken = createToken({ id: 'A001', name: 'Admin', role: 'owner' });
 const managerToken = createToken({ id: 'M001', name: 'Maria', role: 'manager' });
 const serverToken = createToken({ id: 'S001', name: 'John', role: 'server' });
 const kitchenToken = createToken({ id: 'K001', name: 'Carlos', role: 'kitchen' });
@@ -138,7 +139,7 @@ describe('POST /api/auth/login', () => {
         assert.equal(res.status, 200);
         assert.ok(res.body.token);
         assert.equal(res.body.user.name, 'Maria');
-        assert.equal(res.body.user.role, 'manager');
+        assert.equal(res.body.user.role, 'general_manager');
     });
 
     it('rejects role-name login (backdoor removed)', async () => {
@@ -960,7 +961,7 @@ describe('State-Specific Configuration', () => {
             allowed: true,
             mode: 'CASH_DISCOUNT',
             label: 'NY Cash Discount'
-        }, managerToken);
+        }, ownerToken);
 
         assert.equal(res.status, 200);
         assert.equal(res.body.state, 'NY');
@@ -972,7 +973,7 @@ describe('State-Specific Configuration', () => {
         const res = await req('PUT', '/api/config/cashDiscount/state-rules/ca', {
             maxRate: 0,
             allowed: false
-        }, managerToken);
+        }, ownerToken);
 
         assert.equal(res.status, 200);
         assert.equal(res.body.state, 'CA');
@@ -982,19 +983,19 @@ describe('State-Specific Configuration', () => {
     it('rejects invalid state code length', async () => {
         const res = await req('PUT', '/api/config/cashDiscount/state-rules/TEXAS', {
             maxRate: 3.0
-        }, managerToken);
+        }, ownerToken);
 
         assert.equal(res.status, 400);
     });
 
     it('deletes a state rule', async () => {
-        const res = await req('DELETE', '/api/config/cashDiscount/state-rules/CA', null, managerToken);
+        const res = await req('DELETE', '/api/config/cashDiscount/state-rules/CA', null, ownerToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.state, 'CA');
     });
 
     it('returns 404 for missing state rule', async () => {
-        const res = await req('DELETE', '/api/config/cashDiscount/state-rules/ZZ', null, managerToken);
+        const res = await req('DELETE', '/api/config/cashDiscount/state-rules/ZZ', null, ownerToken);
         assert.equal(res.status, 404);
     });
 
@@ -2572,14 +2573,14 @@ describe('Two-Factor Authentication', () => {
 // ==========================================
 describe('Encrypted Database Config', () => {
     it('gets encryption status', async () => {
-        const res = await req('GET', '/api/security/encryption-status', null, managerToken);
+        const res = await req('GET', '/api/security/encryption-status', null, ownerToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.algorithm, 'AES-256-GCM');
         assert.ok(res.body.status === 'active' || res.body.status === 'inactive');
     });
 
     it('enables encryption', async () => {
-        const res = await req('PUT', '/api/security/encryption', { enabled: true }, managerToken);
+        const res = await req('PUT', '/api/security/encryption', { enabled: true }, ownerToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.success, true);
         assert.equal(res.body.encryption, true);
@@ -2767,20 +2768,20 @@ describe('Payment Type Breakdown', () => {
 // ==========================================
 describe('Surcharge Cap Logic', () => {
     it('gets surcharge cap config', async () => {
-        const res = await req('GET', '/api/surcharge-cap', null, managerToken);
+        const res = await req('GET', '/api/surcharge-cap', null, ownerToken);
         assert.equal(res.status, 200);
         assert.ok(typeof res.body.maxRate === 'number');
         assert.ok(typeof res.body.currentRate === 'number');
     });
 
     it('updates surcharge cap', async () => {
-        const res = await req('PUT', '/api/surcharge-cap', { maxRate: 3.5 }, managerToken);
+        const res = await req('PUT', '/api/surcharge-cap', { maxRate: 3.5 }, ownerToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.maxRate, 3.5);
     });
 
     it('rejects without maxRate', async () => {
-        const res = await req('PUT', '/api/surcharge-cap', {}, managerToken);
+        const res = await req('PUT', '/api/surcharge-cap', {}, ownerToken);
         assert.equal(res.status, 400);
     });
 });
@@ -3314,7 +3315,7 @@ describe('Webhook Events', () => {
 describe('Surcharge Cap in Config', () => {
     it('caps cashDiscount rate at maxSurchargeRate', async () => {
         // Set a max surcharge rate
-        await req('PUT', '/api/surcharge-cap', { maxRate: 3.0 }, managerToken);
+        await req('PUT', '/api/surcharge-cap', { maxRate: 3.0 }, ownerToken);
 
         // Try to set rate above cap
         const res = await req('PUT', '/api/config/cashDiscount', { rate: 5.0 }, managerToken);
@@ -3392,14 +3393,14 @@ describe('Backup Implementation', () => {
 // ==========================================
 describe('Encryption Key Management', () => {
     it('enables encryption and generates key', async () => {
-        const res = await req('PUT', '/api/security/encryption', { enabled: true }, managerToken);
+        const res = await req('PUT', '/api/security/encryption', { enabled: true }, ownerToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.encryption, true);
         assert.ok(res.body.keyFingerprint);
     });
 
     it('shows encryption status with key info', async () => {
-        const res = await req('GET', '/api/security/encryption-status', null, managerToken);
+        const res = await req('GET', '/api/security/encryption-status', null, ownerToken);
         assert.equal(res.status, 200);
         assert.equal(res.body.databaseEncryption, true);
         assert.equal(res.body.status, 'active');
@@ -3408,18 +3409,18 @@ describe('Encryption Key Management', () => {
     });
 
     it('rotates encryption key', async () => {
-        const status1 = await req('GET', '/api/security/encryption-status', null, managerToken);
+        const status1 = await req('GET', '/api/security/encryption-status', null, ownerToken);
         const oldFp = status1.body.keyFingerprint;
 
-        const res = await req('POST', '/api/security/rotate-key', {}, managerToken);
+        const res = await req('POST', '/api/security/rotate-key', {}, ownerToken);
         assert.equal(res.status, 200);
         assert.ok(res.body.newFingerprint);
         assert.notEqual(res.body.oldFingerprint, res.body.newFingerprint);
     });
 
     it('rejects key rotation when encryption disabled', async () => {
-        await req('PUT', '/api/security/encryption', { enabled: false }, managerToken);
-        const res = await req('POST', '/api/security/rotate-key', {}, managerToken);
+        await req('PUT', '/api/security/encryption', { enabled: false }, ownerToken);
+        const res = await req('POST', '/api/security/rotate-key', {}, ownerToken);
         assert.equal(res.status, 400);
     });
 });

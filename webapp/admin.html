@@ -844,12 +844,29 @@
                     <div class="form-group">
                         <label class="form-label">Role</label>
                         <select class="form-select" id="new-emp-role">
-                            <option value="server">Server</option>
-                            <option value="cashier">Cashier</option>
-                            <option value="bartender">Bartender</option>
-                            <option value="kitchen">Kitchen</option>
-                            <option value="manager">Manager</option>
-                            <option value="admin">Admin</option>
+                            <optgroup label="Admin / Ownership">
+                                <option value="owner">Owner</option>
+                                <option value="general_manager">General Manager</option>
+                                <option value="assistant_manager">Assistant Manager</option>
+                            </optgroup>
+                            <optgroup label="Front of House">
+                                <option value="server" selected>Server</option>
+                                <option value="bartender">Bartender</option>
+                                <option value="host">Host</option>
+                                <option value="cashier">Cashier</option>
+                            </optgroup>
+                            <optgroup label="Back of House">
+                                <option value="kitchen">Line Cook</option>
+                                <option value="kitchen_manager">Kitchen Manager</option>
+                            </optgroup>
+                            <optgroup label="Accounting">
+                                <option value="bookkeeper">Bookkeeper</option>
+                            </optgroup>
+                            <optgroup label="Specialized">
+                                <option value="payroll_admin">Payroll Admin</option>
+                                <option value="inventory_admin">Inventory Admin</option>
+                                <option value="online_ordering_admin">Online Ordering Admin</option>
+                            </optgroup>
                         </select>
                     </div>
                     <button class="btn-save" id="btn-add-employee">Add Employee</button>
@@ -1538,6 +1555,15 @@
     // ==========================================
     // Employee Management
     // ==========================================
+    const ROLE_LABELS = {
+        owner: 'Owner', general_manager: 'General Manager', assistant_manager: 'Asst. Manager',
+        server: 'Server', bartender: 'Bartender', host: 'Host', cashier: 'Cashier',
+        kitchen: 'Line Cook', kitchen_manager: 'Kitchen Mgr', bookkeeper: 'Bookkeeper',
+        payroll_admin: 'Payroll Admin', inventory_admin: 'Inventory Admin',
+        online_ordering_admin: 'Online Admin',
+        admin: 'Owner', manager: 'General Manager'
+    };
+
     function loadEmployees() {
         fetch('/api/employees', {
             headers: { 'Authorization': 'Bearer ' + getAuthToken() }
@@ -1549,7 +1575,7 @@
                 tr.innerHTML = `
                     <td>${emp.id}</td>
                     <td>${emp.name}</td>
-                    <td style="text-transform:capitalize">${emp.role}</td>
+                    <td>${ROLE_LABELS[emp.role] || emp.role}</td>
                     <td style="display:flex;gap:4px;">
                         <button class="btn-reset-pin" style="padding:4px 10px;font-size:0.75rem;border-radius:6px;background:rgba(0,113,227,0.1);color:#0071e3;font-weight:600;border:1px solid #0071e3;cursor:pointer;">Reset PIN</button>
                         <button class="btn-danger" style="padding:4px 10px; font-size:0.75rem">Remove</button>
