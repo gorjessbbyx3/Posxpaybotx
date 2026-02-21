@@ -18,6 +18,8 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { loginHandler, authenticate, authorize, getEmployeeList, addEmployee, removeEmployee, updateEmployee, ROLES } = require('./auth');
+const { PaymentService } = require('./payment-service');
+const { TransactionState } = require('./payment-provider');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -51,6 +53,8 @@ const store = {
     kitchenOrders: [],
     heldOrders: [],
     refunds: [],
+    transactions: [],
+    paymentLog: [],
     timeClock: [],
     auditLog: [],
     webhooks: [],
@@ -142,6 +146,8 @@ function loadStore() {
             if (data.kitchenOrders) store.kitchenOrders = data.kitchenOrders;
             if (data.heldOrders) store.heldOrders = data.heldOrders;
             if (data.refunds) store.refunds = data.refunds;
+            if (data.transactions) store.transactions = data.transactions;
+            if (data.paymentLog) store.paymentLog = data.paymentLog;
             if (data.timeClock) store.timeClock = data.timeClock;
             if (data.auditLog) store.auditLog = data.auditLog;
             if (data.webhooks) store.webhooks = data.webhooks;
@@ -194,6 +200,8 @@ function saveStore() {
             kitchenOrders: store.kitchenOrders,
             heldOrders: store.heldOrders,
             refunds: store.refunds,
+            transactions: store.transactions,
+            paymentLog: store.paymentLog,
             timeClock: store.timeClock,
             auditLog: store.auditLog,
             webhooks: store.webhooks,
@@ -241,6 +249,16 @@ function scheduleSave() {
 }
 
 loadStore();
+
+// ==========================================
+// Payment Service (abstraction layer)
+// ==========================================
+const paymentService = new PaymentService({
+    store,
+    auditFn: (action, user, details) => logAudit(action, user, details),
+    saveFn: () => scheduleSave(),
+    webhookFn: (event, payload) => fireWebhooks(event, payload)
+});
 
 // ==========================================
 // Safe ID Generation (survives deletions)
@@ -466,14 +484,14 @@ app.patch('/api/tickets/:id', authorize('tickets'), (req, res) => {
     res.json(ticket);
 });
 
-// Pay a ticket (full or partial)
-app.post('/api/tickets/:id/pay', authorize('tickets'), (req, res) => {
+// Pay a ticket (full or partial) — delegates to PaymentService
+app.post('/api/tickets/:id/pay', authorize('tickets'), async (req, res) => {
     const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
     if (ticket.status === 'paid') return res.status(400).json({ error: 'Already paid' });
 
-    const tip = Math.round((parseFloat(req.body.tip) || 0) * 100) / 100;
     const method = req.body.method || 'cash';
+    const tip = Math.round((parseFloat(req.body.tip) || 0) * 100) / 100;
     const requestedAmount = req.body.amount !== undefined
         ? Math.round((parseFloat(req.body.amount) || 0) * 100) / 100
         : null;
@@ -491,90 +509,53 @@ app.post('/api/tickets/:id/pay', authorize('tickets'), (req, res) => {
         if (!tokenEntry) return res.status(404).json({ error: 'Token not found' });
     }
 
-    // Initialize payments array for tracking partial payments
+    // Calculate the actual pay amount (for partial vs full)
     if (!ticket.payments) ticket.payments = [];
     const previouslyPaid = ticket.payments.reduce((s, p) => s + p.amount, 0);
     const remaining = Math.round((ticket.total - previouslyPaid) * 100) / 100;
-
-    // Determine if this is a partial payment
     const isPartial = requestedAmount !== null && requestedAmount < remaining;
-    const payAmount = isPartial ? requestedAmount : remaining;
+    const payAmount = isPartial ? requestedAmount : (requestedAmount !== null ? requestedAmount : remaining);
 
-    if (requestedAmount !== null && requestedAmount <= 0) {
-        return res.status(400).json({ error: 'Payment amount must be positive' });
-    }
-    if (requestedAmount !== null && requestedAmount > remaining) {
-        return res.status(400).json({
-            error: 'Payment amount exceeds remaining balance',
-            remaining,
-            previouslyPaid
-        });
-    }
-
-    // Record this payment
-    const payment = {
+    const result = await paymentService.processPayment({
+        ticket,
         amount: payAmount,
         method,
         tip,
-        savedPaymentId: savedPayment ? savedPayment.id : null,
-        tokenId: tokenEntry ? tokenEntry.id : null,
-        cardLastFour: savedPayment ? savedPayment.lastFour : (tokenEntry ? tokenEntry.lastFour : null),
-        paidBy: req.user ? req.user.name : 'unknown',
-        paidAt: new Date().toISOString()
-    };
-    ticket.payments.push(payment);
+        idempotencyKey: req.body.idempotencyKey || null,
+        savedPayment,
+        tokenEntry,
+        user: req.user
+    });
 
-    const totalPaid = Math.round((previouslyPaid + payAmount) * 100) / 100;
-
-    if (totalPaid >= ticket.total) {
-        // Fully paid
-        ticket.status = 'paid';
-        ticket.paid = true;
-        ticket.paidAt = new Date().toISOString();
-    } else {
-        ticket.status = 'partial';
+    if (!result.success) {
+        const status = result.error === 'Already paid' ? 400
+            : result.error === 'Payment amount must be positive' ? 400
+            : result.error === 'Payment amount exceeds remaining balance' ? 400
+            : result.error === 'Cannot pay a voided ticket' ? 400
+            : 400;
+        const errBody = { error: result.error };
+        if (result.remaining !== undefined) errBody.remaining = result.remaining;
+        if (result.previouslyPaid !== undefined) errBody.previouslyPaid = result.previouslyPaid;
+        return res.status(status).json(errBody);
     }
 
-    // Keep legacy fields for backward compatibility
-    ticket.paymentMethod = method;
-    ticket.tip = ticket.payments.reduce((s, p) => s + (p.tip || 0), 0);
-    ticket.paidBy = req.user ? req.user.name : 'unknown';
-    ticket.totalPaid = totalPaid;
-    ticket.remaining = Math.round((ticket.total - totalPaid) * 100) / 100;
-
-    logAudit('payment', req.user, { ticketId: ticket.id, amount: payAmount, method, status: ticket.status });
-
-    if (ticket.status === 'paid') {
-        fireWebhooks('ticket.paid', { ticketId: ticket.id, total: ticket.total, method });
-
-        // Update customer stats if ticket has a linked customer
-        if (ticket.customerId) {
-            const customer = store.customers.find(c => c.id === ticket.customerId);
-            if (customer) {
-                customer.totalSpent = Math.round(((customer.totalSpent || 0) + ticket.total) * 100) / 100;
-                customer.visitCount = (customer.visitCount || 0) + 1;
-                customer.lastVisit = new Date().toISOString();
-            }
-        }
-    }
-    scheduleSave();
-    res.json(ticket);
+    res.json(result.ticket);
 });
 
-// Void a ticket (requires void permission)
-app.post('/api/tickets/:id/void', authorize('void'), (req, res) => {
+// Void a ticket (requires void permission) — delegates to PaymentService
+app.post('/api/tickets/:id/void', authorize('void'), async (req, res) => {
     const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
-    ticket.status = 'voided';
-    ticket.voidedBy = req.user.name;
-    ticket.voidedAt = new Date().toISOString();
-    ticket.voidReason = req.body.reason || '';
+    await paymentService.processVoid({
+        ticket,
+        reason: req.body.reason || '',
+        user: req.user
+    });
 
     checkFraudPatterns(ticket, req.user);
     logAudit('void', req.user, { ticketId: ticket.id, reason: ticket.voidReason, total: ticket.total });
     fireWebhooks('ticket.voided', { ticketId: ticket.id, voidedBy: req.user.name, reason: ticket.voidReason });
-    scheduleSave();
     res.json(ticket);
 });
 
@@ -585,49 +566,30 @@ app.get('/api/refunds', authorize('refund'), (req, res) => {
     res.json({ refunds: store.refunds, total: store.refunds.length });
 });
 
-app.post('/api/refunds', authorize('refund'), (req, res) => {
+app.post('/api/refunds', authorize('refund'), async (req, res) => {
     const { ticketId, amount, reason, type } = req.body;
     const ticket = store.tickets.find(t => t.id === parseInt(ticketId));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-    if (ticket.status !== 'paid') return res.status(400).json({ error: 'Can only refund paid tickets' });
 
-    const refundAmount = Math.round((parseFloat(amount) || 0) * 100) / 100;
-    const previousRefunds = ticket.refundedAmount || 0;
-    const remainingBalance = Math.round((ticket.total - previousRefunds) * 100) / 100;
+    const result = await paymentService.processRefund({
+        ticket,
+        amount,
+        reason,
+        type,
+        user: req.user
+    });
 
-    if (refundAmount <= 0) {
-        return res.status(400).json({ error: 'Refund amount must be positive' });
-    }
-    if (refundAmount > remainingBalance) {
-        return res.status(400).json({
-            error: 'Refund amount exceeds remaining balance',
-            remainingBalance,
-            previousRefunds
-        });
-    }
-
-    const refund = {
-        id: nextId(store.refunds),
-        ticketId: parseInt(ticketId),
-        amount: refundAmount,
-        reason: reason || 'No reason provided',
-        type: type || 'full',
-        method: ticket.paymentMethod,
-        processedBy: req.user.name,
-        time: new Date().toISOString()
-    };
-
-    store.refunds.push(refund);
-
-    ticket.refundedAmount = Math.round((previousRefunds + refundAmount) * 100) / 100;
-    if (type === 'full' || ticket.refundedAmount >= ticket.total) {
-        ticket.status = 'refunded';
+    if (!result.success) {
+        const status = 400;
+        const errBody = { error: result.error };
+        if (result.remainingBalance !== undefined) errBody.remainingBalance = result.remainingBalance;
+        if (result.previousRefunds !== undefined) errBody.previousRefunds = result.previousRefunds;
+        return res.status(status).json(errBody);
     }
 
     checkFraudPatterns(ticket, req.user);
-    logAudit('refund', req.user, { ticketId: ticket.id, amount: refundAmount, reason: refund.reason });
-    scheduleSave();
-    res.status(201).json(refund);
+    logAudit('refund', req.user, { ticketId: ticket.id, amount: result.refund.amount, reason: result.refund.reason });
+    res.status(201).json(result.refund);
 });
 
 // ==========================================
@@ -3120,41 +3082,27 @@ app.get('/api/token-vault', authorize('config'), (req, res) => {
 // ==========================================
 // Partial Payments
 // ==========================================
-app.post('/api/tickets/:id/partial-pay', authorize('tickets'), (req, res) => {
+app.post('/api/tickets/:id/partial-pay', authorize('tickets'), async (req, res) => {
     const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
     if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
     if (ticket.status === 'paid') return res.status(400).json({ error: 'Ticket already fully paid' });
     if (ticket.status === 'voided') return res.status(400).json({ error: 'Cannot pay a voided ticket' });
     const { amount, method, idempotencyKey } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ error: 'Valid payment amount required' });
-    if (!ticket.partialPayments) ticket.partialPayments = [];
 
-    // Idempotency check — prevent duplicate payments
-    if (idempotencyKey) {
-        const duplicate = ticket.partialPayments.find(p => p.idempotencyKey === idempotencyKey);
-        if (duplicate) return res.json(ticket); // Already processed, return current state
-    }
-
-    // Prevent overpayment
-    const currentPaid = ticket.partialPayments.reduce((sum, p) => sum + p.amount, 0);
-    const remaining = Math.round(((ticket.total || 0) - currentPaid) * 100) / 100;
-    const payAmount = Math.round(Math.min(amount, remaining) * 100) / 100;
-    if (payAmount <= 0) return res.status(400).json({ error: 'Ticket already fully paid' });
-
-    ticket.partialPayments.push({
-        amount: payAmount,
-        method: method || 'card', paidAt: new Date().toISOString(),
-        idempotencyKey: idempotencyKey || null
+    const result = await paymentService.processPartialPayment({
+        ticket,
+        amount,
+        method: method || 'card',
+        idempotencyKey: idempotencyKey || null,
+        user: req.user
     });
-    const totalPaid = ticket.partialPayments.reduce((sum, p) => sum + p.amount, 0);
-    ticket.amountPaid = Math.round(totalPaid * 100) / 100;
-    ticket.remainingBalance = Math.round(((ticket.total || 0) - totalPaid) * 100) / 100;
-    if (ticket.remainingBalance <= 0) {
-        ticket.status = 'paid';
-        ticket.paidAt = new Date().toISOString();
+
+    if (!result.success) {
+        return res.status(400).json({ error: result.error });
     }
-    scheduleSave();
-    res.json(ticket);
+
+    res.json(result.ticket);
 });
 
 // ==========================================
@@ -4254,6 +4202,42 @@ app.put('/api/menu', authorize('menu'), (req, res) => {
 });
 
 // ==========================================
+// Payment Abstraction Layer Endpoints
+// ==========================================
+
+// Transaction history for a ticket
+app.get('/api/tickets/:id/transactions', authorize('tickets'), (req, res) => {
+    const ticketId = parseInt(req.params.id);
+    const ticket = store.tickets.find(t => t.id === ticketId);
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+    const transactions = paymentService.getTransactionsForTicket(ticketId);
+    res.json({ transactions, total: transactions.length });
+});
+
+// Get a specific transaction
+app.get('/api/transactions/:id', authorize('tickets'), (req, res) => {
+    const transaction = paymentService.getTransaction(req.params.id);
+    if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
+    res.json(transaction);
+});
+
+// Payment providers health check
+app.get('/api/payment/health', authorize('config'), async (req, res) => {
+    const health = await paymentService.healthCheck();
+    res.json(health);
+});
+
+// Payment log (structured payment events)
+app.get('/api/payment/log', authorize('reports'), (req, res) => {
+    const { ticketId, eventType, limit: qLimit } = req.query;
+    let log = store.paymentLog || [];
+    if (ticketId) log = log.filter(e => e.ticketId === parseInt(ticketId));
+    if (eventType) log = log.filter(e => e.eventType === eventType);
+    const maxEntries = parseInt(qLimit) || 100;
+    res.json({ entries: log.slice(-maxEntries).reverse(), total: log.length });
+});
+
+// ==========================================
 // Health check (no auth required)
 // ==========================================
 app.get('/api/health', (req, res) => {
@@ -4286,4 +4270,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { app, store };
+module.exports = { app, store, paymentService };
