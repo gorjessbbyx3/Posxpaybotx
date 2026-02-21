@@ -18,6 +18,9 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { loginHandler, authenticate, authorize, getEmployeeList, addEmployee, removeEmployee, updateEmployee, ROLES } = require('./auth');
+const { PaymentService } = require('./payment-service');
+const { InMemoryProvider } = require('./inmemory-provider');
+const { TransactionState } = require('./payment-provider');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -243,6 +246,30 @@ function scheduleSave() {
 loadStore();
 
 // ==========================================
+// Payment Service Initialization
+// ==========================================
+// Payment logging collects structured payment events
+const paymentLog = [];
+function paymentLogger(level, message, data) {
+    paymentLog.push({
+        level,
+        message,
+        data,
+        requestId: data && data.transactionId || null,
+        time: new Date().toISOString()
+    });
+    // Keep log bounded
+    if (paymentLog.length > 10000) paymentLog.splice(0, paymentLog.length - 5000);
+}
+
+const paymentService = new PaymentService({
+    cardProvider: new InMemoryProvider(),
+    cashProvider: new InMemoryProvider(),
+    auditLogger: (action, user, details) => logAudit(action, user, details),
+    paymentLogger
+});
+
+// ==========================================
 // Safe ID Generation (survives deletions)
 // ==========================================
 function nextId(arr, idField = 'id') {
@@ -466,116 +493,164 @@ app.patch('/api/tickets/:id', authorize('tickets'), (req, res) => {
     res.json(ticket);
 });
 
-// Pay a ticket (full or partial)
-app.post('/api/tickets/:id/pay', authorize('tickets'), (req, res) => {
-    const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
-    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-    if (ticket.status === 'paid') return res.status(400).json({ error: 'Already paid' });
+// Pay a ticket (full or partial) — routed through PaymentService
+app.post('/api/tickets/:id/pay', authorize('tickets'), async (req, res) => {
+    try {
+        const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
+        if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+        if (ticket.status === 'paid') return res.status(400).json({ error: 'Already paid' });
 
-    const tip = Math.round((parseFloat(req.body.tip) || 0) * 100) / 100;
-    const method = req.body.method || 'cash';
-    const requestedAmount = req.body.amount !== undefined
-        ? Math.round((parseFloat(req.body.amount) || 0) * 100) / 100
-        : null;
+        const tip = Math.round((parseFloat(req.body.tip) || 0) * 100) / 100;
+        const method = req.body.method || 'cash';
+        const requestedAmount = req.body.amount !== undefined
+            ? Math.round((parseFloat(req.body.amount) || 0) * 100) / 100
+            : null;
 
-    // Resolve saved payment method if provided
-    let savedPayment = null;
-    if (req.body.savedPaymentId) {
-        savedPayment = store.savedPaymentMethods.find(s => s.id === req.body.savedPaymentId);
-        if (!savedPayment) return res.status(404).json({ error: 'Saved payment method not found' });
-    }
-    // Resolve token vault entry if provided
-    let tokenEntry = null;
-    if (req.body.tokenId) {
-        tokenEntry = store.tokenVault.find(t => t.id === req.body.tokenId);
-        if (!tokenEntry) return res.status(404).json({ error: 'Token not found' });
-    }
+        // Resolve saved payment method if provided
+        let savedPayment = null;
+        if (req.body.savedPaymentId) {
+            savedPayment = store.savedPaymentMethods.find(s => s.id === req.body.savedPaymentId);
+            if (!savedPayment) return res.status(404).json({ error: 'Saved payment method not found' });
+        }
+        // Resolve token vault entry if provided
+        let tokenEntry = null;
+        if (req.body.tokenId) {
+            tokenEntry = store.tokenVault.find(t => t.id === req.body.tokenId);
+            if (!tokenEntry) return res.status(404).json({ error: 'Token not found' });
+        }
 
-    // Initialize payments array for tracking partial payments
-    if (!ticket.payments) ticket.payments = [];
-    const previouslyPaid = ticket.payments.reduce((s, p) => s + p.amount, 0);
-    const remaining = Math.round((ticket.total - previouslyPaid) * 100) / 100;
+        // Initialize payments array for tracking partial payments
+        if (!ticket.payments) ticket.payments = [];
+        const previouslyPaid = ticket.payments.reduce((s, p) => s + p.amount, 0);
+        const remaining = Math.round((ticket.total - previouslyPaid) * 100) / 100;
 
-    // Determine if this is a partial payment
-    const isPartial = requestedAmount !== null && requestedAmount < remaining;
-    const payAmount = isPartial ? requestedAmount : remaining;
+        // Determine if this is a partial payment
+        const isPartial = requestedAmount !== null && requestedAmount < remaining;
+        const payAmount = isPartial ? requestedAmount : remaining;
 
-    if (requestedAmount !== null && requestedAmount <= 0) {
-        return res.status(400).json({ error: 'Payment amount must be positive' });
-    }
-    if (requestedAmount !== null && requestedAmount > remaining) {
-        return res.status(400).json({
-            error: 'Payment amount exceeds remaining balance',
-            remaining,
-            previouslyPaid
+        if (requestedAmount !== null && requestedAmount <= 0) {
+            return res.status(400).json({ error: 'Payment amount must be positive' });
+        }
+        if (requestedAmount !== null && requestedAmount > remaining) {
+            return res.status(400).json({
+                error: 'Payment amount exceeds remaining balance',
+                remaining,
+                previouslyPaid
+            });
+        }
+
+        // Process through PaymentService (idempotency, state machine, audit)
+        const { transaction, result, duplicate } = await paymentService.processPayment({
+            ticketId: ticket.id,
+            amount: payAmount,
+            method,
+            tip,
+            idempotencyKey: req.body.idempotencyKey || null,
+            metadata: {
+                savedPaymentId: savedPayment ? savedPayment.id : null,
+                tokenId: tokenEntry ? tokenEntry.id : null
+            },
+            user: req.user
         });
-    }
 
-    // Record this payment
-    const payment = {
-        amount: payAmount,
-        method,
-        tip,
-        savedPaymentId: savedPayment ? savedPayment.id : null,
-        tokenId: tokenEntry ? tokenEntry.id : null,
-        cardLastFour: savedPayment ? savedPayment.lastFour : (tokenEntry ? tokenEntry.lastFour : null),
-        paidBy: req.user ? req.user.name : 'unknown',
-        paidAt: new Date().toISOString()
-    };
-    ticket.payments.push(payment);
+        if (!result.success) {
+            return res.status(402).json({
+                error: 'Payment failed',
+                details: result.error,
+                transactionId: transaction ? transaction.id : null,
+                state: transaction ? transaction.state : null
+            });
+        }
 
-    const totalPaid = Math.round((previouslyPaid + payAmount) * 100) / 100;
+        // If duplicate idempotency hit, return current ticket state
+        if (duplicate) {
+            return res.json(ticket);
+        }
 
-    if (totalPaid >= ticket.total) {
-        // Fully paid
-        ticket.status = 'paid';
-        ticket.paid = true;
-        ticket.paidAt = new Date().toISOString();
-    } else {
-        ticket.status = 'partial';
-    }
+        // Record this payment on the ticket
+        const payment = {
+            amount: payAmount,
+            method,
+            tip,
+            transactionId: transaction.id,
+            transactionState: transaction.state,
+            providerTransactionId: transaction.providerTransactionId,
+            savedPaymentId: savedPayment ? savedPayment.id : null,
+            tokenId: tokenEntry ? tokenEntry.id : null,
+            cardLastFour: result.cardLastFour || (savedPayment ? savedPayment.lastFour : (tokenEntry ? tokenEntry.lastFour : null)),
+            cardType: result.cardType || null,
+            isDebit: result.isDebit || false,
+            idempotencyKey: transaction.idempotencyKey,
+            paidBy: req.user ? req.user.name : 'unknown',
+            paidAt: new Date().toISOString()
+        };
+        ticket.payments.push(payment);
 
-    // Keep legacy fields for backward compatibility
-    ticket.paymentMethod = method;
-    ticket.tip = ticket.payments.reduce((s, p) => s + (p.tip || 0), 0);
-    ticket.paidBy = req.user ? req.user.name : 'unknown';
-    ticket.totalPaid = totalPaid;
-    ticket.remaining = Math.round((ticket.total - totalPaid) * 100) / 100;
+        const totalPaid = Math.round((previouslyPaid + payAmount) * 100) / 100;
 
-    logAudit('payment', req.user, { ticketId: ticket.id, amount: payAmount, method, status: ticket.status });
+        if (totalPaid >= ticket.total) {
+            // Fully paid
+            ticket.status = 'paid';
+            ticket.paid = true;
+            ticket.paidAt = new Date().toISOString();
+        } else {
+            ticket.status = 'partial';
+        }
 
-    if (ticket.status === 'paid') {
-        fireWebhooks('ticket.paid', { ticketId: ticket.id, total: ticket.total, method });
+        // Keep legacy fields for backward compatibility
+        ticket.paymentMethod = method;
+        ticket.tip = ticket.payments.reduce((s, p) => s + (p.tip || 0), 0);
+        ticket.paidBy = req.user ? req.user.name : 'unknown';
+        ticket.totalPaid = totalPaid;
+        ticket.remaining = Math.round((ticket.total - totalPaid) * 100) / 100;
 
-        // Update customer stats if ticket has a linked customer
-        if (ticket.customerId) {
-            const customer = store.customers.find(c => c.id === ticket.customerId);
-            if (customer) {
-                customer.totalSpent = Math.round(((customer.totalSpent || 0) + ticket.total) * 100) / 100;
-                customer.visitCount = (customer.visitCount || 0) + 1;
-                customer.lastVisit = new Date().toISOString();
+        if (ticket.status === 'paid') {
+            fireWebhooks('ticket.paid', { ticketId: ticket.id, total: ticket.total, method });
+
+            // Update customer stats if ticket has a linked customer
+            if (ticket.customerId) {
+                const customer = store.customers.find(c => c.id === ticket.customerId);
+                if (customer) {
+                    customer.totalSpent = Math.round(((customer.totalSpent || 0) + ticket.total) * 100) / 100;
+                    customer.visitCount = (customer.visitCount || 0) + 1;
+                    customer.lastVisit = new Date().toISOString();
+                }
             }
         }
+        scheduleSave();
+        res.json(ticket);
+    } catch (err) {
+        res.status(500).json({ error: 'Payment processing error', details: err.message });
     }
-    scheduleSave();
-    res.json(ticket);
 });
 
-// Void a ticket (requires void permission)
-app.post('/api/tickets/:id/void', authorize('void'), (req, res) => {
-    const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
-    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+// Void a ticket (requires void permission) — voids payment transactions via PaymentService
+app.post('/api/tickets/:id/void', authorize('void'), async (req, res) => {
+    try {
+        const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
+        if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
 
-    ticket.status = 'voided';
-    ticket.voidedBy = req.user.name;
-    ticket.voidedAt = new Date().toISOString();
-    ticket.voidReason = req.body.reason || '';
+        // Void any payment transactions associated with this ticket
+        const ticketTransactions = paymentService.getTransactionsForTicket(ticket.id);
+        for (const txn of ticketTransactions) {
+            if (txn.state === TransactionState.AUTHORIZED || txn.state === TransactionState.CAPTURED) {
+                await paymentService.voidPayment(txn.id, req.body.reason, req.user);
+            }
+        }
 
-    checkFraudPatterns(ticket, req.user);
-    logAudit('void', req.user, { ticketId: ticket.id, reason: ticket.voidReason, total: ticket.total });
-    fireWebhooks('ticket.voided', { ticketId: ticket.id, voidedBy: req.user.name, reason: ticket.voidReason });
-    scheduleSave();
-    res.json(ticket);
+        ticket.status = 'voided';
+        ticket.voidedBy = req.user.name;
+        ticket.voidedAt = new Date().toISOString();
+        ticket.voidReason = req.body.reason || '';
+
+        checkFraudPatterns(ticket, req.user);
+        logAudit('void', req.user, { ticketId: ticket.id, reason: ticket.voidReason, total: ticket.total });
+        fireWebhooks('ticket.voided', { ticketId: ticket.id, voidedBy: req.user.name, reason: ticket.voidReason });
+        scheduleSave();
+        res.json(ticket);
+    } catch (err) {
+        res.status(500).json({ error: 'Void processing error', details: err.message });
+    }
 });
 
 // ==========================================
@@ -585,49 +660,65 @@ app.get('/api/refunds', authorize('refund'), (req, res) => {
     res.json({ refunds: store.refunds, total: store.refunds.length });
 });
 
-app.post('/api/refunds', authorize('refund'), (req, res) => {
-    const { ticketId, amount, reason, type } = req.body;
-    const ticket = store.tickets.find(t => t.id === parseInt(ticketId));
-    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-    if (ticket.status !== 'paid') return res.status(400).json({ error: 'Can only refund paid tickets' });
+app.post('/api/refunds', authorize('refund'), async (req, res) => {
+    try {
+        const { ticketId, amount, reason, type } = req.body;
+        const ticket = store.tickets.find(t => t.id === parseInt(ticketId));
+        if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+        if (ticket.status !== 'paid') return res.status(400).json({ error: 'Can only refund paid tickets' });
 
-    const refundAmount = Math.round((parseFloat(amount) || 0) * 100) / 100;
-    const previousRefunds = ticket.refundedAmount || 0;
-    const remainingBalance = Math.round((ticket.total - previousRefunds) * 100) / 100;
+        const refundAmount = Math.round((parseFloat(amount) || 0) * 100) / 100;
+        const previousRefunds = ticket.refundedAmount || 0;
+        const remainingBalance = Math.round((ticket.total - previousRefunds) * 100) / 100;
 
-    if (refundAmount <= 0) {
-        return res.status(400).json({ error: 'Refund amount must be positive' });
+        if (refundAmount <= 0) {
+            return res.status(400).json({ error: 'Refund amount must be positive' });
+        }
+        if (refundAmount > remainingBalance) {
+            return res.status(400).json({
+                error: 'Refund amount exceeds remaining balance',
+                remainingBalance,
+                previousRefunds
+            });
+        }
+
+        // Refund through PaymentService if there are payment transactions
+        const ticketTransactions = paymentService.getTransactionsForTicket(ticket.id);
+        const capturedTxns = ticketTransactions.filter(t =>
+            t.state === TransactionState.CAPTURED || t.state === TransactionState.PARTIALLY_REFUNDED
+        );
+
+        if (capturedTxns.length > 0) {
+            // Refund against the most recent captured transaction
+            const txn = capturedTxns[capturedTxns.length - 1];
+            await paymentService.refundPayment(txn.id, refundAmount, reason, req.user);
+        }
+
+        const refund = {
+            id: nextId(store.refunds),
+            ticketId: parseInt(ticketId),
+            amount: refundAmount,
+            reason: reason || 'No reason provided',
+            type: type || 'full',
+            method: ticket.paymentMethod,
+            processedBy: req.user.name,
+            time: new Date().toISOString()
+        };
+
+        store.refunds.push(refund);
+
+        ticket.refundedAmount = Math.round((previousRefunds + refundAmount) * 100) / 100;
+        if (type === 'full' || ticket.refundedAmount >= ticket.total) {
+            ticket.status = 'refunded';
+        }
+
+        checkFraudPatterns(ticket, req.user);
+        logAudit('refund', req.user, { ticketId: ticket.id, amount: refundAmount, reason: refund.reason });
+        scheduleSave();
+        res.status(201).json(refund);
+    } catch (err) {
+        res.status(500).json({ error: 'Refund processing error', details: err.message });
     }
-    if (refundAmount > remainingBalance) {
-        return res.status(400).json({
-            error: 'Refund amount exceeds remaining balance',
-            remainingBalance,
-            previousRefunds
-        });
-    }
-
-    const refund = {
-        id: nextId(store.refunds),
-        ticketId: parseInt(ticketId),
-        amount: refundAmount,
-        reason: reason || 'No reason provided',
-        type: type || 'full',
-        method: ticket.paymentMethod,
-        processedBy: req.user.name,
-        time: new Date().toISOString()
-    };
-
-    store.refunds.push(refund);
-
-    ticket.refundedAmount = Math.round((previousRefunds + refundAmount) * 100) / 100;
-    if (type === 'full' || ticket.refundedAmount >= ticket.total) {
-        ticket.status = 'refunded';
-    }
-
-    checkFraudPatterns(ticket, req.user);
-    logAudit('refund', req.user, { ticketId: ticket.id, amount: refundAmount, reason: refund.reason });
-    scheduleSave();
-    res.status(201).json(refund);
 });
 
 // ==========================================
@@ -3118,43 +3209,64 @@ app.get('/api/token-vault', authorize('config'), (req, res) => {
 });
 
 // ==========================================
-// Partial Payments
+// Partial Payments — routed through PaymentService
 // ==========================================
-app.post('/api/tickets/:id/partial-pay', authorize('tickets'), (req, res) => {
-    const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
-    if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-    if (ticket.status === 'paid') return res.status(400).json({ error: 'Ticket already fully paid' });
-    if (ticket.status === 'voided') return res.status(400).json({ error: 'Cannot pay a voided ticket' });
-    const { amount, method, idempotencyKey } = req.body;
-    if (!amount || amount <= 0) return res.status(400).json({ error: 'Valid payment amount required' });
-    if (!ticket.partialPayments) ticket.partialPayments = [];
+app.post('/api/tickets/:id/partial-pay', authorize('tickets'), async (req, res) => {
+    try {
+        const ticket = store.tickets.find(t => t.id === parseInt(req.params.id));
+        if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+        if (ticket.status === 'paid') return res.status(400).json({ error: 'Ticket already fully paid' });
+        if (ticket.status === 'voided') return res.status(400).json({ error: 'Cannot pay a voided ticket' });
+        const { amount, method, idempotencyKey } = req.body;
+        if (!amount || amount <= 0) return res.status(400).json({ error: 'Valid payment amount required' });
+        if (!ticket.partialPayments) ticket.partialPayments = [];
 
-    // Idempotency check — prevent duplicate payments
-    if (idempotencyKey) {
-        const duplicate = ticket.partialPayments.find(p => p.idempotencyKey === idempotencyKey);
-        if (duplicate) return res.json(ticket); // Already processed, return current state
+        // Prevent overpayment
+        const currentPaid = ticket.partialPayments.reduce((sum, p) => sum + p.amount, 0);
+        const remaining = Math.round(((ticket.total || 0) - currentPaid) * 100) / 100;
+        const payAmount = Math.round(Math.min(amount, remaining) * 100) / 100;
+        if (payAmount <= 0) return res.status(400).json({ error: 'Ticket already fully paid' });
+
+        // Process through PaymentService (handles idempotency, state machine, audit)
+        const { transaction, result, duplicate } = await paymentService.processPayment({
+            ticketId: ticket.id,
+            amount: payAmount,
+            method: method || 'card',
+            idempotencyKey: idempotencyKey || null,
+            user: req.user
+        });
+
+        if (!result.success) {
+            return res.status(402).json({
+                error: 'Payment failed',
+                details: result.error,
+                transactionId: transaction ? transaction.id : null
+            });
+        }
+
+        // If duplicate idempotency hit, return current ticket state
+        if (duplicate) return res.json(ticket);
+
+        ticket.partialPayments.push({
+            amount: payAmount,
+            method: method || 'card',
+            transactionId: transaction.id,
+            transactionState: transaction.state,
+            paidAt: new Date().toISOString(),
+            idempotencyKey: transaction.idempotencyKey
+        });
+        const totalPaid = ticket.partialPayments.reduce((sum, p) => sum + p.amount, 0);
+        ticket.amountPaid = Math.round(totalPaid * 100) / 100;
+        ticket.remainingBalance = Math.round(((ticket.total || 0) - totalPaid) * 100) / 100;
+        if (ticket.remainingBalance <= 0) {
+            ticket.status = 'paid';
+            ticket.paidAt = new Date().toISOString();
+        }
+        scheduleSave();
+        res.json(ticket);
+    } catch (err) {
+        res.status(500).json({ error: 'Partial payment error', details: err.message });
     }
-
-    // Prevent overpayment
-    const currentPaid = ticket.partialPayments.reduce((sum, p) => sum + p.amount, 0);
-    const remaining = Math.round(((ticket.total || 0) - currentPaid) * 100) / 100;
-    const payAmount = Math.round(Math.min(amount, remaining) * 100) / 100;
-    if (payAmount <= 0) return res.status(400).json({ error: 'Ticket already fully paid' });
-
-    ticket.partialPayments.push({
-        amount: payAmount,
-        method: method || 'card', paidAt: new Date().toISOString(),
-        idempotencyKey: idempotencyKey || null
-    });
-    const totalPaid = ticket.partialPayments.reduce((sum, p) => sum + p.amount, 0);
-    ticket.amountPaid = Math.round(totalPaid * 100) / 100;
-    ticket.remainingBalance = Math.round(((ticket.total || 0) - totalPaid) * 100) / 100;
-    if (ticket.remainingBalance <= 0) {
-        ticket.status = 'paid';
-        ticket.paidAt = new Date().toISOString();
-    }
-    scheduleSave();
-    res.json(ticket);
 });
 
 // ==========================================
@@ -4254,6 +4366,71 @@ app.put('/api/menu', authorize('menu'), (req, res) => {
 });
 
 // ==========================================
+// Payment Service Endpoints
+// ==========================================
+
+// Transaction lookup by ID
+app.get('/api/payments/transactions/:id', authorize('tickets'), (req, res) => {
+    const transaction = paymentService.findById(req.params.id);
+    if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
+    res.json(transaction);
+});
+
+// All transactions for a ticket
+app.get('/api/payments/ticket/:ticketId', authorize('tickets'), (req, res) => {
+    const summary = paymentService.getTicketPaymentSummary(parseInt(req.params.ticketId));
+    res.json(summary);
+});
+
+// Tip adjustment via PaymentService
+app.post('/api/payments/transactions/:id/adjust-tip', authorize('tickets'), async (req, res) => {
+    try {
+        const { tip } = req.body;
+        if (tip === undefined || tip === null) return res.status(400).json({ error: 'Tip amount required' });
+        const newTip = Math.round((parseFloat(tip) || 0) * 100) / 100;
+        if (newTip < 0) return res.status(400).json({ error: 'Tip cannot be negative' });
+
+        const { transaction, result } = await paymentService.adjustTip(req.params.id, newTip, req.user);
+        if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
+        if (!result.success) return res.status(400).json({ error: result.error });
+
+        scheduleSave();
+        res.json({ transaction, result });
+    } catch (err) {
+        res.status(500).json({ error: 'Tip adjustment error', details: err.message });
+    }
+});
+
+// Batch settlement
+app.post('/api/payments/batch/settle', authorize('payment_config'), async (req, res) => {
+    try {
+        const batchResult = await paymentService.settleBatch(req.user);
+        scheduleSave();
+        res.json(batchResult);
+    } catch (err) {
+        res.status(500).json({ error: 'Batch settlement error', details: err.message });
+    }
+});
+
+// Payment log (structured payment events)
+app.get('/api/payments/log', authorize('reports'), (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit) || 100, 1000);
+    const offset = parseInt(req.query.offset) || 0;
+    const logs = paymentLog.slice(-(offset + limit)).slice(0, limit);
+    res.json({ logs, total: paymentLog.length });
+});
+
+// Payment provider health check
+app.get('/api/payments/health', authorize('payment_config'), async (req, res) => {
+    try {
+        const health = await paymentService.healthCheck();
+        res.json(health);
+    } catch (err) {
+        res.status(500).json({ healthy: false, error: err.message });
+    }
+});
+
+// ==========================================
 // Health check (no auth required)
 // ==========================================
 app.get('/api/health', (req, res) => {
@@ -4286,4 +4463,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { app, store };
+module.exports = { app, store, paymentService, paymentLog };
