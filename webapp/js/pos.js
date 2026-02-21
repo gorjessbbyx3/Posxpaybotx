@@ -19,6 +19,31 @@
 // ==========================================
 // Login System
 // ==========================================
+// ── Login Tab Switching ──
+$$('.login-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        $$('.login-tab').forEach(t => t.classList.remove('active'));
+        $$('.login-tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        const target = document.getElementById('login-tab-' + tab.dataset.loginTab);
+        if (target) target.classList.add('active');
+        // Reset state when switching tabs
+        state.pin = '';
+        state.clockPin = '';
+        updatePinDots();
+        updateClockPinDots();
+        const clockResult = document.getElementById('clock-result');
+        if (clockResult) clockResult.style.display = 'none';
+        const clockNumpad = document.getElementById('clock-numpad');
+        if (clockNumpad) clockNumpad.style.display = '';
+        const clockPinDisplay = document.getElementById('clock-pin-display');
+        if (clockPinDisplay) clockPinDisplay.style.display = '';
+        const clockInstruction = document.querySelector('.timeclock-instruction');
+        if (clockInstruction) clockInstruction.style.display = '';
+    });
+});
+
+// ── Login Numpad ──
 $$('#login-numpad .numpad-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         const num = btn.dataset.num;
@@ -35,26 +60,179 @@ $$('#login-numpad .numpad-btn').forEach(btn => {
     });
 });
 
-$$('.quick-login-btn').forEach(btn => {
+// ── Clock In/Out Numpad ──
+state.clockPin = '';
+
+$$('#clock-numpad .numpad-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        const pin = btn.dataset.pin;
-        if (pin) {
-            doLogin(pin);
-        } else {
-            // Fallback for buttons without data-pin
-            const role = btn.dataset.user;
-            const pinMap = { 'server': '1111', 'cashier': '3333', 'manager': '1234', 'admin': '6533' };
-            doLogin(pinMap[role] || '1111');
+        const num = btn.dataset.num;
+        if (num === 'clear') {
+            state.clockPin = '';
+        } else if (num === 'enter') {
+            if (state.clockPin.length === 4) {
+                handleClockPinEntry(state.clockPin);
+            }
+        } else if (state.clockPin.length < 4) {
+            state.clockPin += num;
         }
+        updateClockPinDots();
     });
 });
 
 function updatePinDots() {
-    const dots = $$('.pin-dot');
+    const dots = $$('#login-tab-login .pin-dot');
     dots.forEach((dot, i) => {
         dot.classList.toggle('filled', i < state.pin.length);
     });
 }
+
+function updateClockPinDots() {
+    const dots = $$('.clock-pin-dots .pin-dot');
+    dots.forEach((dot, i) => {
+        dot.classList.toggle('filled', i < state.clockPin.length);
+    });
+}
+
+function handleClockPinEntry(pin) {
+    const staff = lookupStaffByPin(pin);
+    if (!staff) {
+        showToast('Invalid PIN', 'error');
+        state.clockPin = '';
+        updateClockPinDots();
+        const pinDisplay = document.getElementById('clock-pin-display');
+        if (pinDisplay) {
+            pinDisplay.classList.add('shake');
+            setTimeout(() => pinDisplay.classList.remove('shake'), 500);
+        }
+        return;
+    }
+
+    // Show employee info and clock status
+    const clockResult = document.getElementById('clock-result');
+    const clockNumpad = document.getElementById('clock-numpad');
+    const clockPinDisplay = document.getElementById('clock-pin-display');
+    const clockInstruction = document.querySelector('.timeclock-instruction');
+
+    if (clockNumpad) clockNumpad.style.display = 'none';
+    if (clockPinDisplay) clockPinDisplay.style.display = 'none';
+    if (clockInstruction) clockInstruction.style.display = 'none';
+    if (clockResult) clockResult.style.display = '';
+
+    document.getElementById('clock-emp-name').textContent = staff.name;
+    document.getElementById('clock-emp-role').textContent = ROLE_LABELS[staff.role] || staff.role;
+
+    const isClockedIn = isAlreadyClockedIn(staff.id);
+    const statusEl = document.getElementById('clock-status');
+    const btnIn = document.getElementById('btn-clock-in');
+    const btnOut = document.getElementById('btn-clock-out');
+
+    if (isClockedIn) {
+        const record = timeClock.filter(r => r.empId === staff.id && !r.clockOut).pop();
+        const clockInTime = record ? new Date(record.clockIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+        statusEl.textContent = 'Clocked in since ' + clockInTime;
+        statusEl.className = 'clock-status clocked-in';
+        btnIn.disabled = true;
+        btnOut.disabled = false;
+    } else {
+        statusEl.textContent = 'Not clocked in';
+        statusEl.className = 'clock-status clocked-out';
+        btnIn.disabled = false;
+        btnOut.disabled = true;
+    }
+
+    // Store ref to this staff for clock actions
+    state._clockStaff = staff;
+    state._clockPin = pin;
+}
+
+// Clock In button on login screen
+document.getElementById('btn-clock-in').addEventListener('click', () => {
+    const staff = state._clockStaff;
+    if (!staff) return;
+
+    const record = {
+        empId: staff.id,
+        empName: staff.name,
+        role: staff.role,
+        clockIn: new Date(),
+        clockOut: null
+    };
+    timeClock.push(record);
+
+    // Sync to API
+    if (typeof APIClient !== 'undefined') {
+        APIClient.login(state._clockPin).then(res => {
+            if (res && res.token) {
+                APIClient.setToken(res.token);
+                APIClient.clockIn(staff.id, staff.name, staff.role).catch(() => {});
+            }
+        }).catch(() => {});
+    }
+
+    showToast(staff.name + ' clocked in at ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }));
+
+    // Update display
+    document.getElementById('clock-status').textContent = 'Clocked in since ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('clock-status').className = 'clock-status clocked-in';
+    document.getElementById('btn-clock-in').disabled = true;
+    document.getElementById('btn-clock-out').disabled = false;
+});
+
+// Clock Out button on login screen
+document.getElementById('btn-clock-out').addEventListener('click', () => {
+    const staff = state._clockStaff;
+    if (!staff) return;
+
+    const record = timeClock.filter(r => r.empId === staff.id && !r.clockOut).pop();
+    if (record) {
+        record.clockOut = new Date();
+        const hours = ((record.clockOut - record.clockIn) / 3600000).toFixed(2);
+
+        // Sync to API
+        if (typeof APIClient !== 'undefined') {
+            APIClient.login(state._clockPin).then(res => {
+                if (res && res.token) {
+                    APIClient.setToken(res.token);
+                    APIClient.clockOut(staff.id).catch(() => {});
+                }
+            }).catch(() => {});
+        }
+
+        showToast(staff.name + ' clocked out. Shift: ' + hours + ' hours');
+
+        document.getElementById('clock-status').textContent = 'Clocked out (' + hours + ' hrs)';
+        document.getElementById('clock-status').className = 'clock-status clocked-out';
+        document.getElementById('btn-clock-in').disabled = false;
+        document.getElementById('btn-clock-out').disabled = true;
+    }
+});
+
+// Back button on clock result
+document.getElementById('btn-clock-back').addEventListener('click', () => {
+    state.clockPin = '';
+    state._clockStaff = null;
+    state._clockPin = '';
+    updateClockPinDots();
+    document.getElementById('clock-result').style.display = 'none';
+    document.getElementById('clock-numpad').style.display = '';
+    document.getElementById('clock-pin-display').style.display = '';
+    const clockInstruction = document.querySelector('.timeclock-instruction');
+    if (clockInstruction) clockInstruction.style.display = '';
+});
+
+// ── Demo auth pickup (from demo.html) ──
+(function checkDemoAuth() {
+    const raw = sessionStorage.getItem('demo-auth');
+    if (raw) {
+        sessionStorage.removeItem('demo-auth');
+        try {
+            const data = JSON.parse(raw);
+            if (data.pin && (Date.now() - data.ts) < 30000) {
+                doLogin(data.pin);
+            }
+        } catch (e) { /* ignore */ }
+    }
+})();
 
 function doLogin(pin) {
     const staff = lookupStaffByPin(pin);

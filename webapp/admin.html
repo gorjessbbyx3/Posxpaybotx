@@ -898,12 +898,8 @@
             '<button id="admin-login-btn" style="width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;">Login</button>' +
             '<p id="admin-login-error" style="color:var(--danger);margin-top:8px;font-size:0.85rem;"></p>' +
             '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border-light);">' +
-            '<p style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Demo Quick Login</p>' +
-            '<div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">' +
-            '<button class="demo-login-btn" data-pin="6533" style="padding:8px 14px;border-radius:8px;background:rgba(175,82,222,0.1);color:#af52de;font-weight:600;font-size:0.8rem;border:none;cursor:pointer;">Admin <small style="font-size:0.65rem;opacity:0.7;">OWN</small></button>' +
-            '<button class="demo-login-btn" data-pin="1234" style="padding:8px 14px;border-radius:8px;background:rgba(0,113,227,0.1);color:#0071e3;font-weight:600;font-size:0.8rem;border:none;cursor:pointer;">Maria <small style="font-size:0.65rem;opacity:0.7;">GM</small></button>' +
-            '<button class="demo-login-btn" data-pin="7777" style="padding:8px 14px;border-radius:8px;background:rgba(0,122,255,0.1);color:#007aff;font-weight:600;font-size:0.8rem;border:none;cursor:pointer;">David <small style="font-size:0.65rem;opacity:0.7;">AM</small></button>' +
-            '</div></div>' +
+            '<a href="demo.html" style="font-size:0.7rem;color:var(--text-muted);text-decoration:none;letter-spacing:0.5px;text-transform:uppercase;opacity:0.7;">Demo Mode &rarr;</a>' +
+            '</div>' +
             '</div></div>';
 
         document.getElementById('admin-login-btn').addEventListener('click', function() {
@@ -931,14 +927,6 @@
 
         document.getElementById('admin-pin').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') document.getElementById('admin-login-btn').click();
-        });
-
-        // Demo quick login buttons
-        document.querySelectorAll('.demo-login-btn').forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                document.getElementById('admin-pin').value = btn.dataset.pin;
-                document.getElementById('admin-login-btn').click();
-            });
         });
 
         throw new Error('Admin auth required'); // Stop further script execution
