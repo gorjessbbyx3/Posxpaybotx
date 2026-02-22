@@ -228,6 +228,11 @@ function updateTableSummary() {
             <span class="legend-item"><span class="legend-dot dirty"></span> Dirty (${dirty})</span>
         `;
     }
+
+    // Sync table state to API
+    if (typeof APIClient !== 'undefined') {
+        APIClient.updateTables(TABLES).catch(() => {});
+    }
 }
 
 // Floor tab switching
@@ -518,3 +523,79 @@ function cancelReservation(idx) {
     showToast(`Reservation for ${res.name} cancelled`);
 }
 window.cancelReservation = cancelReservation;
+
+// ==========================================
+// API Wiring: Reservations & Waitlist
+// ==========================================
+
+// --- Load Reservations from API ---
+(function wireReservationAPI() {
+    // On modal open, load reservations from API
+    const origOpenModal = typeof openReservationModal === 'function' ? openReservationModal : null;
+    if (origOpenModal) {
+        window.openReservationModal = function() {
+            origOpenModal();
+            if (typeof APIClient !== 'undefined') {
+                APIClient.getReservations().then(data => {
+                    const apiRes = data.reservations || data || [];
+                    // Merge API reservations into local
+                    apiRes.forEach(r => {
+                        if (!reservations.find(local => local.name === r.name && local.date === r.date && local.time === r.time)) {
+                            reservations.push(r);
+                        }
+                    });
+                    if (typeof refreshReservationList === 'function') refreshReservationList();
+                }).catch(() => {});
+            }
+        };
+    }
+
+    // Wire delete to API
+    const origCancel = window.cancelReservation;
+    window.cancelReservation = function(idx) {
+        const res = reservations[idx];
+        origCancel(idx);
+        if (res && res.id && typeof APIClient !== 'undefined') {
+            APIClient.deleteReservation(res.id).catch(() => {});
+        }
+    };
+})();
+
+// --- Load Waitlist from API ---
+(function wireWaitlistAPI() {
+    const origOpenWaitlist = typeof openWaitlistModal === 'undefined' ? null :
+        (typeof window.openWaitlistModal === 'function' ? window.openWaitlistModal : null);
+    if (typeof APIClient !== 'undefined') {
+        // Load waitlist data when waitlist modal opens
+        const waitlistBtn = document.getElementById('btn-waitlist');
+        if (waitlistBtn) {
+            waitlistBtn.addEventListener('click', () => {
+                APIClient.getWaitlist().then(data => {
+                    const entries = data.entries || data || [];
+                    const list = document.getElementById('waitlist-entries');
+                    if (list && entries.length > 0) {
+                        list.innerHTML = entries.map((e, i) =>
+                            '<div style="padding:10px 12px;background:var(--bg-elevated);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                            '<div><strong>' + (e.name || '') + '</strong> — Party of ' + (e.partySize || '?') +
+                            '<div style="font-size:0.8rem;color:var(--text-dim);">' + (e.phone || '') +
+                            (e.estimatedWait ? ' — Est: ' + e.estimatedWait + ' min' : '') + '</div></div>' +
+                            '<div style="display:flex;gap:6px;">' +
+                            '<button onclick="seatWaitlistEntry(\'' + (e.id || i) + '\')" style="padding:4px 10px;background:var(--success);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.75rem;">Seat</button>' +
+                            '</div></div>'
+                        ).join('');
+                    }
+                }).catch(() => {});
+            });
+        }
+    }
+    window.seatWaitlistEntry = function(id) {
+        if (typeof APIClient !== 'undefined') {
+            APIClient.updateWaitlistEntry(id, { status: 'seated' }).then(() => {
+                showToast('Guest seated');
+                // Refresh
+                const waitlistBtn = document.getElementById('btn-waitlist');
+                if (waitlistBtn) waitlistBtn.click();
+            }).catch(e => showToast(e.message || 'Failed', 'error'));
+        }
+    };
+})();

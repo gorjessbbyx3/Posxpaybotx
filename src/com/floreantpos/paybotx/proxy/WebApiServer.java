@@ -82,6 +82,7 @@ public class WebApiServer implements HttpHandler {
 	private int port;
 	private DecimalFormat df = new DecimalFormat("0.00");
 	private SessionManager sessionManager = SessionManager.getInstance();
+	private WebApiExtension apiExtension = WebApiExtension.getInstance();
 
 	// Configurable CORS origin — defaults to same-host, override via env or config
 	private String allowedOrigin;
@@ -199,9 +200,16 @@ public class WebApiServer implements HttpHandler {
 			} else if (path.equals("/api/tips/presets") && "POST".equals(method)) {
 				response = handleTipPresets(body);
 			} else {
-				response = "{\"error\":\"Not found\"}";
-				sendResponse(exchange, response, 404);
-				return;
+				// Delegate to extension handler for all additional endpoints
+				Map<String, String> bodyParams = (body != null && !body.isEmpty()) ? parseJson(body) : null;
+				String extResponse = apiExtension.handle(path, method, bodyParams);
+				if (extResponse != null) {
+					response = extResponse;
+				} else {
+					response = "{\"error\":\"Not found\"}";
+					sendResponse(exchange, response, 404);
+					return;
+				}
 			}
 
 			sendResponse(exchange, response, 200);

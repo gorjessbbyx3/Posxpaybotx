@@ -385,6 +385,200 @@ const APIClient = (function () {
         return request('POST', '/backups');
     }
 
+    function restoreBackup(id) {
+        return request('POST', '/backups/' + id + '/restore');
+    }
+
+    function getBackupSchedule() {
+        return request('GET', '/backups/schedule');
+    }
+
+    function updateBackupSchedule(schedule) {
+        return request('PUT', '/backups/schedule', schedule);
+    }
+
+    // ---- Employees ----
+    function getRoles() { return request('GET', '/roles'); }
+    function getEmployees() { return request('GET', '/employees'); }
+    function createEmployee(emp) { return request('POST', '/employees', emp); }
+    function updateEmployee(id, u) { return request('PUT', '/employees/' + id, u); }
+    function deleteEmployee(id) { return request('DELETE', '/employees/' + id); }
+
+    // ---- Recipes ----
+    function getRecipes() { return request('GET', '/recipes'); }
+    function createRecipe(r) { return request('POST', '/recipes', r); }
+    function updateRecipe(id, r) { return request('PUT', '/recipes/' + id, r); }
+    function deleteRecipe(id) { return request('DELETE', '/recipes/' + id); }
+
+    // ---- Vendors ----
+    function getVendors() { return request('GET', '/vendors'); }
+    function createVendor(v) { return request('POST', '/vendors', v); }
+    function updateVendor(id, v) { return request('PUT', '/vendors/' + id, v); }
+    function deleteVendor(id) { return request('DELETE', '/vendors/' + id); }
+
+    // ---- Purchase Orders ----
+    function getPurchaseOrders() { return request('GET', '/purchase-orders'); }
+    function createPurchaseOrder(po) { return request('POST', '/purchase-orders', po); }
+    function approvePurchaseOrder(id) { return request('POST', '/purchase-orders/' + id + '/approve'); }
+    function orderPurchaseOrder(id) { return request('POST', '/purchase-orders/' + id + '/order'); }
+    function receivePurchaseOrder(id) { return request('POST', '/purchase-orders/' + id + '/receive'); }
+    function cancelPurchaseOrder(id) { return request('POST', '/purchase-orders/' + id + '/cancel'); }
+
+    // ---- Ingredients (additional) ----
+    function createIngredient(ing) { return request('POST', '/ingredients', ing); }
+    function updateIngredient(id, u) { return request('PATCH', '/ingredients/' + id, u); }
+    function deleteIngredient(id) { return request('DELETE', '/ingredients/' + id); }
+    function getInventoryMovements() { return request('GET', '/inventory-movements'); }
+    function getInventoryDepletionReport() { return request('GET', '/reports/inventory-depletion'); }
+
+    // ---- Scheduled Orders ----
+    function getScheduledOrders() { return request('GET', '/scheduled-orders'); }
+    function confirmScheduledOrder(id) { return request('POST', '/scheduled-orders/' + id + '/confirm'); }
+    function cancelScheduledOrder(id) { return request('POST', '/scheduled-orders/' + id + '/cancel'); }
+    function fulfillScheduledOrder(id) { return request('POST', '/scheduled-orders/' + id + '/fulfill'); }
+
+    // ---- Curbside ----
+    function getCurbsideOrders() { return request('GET', '/curbside'); }
+    function curbsideArrival(ticketId) { return request('POST', '/tickets/' + ticketId + '/curbside-arrival'); }
+
+    // ---- Webhooks ----
+    function getWebhooks() { return request('GET', '/webhooks'); }
+    function createWebhook(w) { return request('POST', '/webhooks', w); }
+    function deleteWebhook(id) { return request('DELETE', '/webhooks/' + id); }
+
+    // ---- Delivery Integrations ----
+    function getDeliveryIntegrations() { return request('GET', '/delivery-integrations'); }
+    function createDeliveryIntegration(i) { return request('POST', '/delivery-integrations', i); }
+    function updateDeliveryIntegration(id, u) { return request('PUT', '/delivery-integrations/' + id, u); }
+    function testDeliveryIntegration(id) { return request('POST', '/delivery-integrations/' + id + '/test'); }
+
+    // ---- Waste Log ----
+    function getWasteLog() { return request('GET', '/waste-log'); }
+    function createWasteEntry(e) { return request('POST', '/waste-log', e); }
+
+    // ---- Email Campaigns ----
+    function getEmailCampaigns() { return request('GET', '/email-campaigns'); }
+    function createEmailCampaign(c) { return request('POST', '/email-campaigns', c); }
+    function sendEmailCampaign(id) { return request('POST', '/email-campaigns/' + id + '/send'); }
+
+    // ---- Email Reports ----
+    function getEmailReports() { return request('GET', '/email-reports'); }
+    function createEmailReport(r) { return request('POST', '/email-reports', r); }
+
+    // ---- Saved Payments / Token Vault ----
+    function getSavedPaymentMethods() { return request('GET', '/saved-payment-methods'); }
+    function createSavedPaymentMethod(m) { return request('POST', '/saved-payment-methods', m); }
+    function getTokenVault() { return request('GET', '/token-vault'); }
+    function createToken(t) { return request('POST', '/token-vault', t); }
+
+    // ---- Void Requests ----
+    function getVoidRequests() { return request('GET', '/void-requests'); }
+    function approveVoidRequest(id, pin) { return request('POST', '/void-requests/' + id + '/approve', { managerPin: pin }); }
+    function rejectVoidRequest(id, reason) { return request('POST', '/void-requests/' + id + '/reject', { reason }); }
+    function remoteVoid(ticketId, reason) { return request('POST', '/tickets/' + ticketId + '/remote-void', { reason }); }
+
+    // ---- Security ----
+    function setup2FA() { return request('POST', '/auth/2fa/setup'); }
+    function verify2FA(token) { return request('POST', '/auth/2fa/verify', { token }); }
+    function getEncryptionStatus() { return request('GET', '/security/encryption-status'); }
+    function updateEncryption(s) { return request('PUT', '/security/encryption', s); }
+    function rotateKey() { return request('POST', '/security/rotate-key'); }
+    function getPCISaq() { return request('GET', '/compliance/pci-saq'); }
+
+    // ---- Locations ----
+    function getLocations() { return request('GET', '/locations'); }
+    function createLocation(l) { return request('POST', '/locations', l); }
+    function updateLocation(id, u) { return request('PUT', '/locations/' + id, u); }
+    function deleteLocation(id) { return request('DELETE', '/locations/' + id); }
+
+    // ---- Merchants ----
+    function getMerchants() { return request('GET', '/merchants'); }
+    function createMerchant(m) { return request('POST', '/merchants', m); }
+    function updateMerchant(id, u) { return request('PUT', '/merchants/' + id, u); }
+    function deleteMerchant(id) { return request('DELETE', '/merchants/' + id); }
+
+    // ---- Feature Toggles ----
+    function getFeatureToggles() { return request('GET', '/feature-toggles'); }
+    function updateFeatureToggles(t) { return request('PUT', '/feature-toggles', t); }
+
+    // ---- Branding ----
+    function getBranding() { return request('GET', '/branding'); }
+    function updateBranding(b) { return request('PUT', '/branding', b); }
+
+    // ---- Plugins ----
+    function getPlugins() { return request('GET', '/plugins'); }
+    function installPlugin(p) { return request('POST', '/plugins', p); }
+    function updatePlugin(id, u) { return request('PUT', '/plugins/' + id, u); }
+    function deletePlugin(id) { return request('DELETE', '/plugins/' + id); }
+
+    // ---- Hardware ----
+    function getPrinters() { return request('GET', '/hardware/printers'); }
+    function addPrinter(p) { return request('POST', '/hardware/printers', p); }
+    function openCashDrawer() { return request('POST', '/hardware/cash-drawer/open'); }
+    function barcodeScan(code) { return request('POST', '/hardware/barcode-scan', { barcode: code }); }
+    function getKDSDisplays() { return request('GET', '/hardware/kds-displays'); }
+    function addKDSDisplay(d) { return request('POST', '/hardware/kds-displays', d); }
+
+    // ---- Sync ----
+    function getSyncSnapshot() { return request('GET', '/sync/snapshot'); }
+    function syncPush(data) { return request('POST', '/sync/push', data); }
+    function syncResync() { return request('POST', '/sync/resync'); }
+    function syncReconcile() { return request('POST', '/sync/reconcile'); }
+
+    // ---- Menu ----
+    function getMenu() { return request('GET', '/menu'); }
+    function updateMenu(menu) { return request('PUT', '/menu', menu); }
+
+    // ---- Tables ----
+    function getTables() { return request('GET', '/tables'); }
+    function updateTables(tables) { return request('PUT', '/tables', tables); }
+
+    // ---- Payment Details ----
+    function getPaymentTransaction(id) { return request('GET', '/payments/transactions/' + id); }
+    function getPaymentsByTicket(tid) { return request('GET', '/payments/ticket/' + tid); }
+    function adjustTip(tid, tip) { return request('POST', '/payments/transactions/' + tid + '/adjust-tip', { tipAmount: tip }); }
+    function batchSettle() { return request('POST', '/payments/batch/settle'); }
+    function getPaymentLog() { return request('GET', '/payments/log'); }
+    function getPaymentHealth() { return request('GET', '/payments/health'); }
+
+    // ---- Advanced Reports ----
+    function getHourlyHeatmap() { return request('GET', '/reports/hourly-heatmap'); }
+    function getCategoryMarginReport() { return request('GET', '/reports/category-margin'); }
+    function getModifierProfitabilityReport() { return request('GET', '/reports/modifier-profitability'); }
+    function getFoodCostReport() { return request('GET', '/reports/food-cost'); }
+    function getPaymentBreakdownReport() { return request('GET', '/reports/payment-breakdown'); }
+    function getAdminSummary() { return request('GET', '/admin/summary'); }
+    function getMobileDashboard() { return request('GET', '/mobile/dashboard'); }
+    function getOwnerAnalytics() { return request('GET', '/analytics/owner'); }
+    function getCloudReports() { return request('GET', '/cloud-reports'); }
+    function getExportQuickbooks() { return request('GET', '/export/quickbooks'); }
+    function getLiveFeed() { return request('GET', '/live-feed'); }
+    function getSurchargeCapConfig() { return request('GET', '/surcharge-cap'); }
+    function updateSurchargeCapConfig(c) { return request('PUT', '/surcharge-cap', c); }
+
+    // ---- System ----
+    function getSystemDiagnostics() { return request('GET', '/system/diagnostics'); }
+    function systemUpdate(v) { return request('POST', '/system/update', { version: v }); }
+    function getDeployStatus() { return request('GET', '/deploy/status'); }
+    function deploy(c) { return request('POST', '/deploy', c); }
+    function getDeveloperDocs() { return request('GET', '/developer/docs'); }
+
+    // ---- Happy Hour ----
+    function getHappyHour() { return request('GET', '/happy-hour'); }
+    function createHappyHourRule(r) { return request('POST', '/happy-hour/rules', r); }
+    function updateHappyHourRule(id, r) { return request('PUT', '/happy-hour/rules/' + id, r); }
+    function deleteHappyHourRule(id) { return request('DELETE', '/happy-hour/rules/' + id); }
+    function toggleHappyHour(en) { return request('PUT', '/happy-hour/toggle', { enabled: en }); }
+
+    // ---- State Rules ----
+    function getStateRules() { return request('GET', '/config/cashDiscount/state-rules'); }
+    function updateStateRule(st, rule) { return request('PUT', '/config/cashDiscount/state-rules/' + st, rule); }
+    function deleteStateRule(st) { return request('DELETE', '/config/cashDiscount/state-rules/' + st); }
+
+    // ---- Kitchen Extras ----
+    function kitchenAlert(id, alert) { return request('POST', '/kitchen/' + id + '/alert', alert); }
+    function getKitchenExpo() { return request('GET', '/kitchen/expo'); }
+
     // ---- Offline Queue ----
 
     /**
@@ -521,6 +715,191 @@ const APIClient = (function () {
         // Backups
         getBackups,
         createBackup,
+        restoreBackup,
+        getBackupSchedule,
+        updateBackupSchedule,
+
+        // Employees
+        getRoles,
+        getEmployees,
+        createEmployee,
+        updateEmployee,
+        deleteEmployee,
+
+        // Recipes
+        getRecipes,
+        createRecipe,
+        updateRecipe,
+        deleteRecipe,
+
+        // Vendors
+        getVendors,
+        createVendor,
+        updateVendor,
+        deleteVendor,
+
+        // Purchase Orders
+        getPurchaseOrders,
+        createPurchaseOrder,
+        approvePurchaseOrder,
+        orderPurchaseOrder,
+        receivePurchaseOrder,
+        cancelPurchaseOrder,
+
+        // Ingredients (additional)
+        createIngredient,
+        updateIngredient,
+        deleteIngredient,
+        getInventoryMovements,
+        getInventoryDepletionReport,
+
+        // Scheduled Orders
+        getScheduledOrders,
+        confirmScheduledOrder,
+        cancelScheduledOrder,
+        fulfillScheduledOrder,
+
+        // Curbside
+        getCurbsideOrders,
+        curbsideArrival,
+
+        // Webhooks
+        getWebhooks,
+        createWebhook,
+        deleteWebhook,
+
+        // Delivery Integrations
+        getDeliveryIntegrations,
+        createDeliveryIntegration,
+        updateDeliveryIntegration,
+        testDeliveryIntegration,
+
+        // Waste Log
+        getWasteLog,
+        createWasteEntry,
+
+        // Email Campaigns
+        getEmailCampaigns,
+        createEmailCampaign,
+        sendEmailCampaign,
+
+        // Email Reports
+        getEmailReports,
+        createEmailReport,
+
+        // Saved Payments / Token Vault
+        getSavedPaymentMethods,
+        createSavedPaymentMethod,
+        getTokenVault,
+        createToken,
+
+        // Void Requests
+        getVoidRequests,
+        approveVoidRequest,
+        rejectVoidRequest,
+        remoteVoid,
+
+        // Security
+        setup2FA,
+        verify2FA,
+        getEncryptionStatus,
+        updateEncryption,
+        rotateKey,
+        getPCISaq,
+
+        // Locations
+        getLocations,
+        createLocation,
+        updateLocation,
+        deleteLocation,
+
+        // Merchants
+        getMerchants,
+        createMerchant,
+        updateMerchant,
+        deleteMerchant,
+
+        // Feature Toggles
+        getFeatureToggles,
+        updateFeatureToggles,
+
+        // Branding
+        getBranding,
+        updateBranding,
+
+        // Plugins
+        getPlugins,
+        installPlugin,
+        updatePlugin,
+        deletePlugin,
+
+        // Hardware
+        getPrinters,
+        addPrinter,
+        openCashDrawer,
+        barcodeScan,
+        getKDSDisplays,
+        addKDSDisplay,
+
+        // Sync
+        getSyncSnapshot,
+        syncPush,
+        syncResync,
+        syncReconcile,
+
+        // Menu
+        getMenu,
+        updateMenu,
+
+        // Tables
+        getTables,
+        updateTables,
+
+        // Payment Details
+        getPaymentTransaction,
+        getPaymentsByTicket,
+        adjustTip,
+        batchSettle,
+        getPaymentLog,
+        getPaymentHealth,
+
+        // Advanced Reports
+        getHourlyHeatmap,
+        getCategoryMarginReport,
+        getModifierProfitabilityReport,
+        getFoodCostReport,
+        getPaymentBreakdownReport,
+        getAdminSummary,
+        getMobileDashboard,
+        getOwnerAnalytics,
+        getCloudReports,
+        getExportQuickbooks,
+        getLiveFeed,
+        getSurchargeCapConfig,
+        updateSurchargeCapConfig,
+
+        // System
+        getSystemDiagnostics,
+        systemUpdate,
+        getDeployStatus,
+        deploy,
+        getDeveloperDocs,
+
+        // Happy Hour
+        getHappyHour,
+        createHappyHourRule,
+        updateHappyHourRule,
+        deleteHappyHourRule,
+        toggleHappyHour,
+
+        // State Rules
+        getStateRules,
+        updateStateRule,
+        deleteStateRule,
+
+        // Kitchen Extras
+        kitchenAlert,
+        getKitchenExpo,
 
         // Offline
         flushOfflineQueue,

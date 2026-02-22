@@ -279,3 +279,55 @@ $$('.kds-filter').forEach(btn => {
         populateKitchen();
     });
 });
+
+// --- Wire Kitchen API: Load orders from backend ---
+(function wireKitchenLoadAPI() {
+    const origPopulate = populateKitchen;
+    window.populateKitchen = function() {
+        // Try loading from API first, fall back to local
+        if (typeof APIClient !== 'undefined') {
+            APIClient.getKitchenOrders(activeStation).then(data => {
+                const orders = data.orders || data || [];
+                if (orders.length > 0) {
+                    // Merge API orders into local state
+                    orders.forEach(apiOrder => {
+                        const existing = state.kitchenOrders.find(o => o.id === apiOrder.id);
+                        if (!existing) {
+                            state.kitchenOrders.push(apiOrder);
+                        }
+                    });
+                }
+                origPopulate();
+            }).catch(() => origPopulate());
+        } else {
+            origPopulate();
+        }
+    };
+})();
+
+// --- Kitchen Expo View ---
+(function wireKitchenExpo() {
+    const expoBtn = document.getElementById('btn-expo-view');
+    if (expoBtn) {
+        expoBtn.addEventListener('click', () => {
+            if (typeof APIClient !== 'undefined') {
+                APIClient.getKitchenExpo().then(data => {
+                    const orders = data.orders || data || [];
+                    const panel = document.getElementById('expo-panel');
+                    if (!panel) return;
+                    panel.innerHTML = orders.length === 0
+                        ? '<p style="text-align:center;color:var(--text-muted);padding:16px;">No orders ready for expo</p>'
+                        : orders.map(o =>
+                            '<div style="padding:12px;background:var(--bg-elevated);border-radius:8px;margin-bottom:8px;">' +
+                            '<div style="display:flex;justify-content:space-between;">' +
+                            '<strong>Order #' + (o.ticketId || o.id || '') + '</strong>' +
+                            '<span style="font-size:0.8rem;color:var(--text-dim);">' + (o.status || '') + '</span></div>' +
+                            '<div style="font-size:0.85rem;margin-top:4px;">' +
+                            (o.items || []).map(i => i.name + ' x' + (i.qty || 1)).join(', ') +
+                            '</div></div>'
+                        ).join('');
+                }).catch(() => {});
+            }
+        });
+    }
+})();

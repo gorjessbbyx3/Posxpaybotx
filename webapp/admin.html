@@ -345,6 +345,22 @@
             <button class="nav-item" data-panel="restaurant">Restaurant Info</button>
             <button class="nav-item" data-panel="receipt">Receipt Config</button>
             <button class="nav-item" data-panel="employees">Employees</button>
+            <button class="nav-item" data-panel="inventory">Inventory</button>
+            <button class="nav-item" data-panel="recipes">Recipes</button>
+            <button class="nav-item" data-panel="vendors">Vendors</button>
+            <button class="nav-item" data-panel="purchase-orders">Purchase Orders</button>
+            <button class="nav-item" data-panel="happy-hour">Happy Hour</button>
+            <button class="nav-item" data-panel="promo-codes">Promo Codes</button>
+            <button class="nav-item" data-panel="delivery">Delivery</button>
+            <button class="nav-item" data-panel="webhooks">Webhooks</button>
+            <button class="nav-item" data-panel="email-campaigns">Email Campaigns</button>
+            <button class="nav-item" data-panel="hardware">Hardware</button>
+            <button class="nav-item" data-panel="security">Security</button>
+            <button class="nav-item" data-panel="backups">Backups</button>
+            <button class="nav-item" data-panel="locations">Locations</button>
+            <button class="nav-item" data-panel="branding">Branding</button>
+            <button class="nav-item" data-panel="feature-toggles">Feature Toggles</button>
+            <button class="nav-item" data-panel="plugins">Plugins</button>
         </nav>
 
         <div class="admin-content">
@@ -871,6 +887,206 @@
                     </div>
                     <button class="btn-save" id="btn-add-employee">Add Employee</button>
                 </div>
+            </div>
+
+            <!-- Inventory Panel -->
+            <div class="settings-panel" id="panel-inventory">
+                <h2 class="panel-title">Inventory / Ingredients</h2>
+                <div id="inventory-list" style="margin-bottom:16px;"></div>
+                <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end;">
+                    <div class="form-group"><label class="form-label">Item Name</label><input class="form-input" id="inv-name" placeholder="e.g. Chicken Breast"></div>
+                    <div class="form-group"><label class="form-label">Quantity</label><input class="form-input" id="inv-qty" type="number" value="0"></div>
+                    <button class="btn-save" id="btn-add-ingredient">Add</button>
+                </div>
+                <div id="low-stock-alerts" style="margin-top:16px;"></div>
+            </div>
+
+            <!-- Recipes Panel -->
+            <div class="settings-panel" id="panel-recipes">
+                <h2 class="panel-title">Recipes</h2>
+                <div id="recipes-list" style="margin-bottom:16px;"></div>
+                <div class="form-group"><label class="form-label">Recipe Name</label><input class="form-input" id="recipe-name" placeholder="e.g. Caesar Salad"></div>
+                <div class="form-group"><label class="form-label">Ingredients (JSON)</label><textarea class="form-textarea" id="recipe-ingredients" rows="3" placeholder='[{"name":"Romaine","qty":1,"unit":"head"}]'></textarea></div>
+                <div class="form-group"><label class="form-label">Instructions</label><textarea class="form-textarea" id="recipe-instructions" rows="3" placeholder="Step-by-step preparation..."></textarea></div>
+                <button class="btn-save" id="btn-add-recipe">Add Recipe</button>
+            </div>
+
+            <!-- Vendors Panel -->
+            <div class="settings-panel" id="panel-vendors">
+                <h2 class="panel-title">Vendors</h2>
+                <div id="vendors-list" style="margin-bottom:16px;"></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label class="form-label">Company Name</label><input class="form-input" id="vendor-name" placeholder="e.g. Sysco"></div>
+                    <div class="form-group"><label class="form-label">Contact</label><input class="form-input" id="vendor-contact" placeholder="e.g. john@sysco.com"></div>
+                    <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="vendor-phone" placeholder="555-1234"></div>
+                    <div class="form-group"><label class="form-label">Category</label><input class="form-input" id="vendor-category" placeholder="e.g. Produce, Meat"></div>
+                </div>
+                <button class="btn-save" id="btn-add-vendor">Add Vendor</button>
+            </div>
+
+            <!-- Purchase Orders Panel -->
+            <div class="settings-panel" id="panel-purchase-orders">
+                <h2 class="panel-title">Purchase Orders</h2>
+                <div id="po-list" style="margin-bottom:16px;"></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label class="form-label">Vendor</label><select class="form-select" id="po-vendor"><option>Select vendor...</option></select></div>
+                    <div class="form-group"><label class="form-label">Items (JSON)</label><textarea class="form-textarea" id="po-items" rows="2" placeholder='[{"name":"Chicken","qty":50,"unit":"lb"}]'></textarea></div>
+                </div>
+                <div class="form-group"><label class="form-label">Notes</label><input class="form-input" id="po-notes" placeholder="Delivery instructions..."></div>
+                <button class="btn-save" id="btn-create-po">Create PO</button>
+            </div>
+
+            <!-- Happy Hour Panel -->
+            <div class="settings-panel" id="panel-happy-hour">
+                <h2 class="panel-title">Happy Hour</h2>
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+                    <label class="form-label" style="margin:0;">Enable Happy Hour</label>
+                    <label class="switch"><input type="checkbox" id="hh-enabled"><span class="slider"></span></label>
+                </div>
+                <div id="hh-rules-list" style="margin-bottom:16px;"></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                    <div class="form-group"><label class="form-label">Start Time</label><input class="form-input" id="hh-start" type="time" value="16:00"></div>
+                    <div class="form-group"><label class="form-label">End Time</label><input class="form-input" id="hh-end" type="time" value="18:00"></div>
+                    <div class="form-group"><label class="form-label">Discount %</label><input class="form-input" id="hh-discount" type="number" value="20" min="1" max="100"></div>
+                </div>
+                <div class="form-group"><label class="form-label">Days</label><input class="form-input" id="hh-days" placeholder="Mon,Tue,Wed,Thu,Fri"></div>
+                <button class="btn-save" id="btn-add-hh-rule">Add Rule</button>
+            </div>
+
+            <!-- Promo Codes Panel -->
+            <div class="settings-panel" id="panel-promo-codes">
+                <h2 class="panel-title">Promo Codes</h2>
+                <div id="promo-list" style="margin-bottom:16px;"></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label class="form-label">Code</label><input class="form-input" id="promo-code" placeholder="e.g. SAVE20" style="text-transform:uppercase;"></div>
+                    <div class="form-group"><label class="form-label">Type</label><select class="form-select" id="promo-type"><option value="percent">Percentage</option><option value="fixed">Fixed Amount</option><option value="delivery">Free Delivery</option></select></div>
+                    <div class="form-group"><label class="form-label">Value</label><input class="form-input" id="promo-value" type="number" placeholder="20"></div>
+                    <div class="form-group"><label class="form-label">Min Amount ($)</label><input class="form-input" id="promo-min" type="number" value="0" step="0.01"></div>
+                </div>
+                <div class="form-group"><label class="form-label">Description</label><input class="form-input" id="promo-desc" placeholder="e.g. 20% off all orders"></div>
+                <button class="btn-save" id="btn-add-promo">Add Promo Code</button>
+            </div>
+
+            <!-- Delivery Integrations Panel -->
+            <div class="settings-panel" id="panel-delivery">
+                <h2 class="panel-title">Delivery Integrations</h2>
+                <div id="delivery-list" style="margin-bottom:16px;"></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label class="form-label">Provider</label><select class="form-select" id="delivery-provider"><option value="doordash">DoorDash</option><option value="ubereats">Uber Eats</option><option value="grubhub">Grubhub</option><option value="custom">Custom</option></select></div>
+                    <div class="form-group"><label class="form-label">API Key</label><input class="form-input" id="delivery-apikey" type="password" placeholder="API key..."></div>
+                </div>
+                <div class="form-group"><label class="form-label">Webhook URL</label><input class="form-input" id="delivery-webhook" placeholder="https://..."></div>
+                <button class="btn-save" id="btn-add-delivery">Add Integration</button>
+            </div>
+
+            <!-- Webhooks Panel -->
+            <div class="settings-panel" id="panel-webhooks">
+                <h2 class="panel-title">Webhooks</h2>
+                <div id="webhooks-list" style="margin-bottom:16px;"></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label class="form-label">Event</label><select class="form-select" id="webhook-event"><option value="ticket.created">Ticket Created</option><option value="ticket.paid">Ticket Paid</option><option value="ticket.voided">Ticket Voided</option><option value="order.received">Order Received</option></select></div>
+                    <div class="form-group"><label class="form-label">URL</label><input class="form-input" id="webhook-url" placeholder="https://..."></div>
+                </div>
+                <button class="btn-save" id="btn-add-webhook">Add Webhook</button>
+            </div>
+
+            <!-- Email Campaigns Panel -->
+            <div class="settings-panel" id="panel-email-campaigns">
+                <h2 class="panel-title">Email Campaigns</h2>
+                <div id="campaign-list" style="margin-bottom:16px;"></div>
+                <div class="form-group"><label class="form-label">Campaign Name</label><input class="form-input" id="campaign-name" placeholder="e.g. Monthly Special"></div>
+                <div class="form-group"><label class="form-label">Subject</label><input class="form-input" id="campaign-subject" placeholder="Subject line..."></div>
+                <div class="form-group"><label class="form-label">Body</label><textarea class="form-textarea" id="campaign-body" rows="4" placeholder="Email content..."></textarea></div>
+                <button class="btn-save" id="btn-create-campaign">Create Campaign</button>
+            </div>
+
+            <!-- Hardware Panel -->
+            <div class="settings-panel" id="panel-hardware">
+                <h2 class="panel-title">Hardware / Printers</h2>
+                <h3 style="font-size:0.95rem;margin-bottom:12px;">Receipt Printers</h3>
+                <div id="printers-list" style="margin-bottom:16px;"></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label class="form-label">Printer Name</label><input class="form-input" id="printer-name" placeholder="e.g. Front Counter"></div>
+                    <div class="form-group"><label class="form-label">IP Address</label><input class="form-input" id="printer-ip" placeholder="192.168.1.100"></div>
+                </div>
+                <button class="btn-save" id="btn-add-printer">Add Printer</button>
+                <h3 style="font-size:0.95rem;margin:20px 0 12px;">KDS Displays</h3>
+                <div id="kds-list" style="margin-bottom:16px;"></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label class="form-label">Display Name</label><input class="form-input" id="kds-name" placeholder="e.g. Grill Station"></div>
+                    <div class="form-group"><label class="form-label">Station</label><select class="form-select" id="kds-station"><option value="grill">Grill</option><option value="fry">Fry</option><option value="salad">Salad</option><option value="expo">Expo</option></select></div>
+                </div>
+                <button class="btn-save" id="btn-add-kds">Add KDS Display</button>
+            </div>
+
+            <!-- Security Panel -->
+            <div class="settings-panel" id="panel-security">
+                <h2 class="panel-title">Security &amp; Compliance</h2>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+                    <div style="padding:16px;background:var(--bg);border-radius:8px;"><strong>Encryption</strong><div id="encryption-status" style="color:var(--text-dim);font-size:0.85rem;">Loading...</div></div>
+                    <div style="padding:16px;background:var(--bg);border-radius:8px;"><strong>PCI Compliance</strong><div id="pci-status" style="color:var(--text-dim);font-size:0.85rem;">Loading...</div></div>
+                </div>
+                <div style="display:flex;gap:12px;margin-bottom:16px;">
+                    <button class="btn-save" id="btn-setup-2fa">Setup 2FA</button>
+                    <button class="btn-save" id="btn-rotate-key" style="background:var(--warning);">Rotate Encryption Key</button>
+                </div>
+                <h3 style="font-size:0.95rem;margin-bottom:12px;">PCI SAQ Self-Assessment</h3>
+                <div id="pci-saq-body" style="max-height:300px;overflow-y:auto;"></div>
+            </div>
+
+            <!-- Backups Panel -->
+            <div class="settings-panel" id="panel-backups">
+                <h2 class="panel-title">Backup &amp; Restore</h2>
+                <div style="display:flex;gap:12px;margin-bottom:16px;">
+                    <button class="btn-save" id="btn-create-backup">Create Backup Now</button>
+                    <button class="btn-save" id="btn-batch-settle" style="background:var(--accent);">Batch Settle Payments</button>
+                </div>
+                <h3 style="font-size:0.95rem;margin-bottom:12px;">Backup Schedule</h3>
+                <div id="backup-schedule" style="margin-bottom:16px;padding:12px;background:var(--bg);border-radius:8px;"></div>
+                <h3 style="font-size:0.95rem;margin-bottom:12px;">Available Backups</h3>
+                <div id="backups-list"></div>
+            </div>
+
+            <!-- Locations Panel -->
+            <div class="settings-panel" id="panel-locations">
+                <h2 class="panel-title">Locations</h2>
+                <div id="locations-list" style="margin-bottom:16px;"></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label class="form-label">Location Name</label><input class="form-input" id="location-name" placeholder="e.g. Downtown Branch"></div>
+                    <div class="form-group"><label class="form-label">Address</label><input class="form-input" id="location-address" placeholder="123 Main St"></div>
+                    <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="location-phone" placeholder="555-9876"></div>
+                    <div class="form-group"><label class="form-label">Manager</label><input class="form-input" id="location-manager" placeholder="Manager name"></div>
+                </div>
+                <button class="btn-save" id="btn-add-location">Add Location</button>
+            </div>
+
+            <!-- Branding Panel -->
+            <div class="settings-panel" id="panel-branding">
+                <h2 class="panel-title">Branding</h2>
+                <div id="branding-current" style="margin-bottom:16px;padding:12px;background:var(--bg);border-radius:8px;"></div>
+                <div class="form-group"><label class="form-label">Restaurant Name</label><input class="form-input" id="branding-name" placeholder="Your Restaurant"></div>
+                <div class="form-group"><label class="form-label">Primary Color</label><input class="form-input" id="branding-color" type="color" value="#0071e3"></div>
+                <div class="form-group"><label class="form-label">Logo URL</label><input class="form-input" id="branding-logo" placeholder="https://..."></div>
+                <div class="form-group"><label class="form-label">Tagline</label><input class="form-input" id="branding-tagline" placeholder="Your restaurant tagline"></div>
+                <button class="btn-save" id="btn-save-branding">Save Branding</button>
+            </div>
+
+            <!-- Feature Toggles Panel -->
+            <div class="settings-panel" id="panel-feature-toggles">
+                <h2 class="panel-title">Feature Toggles</h2>
+                <div id="toggles-list" style="margin-bottom:16px;"></div>
+                <button class="btn-save" id="btn-save-toggles">Save Changes</button>
+            </div>
+
+            <!-- Plugins Panel -->
+            <div class="settings-panel" id="panel-plugins">
+                <h2 class="panel-title">Plugin Marketplace</h2>
+                <div id="plugins-list" style="margin-bottom:16px;"></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label class="form-label">Plugin Name</label><input class="form-input" id="plugin-name" placeholder="e.g. Table QR Code Generator"></div>
+                    <div class="form-group"><label class="form-label">Version</label><input class="form-input" id="plugin-version" placeholder="1.0.0"></div>
+                </div>
+                <button class="btn-save" id="btn-install-plugin">Install Plugin</button>
             </div>
         </div>
     </div>
@@ -1637,6 +1853,480 @@
             }
         }).catch(() => showToast('Server unavailable', 'error'));
     });
+
+    // =============================================================
+    // ADMIN PANEL WIRING — ALL REMAINING PANELS
+    // =============================================================
+    function apiCall(method, path, body) {
+        const opts = { method, headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getAuthToken() } };
+        if (body && method !== 'GET') opts.body = JSON.stringify(body);
+        return fetch('/api' + path, opts).then(r => r.json().then(data => ({ ok: r.ok, data })));
+    }
+
+    function renderList(containerId, items, renderFn) {
+        const el = document.getElementById(containerId);
+        if (!el) return;
+        if (!items || items.length === 0) {
+            el.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:16px;">No items yet</p>';
+            return;
+        }
+        el.innerHTML = items.map(renderFn).join('');
+    }
+
+    // ---- Inventory / Ingredients ----
+    function loadInventory() {
+        apiCall('GET', '/ingredients').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.ingredients || data || [];
+            renderList('inventory-list', items, (ing) =>
+                '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;">' +
+                '<span><strong>' + (ing.name || '') + '</strong></span>' +
+                '<span>Qty: ' + (ing.quantity != null ? ing.quantity : 0) + (ing.unit ? ' ' + ing.unit : '') + '</span>' +
+                '<div style="display:flex;gap:6px;">' +
+                '<button class="btn-save" style="padding:4px 10px;font-size:0.75rem;" onclick="adjustInventory(\'' + (ing.id || ing._id || '') + '\')">Adjust</button>' +
+                '<button class="btn-danger" style="padding:4px 10px;font-size:0.75rem;" onclick="deleteInventoryItem(\'' + (ing.id || ing._id || '') + '\')">Remove</button>' +
+                '</div></div>'
+            );
+        }).catch(() => {});
+        apiCall('GET', '/alerts/low-stock').then(({ ok, data }) => {
+            if (!ok) return;
+            const alerts = data.alerts || data || [];
+            const el = document.getElementById('low-stock-alerts');
+            if (el && alerts.length > 0) {
+                el.innerHTML = '<div style="padding:12px;background:#fff3cd;border-radius:8px;color:#856404;"><strong>Low Stock Alerts:</strong><ul style="margin:8px 0 0 16px;">' +
+                    alerts.map(a => '<li>' + (a.name || a.ingredient || '') + ' — ' + (a.quantity || 0) + ' remaining</li>').join('') + '</ul></div>';
+            }
+        }).catch(() => {});
+    }
+    window.adjustInventory = function(id) {
+        const qty = prompt('Adjust quantity (+/- number):');
+        if (!qty) return;
+        apiCall('POST', '/ingredients/' + id + '/adjust', { quantity: parseFloat(qty), reason: 'Manual adjustment' })
+            .then(({ ok }) => { if (ok) { showToast('Inventory adjusted'); loadInventory(); } else showToast('Failed', 'error'); });
+    };
+    window.deleteInventoryItem = function(id) {
+        if (!confirm('Remove this ingredient?')) return;
+        apiCall('DELETE', '/ingredients/' + id).then(({ ok }) => { if (ok) { showToast('Removed'); loadInventory(); } });
+    };
+    document.getElementById('btn-add-ingredient').addEventListener('click', () => {
+        const name = document.getElementById('inv-name').value.trim();
+        const qty = parseFloat(document.getElementById('inv-qty').value) || 0;
+        if (!name) { showToast('Enter ingredient name', 'error'); return; }
+        apiCall('POST', '/ingredients', { name, quantity: qty }).then(({ ok }) => {
+            if (ok) { showToast(name + ' added'); document.getElementById('inv-name').value = ''; document.getElementById('inv-qty').value = '0'; loadInventory(); }
+            else showToast('Failed to add', 'error');
+        });
+    });
+
+    // ---- Recipes ----
+    function loadRecipes() {
+        apiCall('GET', '/recipes').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.recipes || data || [];
+            renderList('recipes-list', items, (r) =>
+                '<div style="padding:12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong>' + (r.name || '') + '</strong><div style="font-size:0.8rem;color:var(--text-dim);">' + (r.ingredients ? r.ingredients.length + ' ingredients' : '') + '</div></div>' +
+                '<button class="btn-danger" style="padding:4px 10px;font-size:0.75rem;" onclick="deleteRecipe(\'' + (r.id || r._id || '') + '\')">Delete</button></div>'
+            );
+        }).catch(() => {});
+    }
+    window.deleteRecipe = function(id) {
+        if (!confirm('Delete this recipe?')) return;
+        apiCall('DELETE', '/recipes/' + id).then(({ ok }) => { if (ok) { showToast('Deleted'); loadRecipes(); } });
+    };
+    document.getElementById('btn-add-recipe').addEventListener('click', () => {
+        const name = document.getElementById('recipe-name').value.trim();
+        if (!name) { showToast('Enter recipe name', 'error'); return; }
+        let ingredients = [];
+        try { ingredients = JSON.parse(document.getElementById('recipe-ingredients').value || '[]'); } catch(e) { showToast('Invalid JSON', 'error'); return; }
+        const instructions = document.getElementById('recipe-instructions').value.trim();
+        apiCall('POST', '/recipes', { name, ingredients, instructions }).then(({ ok }) => {
+            if (ok) { showToast(name + ' added'); document.getElementById('recipe-name').value = ''; document.getElementById('recipe-ingredients').value = ''; document.getElementById('recipe-instructions').value = ''; loadRecipes(); }
+            else showToast('Failed', 'error');
+        });
+    });
+
+    // ---- Vendors ----
+    function loadVendors() {
+        apiCall('GET', '/vendors').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.vendors || data || [];
+            renderList('vendors-list', items, (v) =>
+                '<div style="padding:12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong>' + (v.name || '') + '</strong><div style="font-size:0.8rem;color:var(--text-dim);">' + (v.contact || '') + ' &bull; ' + (v.phone || '') + ' &bull; ' + (v.category || '') + '</div></div>' +
+                '<button class="btn-danger" style="padding:4px 10px;font-size:0.75rem;" onclick="deleteVendor(\'' + (v.id || v._id || '') + '\')">Delete</button></div>'
+            );
+            // Populate PO vendor dropdown
+            const poSelect = document.getElementById('po-vendor');
+            if (poSelect) {
+                poSelect.innerHTML = '<option value="">Select vendor...</option>' + items.map(v => '<option value="' + (v.id || v._id || v.name) + '">' + (v.name || '') + '</option>').join('');
+            }
+        }).catch(() => {});
+    }
+    window.deleteVendor = function(id) {
+        if (!confirm('Delete vendor?')) return;
+        apiCall('DELETE', '/vendors/' + id).then(({ ok }) => { if (ok) { showToast('Deleted'); loadVendors(); } });
+    };
+    document.getElementById('btn-add-vendor').addEventListener('click', () => {
+        const name = document.getElementById('vendor-name').value.trim();
+        if (!name) { showToast('Enter vendor name', 'error'); return; }
+        apiCall('POST', '/vendors', { name, contact: document.getElementById('vendor-contact').value.trim(), phone: document.getElementById('vendor-phone').value.trim(), category: document.getElementById('vendor-category').value.trim() })
+            .then(({ ok }) => { if (ok) { showToast(name + ' added'); ['vendor-name','vendor-contact','vendor-phone','vendor-category'].forEach(id => document.getElementById(id).value = ''); loadVendors(); } else showToast('Failed', 'error'); });
+    });
+
+    // ---- Purchase Orders ----
+    function loadPurchaseOrders() {
+        apiCall('GET', '/purchase-orders').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.purchaseOrders || data || [];
+            renderList('po-list', items, (po) =>
+                '<div style="padding:12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong>PO-' + (po.id || po._id || '').toString().slice(-6) + '</strong> &mdash; ' + (po.vendor || '') +
+                '<div style="font-size:0.8rem;color:var(--text-dim);">Status: ' + (po.status || 'draft') + '</div></div>' +
+                '<div style="display:flex;gap:6px;">' +
+                (po.status === 'draft' ? '<button class="btn-save" style="padding:4px 10px;font-size:0.75rem;" onclick="approvePO(\'' + (po.id || po._id || '') + '\')">Approve</button>' : '') +
+                (po.status === 'approved' ? '<button class="btn-save" style="padding:4px 10px;font-size:0.75rem;" onclick="orderPO(\'' + (po.id || po._id || '') + '\')">Order</button>' : '') +
+                (po.status === 'ordered' ? '<button class="btn-save" style="padding:4px 10px;font-size:0.75rem;" onclick="receivePO(\'' + (po.id || po._id || '') + '\')">Receive</button>' : '') +
+                '<button class="btn-danger" style="padding:4px 10px;font-size:0.75rem;" onclick="cancelPO(\'' + (po.id || po._id || '') + '\')">Cancel</button>' +
+                '</div></div>'
+            );
+        }).catch(() => {});
+    }
+    window.approvePO = function(id) { apiCall('POST', '/purchase-orders/' + id + '/approve').then(({ ok }) => { if (ok) { showToast('PO approved'); loadPurchaseOrders(); } }); };
+    window.orderPO = function(id) { apiCall('POST', '/purchase-orders/' + id + '/order').then(({ ok }) => { if (ok) { showToast('PO ordered'); loadPurchaseOrders(); } }); };
+    window.receivePO = function(id) { apiCall('POST', '/purchase-orders/' + id + '/receive').then(({ ok }) => { if (ok) { showToast('PO received'); loadPurchaseOrders(); loadInventory(); } }); };
+    window.cancelPO = function(id) { apiCall('POST', '/purchase-orders/' + id + '/cancel').then(({ ok }) => { if (ok) { showToast('PO cancelled'); loadPurchaseOrders(); } }); };
+    document.getElementById('btn-create-po').addEventListener('click', () => {
+        const vendor = document.getElementById('po-vendor').value;
+        if (!vendor) { showToast('Select a vendor', 'error'); return; }
+        let items = [];
+        try { items = JSON.parse(document.getElementById('po-items').value || '[]'); } catch(e) { showToast('Invalid JSON', 'error'); return; }
+        apiCall('POST', '/purchase-orders', { vendor, items, notes: document.getElementById('po-notes').value.trim() })
+            .then(({ ok }) => { if (ok) { showToast('PO created'); document.getElementById('po-items').value = ''; document.getElementById('po-notes').value = ''; loadPurchaseOrders(); } else showToast('Failed', 'error'); });
+    });
+
+    // ---- Happy Hour ----
+    function loadHappyHour() {
+        apiCall('GET', '/happy-hour').then(({ ok, data }) => {
+            if (!ok) return;
+            const hh = data || {};
+            document.getElementById('hh-enabled').checked = hh.enabled !== false;
+            const rules = hh.rules || [];
+            renderList('hh-rules-list', rules, (r) =>
+                '<div style="padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<span>' + (r.startTime || '') + ' - ' + (r.endTime || '') + ' &bull; ' + (r.discount || 0) + '% off &bull; ' + (r.days || '') + '</span>' +
+                '<button class="btn-danger" style="padding:4px 10px;font-size:0.75rem;" onclick="deleteHHRule(\'' + (r.id || r._id || '') + '\')">Delete</button></div>'
+            );
+        }).catch(() => {});
+    }
+    document.getElementById('hh-enabled').addEventListener('change', function() {
+        apiCall('PUT', '/happy-hour/toggle', { enabled: this.checked }).then(({ ok }) => { if (ok) showToast('Happy hour ' + (this.checked ? 'enabled' : 'disabled')); });
+    });
+    window.deleteHHRule = function(id) { apiCall('DELETE', '/happy-hour/rules/' + id).then(({ ok }) => { if (ok) { showToast('Rule deleted'); loadHappyHour(); } }); };
+    document.getElementById('btn-add-hh-rule').addEventListener('click', () => {
+        apiCall('POST', '/happy-hour/rules', {
+            startTime: document.getElementById('hh-start').value, endTime: document.getElementById('hh-end').value,
+            discount: parseFloat(document.getElementById('hh-discount').value) || 20, days: document.getElementById('hh-days').value.trim()
+        }).then(({ ok }) => { if (ok) { showToast('Rule added'); loadHappyHour(); } else showToast('Failed', 'error'); });
+    });
+
+    // ---- Promo Codes ----
+    function loadPromoCodes() {
+        apiCall('GET', '/promo-codes').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.promoCodes || data || [];
+            renderList('promo-list', items, (p) =>
+                '<div style="padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong style="font-family:monospace;letter-spacing:1px;">' + (p.code || '') + '</strong><div style="font-size:0.8rem;color:var(--text-dim);">' +
+                (p.type || '') + ': ' + (p.value || 0) + (p.type === 'percent' ? '%' : '$') + (p.minAmount ? ' (min $' + p.minAmount + ')' : '') + ' &bull; ' + (p.description || '') + '</div></div>' +
+                '<span style="font-size:0.8rem;color:' + (p.active !== false ? 'var(--success)' : 'var(--danger)') + ';">' + (p.active !== false ? 'Active' : 'Inactive') + '</span></div>'
+            );
+        }).catch(() => {});
+    }
+    document.getElementById('btn-add-promo').addEventListener('click', () => {
+        const code = document.getElementById('promo-code').value.trim().toUpperCase();
+        if (!code) { showToast('Enter a promo code', 'error'); return; }
+        apiCall('POST', '/promo-codes', { code, type: document.getElementById('promo-type').value, value: parseFloat(document.getElementById('promo-value').value) || 0,
+            minAmount: parseFloat(document.getElementById('promo-min').value) || 0, description: document.getElementById('promo-desc').value.trim(), active: true })
+            .then(({ ok }) => { if (ok) { showToast(code + ' created'); ['promo-code','promo-value','promo-desc'].forEach(id => document.getElementById(id).value = ''); loadPromoCodes(); } else showToast('Failed', 'error'); });
+    });
+
+    // ---- Delivery Integrations ----
+    function loadDeliveryIntegrations() {
+        apiCall('GET', '/delivery-integrations').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.integrations || data || [];
+            renderList('delivery-list', items, (d) =>
+                '<div style="padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong>' + (d.provider || '') + '</strong><div style="font-size:0.8rem;color:var(--text-dim);">' + (d.webhookUrl || 'No webhook') + '</div></div>' +
+                '<div style="display:flex;gap:6px;">' +
+                '<button class="btn-save" style="padding:4px 10px;font-size:0.75rem;" onclick="testDelivery(\'' + (d.id || d._id || '') + '\')">Test</button>' +
+                '<button class="btn-danger" style="padding:4px 10px;font-size:0.75rem;" onclick="deleteDelivery(\'' + (d.id || d._id || '') + '\')">Remove</button></div></div>'
+            );
+        }).catch(() => {});
+    }
+    window.testDelivery = function(id) { apiCall('POST', '/delivery-integrations/' + id + '/test').then(({ ok }) => showToast(ok ? 'Connection OK' : 'Test failed', ok ? 'success' : 'error')); };
+    window.deleteDelivery = function(id) { apiCall('DELETE', '/delivery-integrations/' + id).then(({ ok }) => { if (ok) { showToast('Removed'); loadDeliveryIntegrations(); } }); };
+    document.getElementById('btn-add-delivery').addEventListener('click', () => {
+        const provider = document.getElementById('delivery-provider').value;
+        apiCall('POST', '/delivery-integrations', { provider, apiKey: document.getElementById('delivery-apikey').value, webhookUrl: document.getElementById('delivery-webhook').value.trim() })
+            .then(({ ok }) => { if (ok) { showToast(provider + ' added'); document.getElementById('delivery-apikey').value = ''; document.getElementById('delivery-webhook').value = ''; loadDeliveryIntegrations(); } else showToast('Failed', 'error'); });
+    });
+
+    // ---- Webhooks ----
+    function loadWebhooks() {
+        apiCall('GET', '/webhooks').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.webhooks || data || [];
+            renderList('webhooks-list', items, (w) =>
+                '<div style="padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong>' + (w.event || '') + '</strong><div style="font-size:0.8rem;color:var(--text-dim);word-break:break-all;">' + (w.url || '') + '</div></div>' +
+                '<button class="btn-danger" style="padding:4px 10px;font-size:0.75rem;" onclick="deleteWebhook(\'' + (w.id || w._id || '') + '\')">Delete</button></div>'
+            );
+        }).catch(() => {});
+    }
+    window.deleteWebhook = function(id) { apiCall('DELETE', '/webhooks/' + id).then(({ ok }) => { if (ok) { showToast('Deleted'); loadWebhooks(); } }); };
+    document.getElementById('btn-add-webhook').addEventListener('click', () => {
+        const url = document.getElementById('webhook-url').value.trim();
+        if (!url) { showToast('Enter webhook URL', 'error'); return; }
+        apiCall('POST', '/webhooks', { event: document.getElementById('webhook-event').value, url })
+            .then(({ ok }) => { if (ok) { showToast('Webhook added'); document.getElementById('webhook-url').value = ''; loadWebhooks(); } else showToast('Failed', 'error'); });
+    });
+
+    // ---- Email Campaigns ----
+    function loadEmailCampaigns() {
+        apiCall('GET', '/email-campaigns').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.campaigns || data || [];
+            renderList('campaign-list', items, (c) =>
+                '<div style="padding:12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong>' + (c.name || '') + '</strong><div style="font-size:0.8rem;color:var(--text-dim);">' + (c.subject || '') + ' &bull; Status: ' + (c.status || 'draft') + '</div></div>' +
+                '<div style="display:flex;gap:6px;">' +
+                (c.status !== 'sent' ? '<button class="btn-save" style="padding:4px 10px;font-size:0.75rem;" onclick="sendCampaign(\'' + (c.id || c._id || '') + '\')">Send</button>' : '<span style="color:var(--success);font-size:0.8rem;">Sent</span>') +
+                '</div></div>'
+            );
+        }).catch(() => {});
+    }
+    window.sendCampaign = function(id) {
+        if (!confirm('Send this campaign?')) return;
+        apiCall('POST', '/email-campaigns/' + id + '/send').then(({ ok }) => { if (ok) { showToast('Campaign sent'); loadEmailCampaigns(); } else showToast('Failed', 'error'); });
+    };
+    document.getElementById('btn-create-campaign').addEventListener('click', () => {
+        const name = document.getElementById('campaign-name').value.trim();
+        if (!name) { showToast('Enter campaign name', 'error'); return; }
+        apiCall('POST', '/email-campaigns', { name, subject: document.getElementById('campaign-subject').value.trim(), body: document.getElementById('campaign-body').value.trim() })
+            .then(({ ok }) => { if (ok) { showToast('Campaign created'); ['campaign-name','campaign-subject','campaign-body'].forEach(id => document.getElementById(id).value = ''); loadEmailCampaigns(); } else showToast('Failed', 'error'); });
+    });
+
+    // ---- Hardware / Printers ----
+    function loadHardware() {
+        apiCall('GET', '/hardware/printers').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.printers || data || [];
+            renderList('printers-list', items, (p) =>
+                '<div style="padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong>' + (p.name || '') + '</strong><span style="font-size:0.8rem;color:var(--text-dim);margin-left:12px;">' + (p.ip || p.ipAddress || '') + '</span></div>' +
+                '<span style="font-size:0.75rem;color:' + (p.status === 'online' ? 'var(--success)' : 'var(--text-muted)') + ';">' + (p.status || 'unknown') + '</span></div>'
+            );
+        }).catch(() => {});
+        apiCall('GET', '/hardware/kds-displays').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.displays || data || [];
+            renderList('kds-list', items, (d) =>
+                '<div style="padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong>' + (d.name || '') + '</strong><span style="font-size:0.8rem;color:var(--text-dim);margin-left:12px;">Station: ' + (d.station || '') + '</span></div>' +
+                '<span style="font-size:0.75rem;color:var(--success);">Active</span></div>'
+            );
+        }).catch(() => {});
+    }
+    document.getElementById('btn-add-printer').addEventListener('click', () => {
+        const name = document.getElementById('printer-name').value.trim();
+        const ip = document.getElementById('printer-ip').value.trim();
+        if (!name) { showToast('Enter printer name', 'error'); return; }
+        apiCall('POST', '/hardware/printers', { name, ipAddress: ip }).then(({ ok }) => {
+            if (ok) { showToast(name + ' added'); document.getElementById('printer-name').value = ''; document.getElementById('printer-ip').value = ''; loadHardware(); }
+            else showToast('Failed', 'error');
+        });
+    });
+    document.getElementById('btn-add-kds').addEventListener('click', () => {
+        const name = document.getElementById('kds-name').value.trim();
+        const station = document.getElementById('kds-station').value;
+        if (!name) { showToast('Enter display name', 'error'); return; }
+        apiCall('POST', '/hardware/kds-displays', { name, station }).then(({ ok }) => {
+            if (ok) { showToast(name + ' added'); document.getElementById('kds-name').value = ''; loadHardware(); }
+            else showToast('Failed', 'error');
+        });
+    });
+
+    // ---- Security & Compliance ----
+    function loadSecurity() {
+        apiCall('GET', '/security/encryption-status').then(({ ok, data }) => {
+            if (!ok) return;
+            document.getElementById('encryption-status').innerHTML = (data.enabled ? '<span style="color:var(--success);">Enabled</span>' : '<span style="color:var(--danger);">Disabled</span>') +
+                (data.algorithm ? ' &bull; ' + data.algorithm : '') + (data.lastRotated ? '<br>Last rotated: ' + new Date(data.lastRotated).toLocaleDateString() : '');
+        }).catch(() => { document.getElementById('encryption-status').textContent = 'Unable to load'; });
+        apiCall('GET', '/compliance/pci-saq').then(({ ok, data }) => {
+            if (!ok) return;
+            const saq = data.saq || data || {};
+            document.getElementById('pci-status').innerHTML = saq.compliant ? '<span style="color:var(--success);">Compliant</span>' : '<span style="color:var(--warning);">Review Needed</span>';
+            const questions = saq.questions || [];
+            document.getElementById('pci-saq-body').innerHTML = questions.length > 0 ? questions.map((q, i) =>
+                '<div style="padding:8px 0;border-bottom:1px solid var(--border-light);font-size:0.85rem;"><strong>Q' + (i+1) + ':</strong> ' + (q.question || q.text || '') +
+                '<span style="float:right;color:' + (q.answer === 'yes' ? 'var(--success)' : 'var(--danger)') + ';">' + (q.answer || 'N/A') + '</span></div>'
+            ).join('') : '<p style="color:var(--text-muted);">No SAQ data available</p>';
+        }).catch(() => {});
+    }
+    document.getElementById('btn-setup-2fa').addEventListener('click', () => {
+        apiCall('POST', '/auth/2fa/setup').then(({ ok, data }) => {
+            if (ok) showToast('2FA setup initiated. ' + (data.message || 'Check your authenticator app.'));
+            else showToast('Failed to setup 2FA', 'error');
+        });
+    });
+    document.getElementById('btn-rotate-key').addEventListener('click', () => {
+        if (!confirm('Rotate encryption key? This may temporarily affect system performance.')) return;
+        apiCall('POST', '/security/rotate-key').then(({ ok }) => { if (ok) { showToast('Key rotated'); loadSecurity(); } else showToast('Failed', 'error'); });
+    });
+
+    // ---- Backups ----
+    function loadBackups() {
+        apiCall('GET', '/backups').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.backups || data || [];
+            renderList('backups-list', items, (b) =>
+                '<div style="padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong>' + (b.name || 'Backup ' + (b.id || b._id || '').toString().slice(-6)) + '</strong><div style="font-size:0.8rem;color:var(--text-dim);">' +
+                new Date(b.createdAt || b.timestamp || Date.now()).toLocaleString() + ' &bull; ' + (b.size || 'Unknown size') + '</div></div>' +
+                '<button class="btn-save" style="padding:4px 10px;font-size:0.75rem;" onclick="restoreBackup(\'' + (b.id || b._id || '') + '\')">Restore</button></div>'
+            );
+        }).catch(() => {});
+        apiCall('GET', '/backups/schedule').then(({ ok, data }) => {
+            if (!ok) return;
+            const s = data.schedule || data || {};
+            document.getElementById('backup-schedule').innerHTML = '<div style="font-size:0.85rem;">' +
+                '<strong>Frequency:</strong> ' + (s.frequency || 'Daily') + '<br>' +
+                '<strong>Time:</strong> ' + (s.time || '02:00') + '<br>' +
+                '<strong>Retention:</strong> ' + (s.retention || '30 days') + '</div>';
+        }).catch(() => {});
+    }
+    window.restoreBackup = function(id) {
+        if (!confirm('Restore this backup? Current data will be overwritten.')) return;
+        apiCall('POST', '/backups/' + id + '/restore').then(({ ok }) => showToast(ok ? 'Backup restored' : 'Restore failed', ok ? 'success' : 'error'));
+    };
+    document.getElementById('btn-create-backup').addEventListener('click', () => {
+        apiCall('POST', '/backups').then(({ ok }) => { if (ok) { showToast('Backup created'); loadBackups(); } else showToast('Failed', 'error'); });
+    });
+    document.getElementById('btn-batch-settle').addEventListener('click', () => {
+        if (!confirm('Settle all pending payment batches?')) return;
+        apiCall('POST', '/payments/batch/settle').then(({ ok, data }) => showToast(ok ? 'Batch settled: ' + (data.message || 'OK') : 'Settlement failed', ok ? 'success' : 'error'));
+    });
+
+    // ---- Locations ----
+    function loadLocations() {
+        apiCall('GET', '/locations').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.locations || data || [];
+            renderList('locations-list', items, (l) =>
+                '<div style="padding:12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong>' + (l.name || '') + '</strong><div style="font-size:0.8rem;color:var(--text-dim);">' + (l.address || '') + ' &bull; ' + (l.phone || '') + ' &bull; Mgr: ' + (l.manager || '') + '</div></div>' +
+                '<button class="btn-danger" style="padding:4px 10px;font-size:0.75rem;" onclick="deleteLocation(\'' + (l.id || l._id || '') + '\')">Delete</button></div>'
+            );
+        }).catch(() => {});
+    }
+    window.deleteLocation = function(id) { apiCall('DELETE', '/locations/' + id).then(({ ok }) => { if (ok) { showToast('Deleted'); loadLocations(); } }); };
+    document.getElementById('btn-add-location').addEventListener('click', () => {
+        const name = document.getElementById('location-name').value.trim();
+        if (!name) { showToast('Enter location name', 'error'); return; }
+        apiCall('POST', '/locations', { name, address: document.getElementById('location-address').value.trim(), phone: document.getElementById('location-phone').value.trim(), manager: document.getElementById('location-manager').value.trim() })
+            .then(({ ok }) => { if (ok) { showToast(name + ' added'); ['location-name','location-address','location-phone','location-manager'].forEach(id => document.getElementById(id).value = ''); loadLocations(); } else showToast('Failed', 'error'); });
+    });
+
+    // ---- Branding ----
+    function loadBranding() {
+        apiCall('GET', '/branding').then(({ ok, data }) => {
+            if (!ok) return;
+            const b = data.branding || data || {};
+            document.getElementById('branding-name').value = b.name || '';
+            document.getElementById('branding-color').value = b.primaryColor || '#0071e3';
+            document.getElementById('branding-logo').value = b.logoUrl || '';
+            document.getElementById('branding-tagline').value = b.tagline || '';
+            document.getElementById('branding-current').innerHTML = '<div style="display:flex;align-items:center;gap:12px;">' +
+                (b.logoUrl ? '<img src="' + b.logoUrl + '" style="width:48px;height:48px;border-radius:8px;object-fit:cover;" alt="Logo">' : '') +
+                '<div><strong>' + (b.name || 'Not set') + '</strong><div style="font-size:0.8rem;color:var(--text-dim);">' + (b.tagline || '') + '</div></div>' +
+                '<div style="width:24px;height:24px;border-radius:50%;background:' + (b.primaryColor || '#0071e3') + ';margin-left:auto;"></div></div>';
+        }).catch(() => {});
+    }
+    document.getElementById('btn-save-branding').addEventListener('click', () => {
+        apiCall('PUT', '/branding', { name: document.getElementById('branding-name').value.trim(), primaryColor: document.getElementById('branding-color').value,
+            logoUrl: document.getElementById('branding-logo').value.trim(), tagline: document.getElementById('branding-tagline').value.trim() })
+            .then(({ ok }) => { if (ok) { showToast('Branding saved'); loadBranding(); } else showToast('Failed', 'error'); });
+    });
+
+    // ---- Feature Toggles ----
+    function loadFeatureToggles() {
+        apiCall('GET', '/feature-toggles').then(({ ok, data }) => {
+            if (!ok) return;
+            const toggles = data.toggles || data || {};
+            const el = document.getElementById('toggles-list');
+            const keys = Object.keys(toggles);
+            if (keys.length === 0) { el.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:16px;">No feature toggles configured</p>'; return; }
+            el.innerHTML = keys.map(key =>
+                '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;">' +
+                '<span style="font-weight:600;">' + key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) + '</span>' +
+                '<label class="switch"><input type="checkbox" class="toggle-switch" data-key="' + key + '"' + (toggles[key] ? ' checked' : '') + '><span class="slider"></span></label></div>'
+            ).join('');
+        }).catch(() => {});
+    }
+    document.getElementById('btn-save-toggles').addEventListener('click', () => {
+        const toggles = {};
+        document.querySelectorAll('.toggle-switch').forEach(sw => { toggles[sw.dataset.key] = sw.checked; });
+        apiCall('PUT', '/feature-toggles', toggles).then(({ ok }) => showToast(ok ? 'Toggles saved' : 'Failed', ok ? 'success' : 'error'));
+    });
+
+    // ---- Plugins ----
+    function loadPlugins() {
+        apiCall('GET', '/plugins').then(({ ok, data }) => {
+            if (!ok) return;
+            const items = data.plugins || data || [];
+            renderList('plugins-list', items, (p) =>
+                '<div style="padding:12px;background:var(--bg);border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong>' + (p.name || '') + '</strong><span style="font-size:0.8rem;color:var(--text-dim);margin-left:8px;">v' + (p.version || '1.0.0') + '</span>' +
+                '<div style="font-size:0.8rem;color:var(--text-dim);">' + (p.description || '') + '</div></div>' +
+                '<button class="btn-danger" style="padding:4px 10px;font-size:0.75rem;" onclick="deletePlugin(\'' + (p.id || p._id || '') + '\')">Uninstall</button></div>'
+            );
+        }).catch(() => {});
+    }
+    window.deletePlugin = function(id) {
+        if (!confirm('Uninstall this plugin?')) return;
+        apiCall('DELETE', '/plugins/' + id).then(({ ok }) => { if (ok) { showToast('Uninstalled'); loadPlugins(); } });
+    };
+    document.getElementById('btn-install-plugin').addEventListener('click', () => {
+        const name = document.getElementById('plugin-name').value.trim();
+        if (!name) { showToast('Enter plugin name', 'error'); return; }
+        apiCall('POST', '/plugins', { name, version: document.getElementById('plugin-version').value.trim() || '1.0.0' })
+            .then(({ ok }) => { if (ok) { showToast(name + ' installed'); document.getElementById('plugin-name').value = ''; document.getElementById('plugin-version').value = ''; loadPlugins(); } else showToast('Failed', 'error'); });
+    });
+
+    // ---- Load All Panels When Navigating ----
+    const panelLoaders = {
+        'inventory': loadInventory, 'recipes': loadRecipes, 'vendors': loadVendors,
+        'purchase-orders': loadPurchaseOrders, 'happy-hour': loadHappyHour,
+        'promo-codes': loadPromoCodes, 'delivery': loadDeliveryIntegrations,
+        'webhooks': loadWebhooks, 'email-campaigns': loadEmailCampaigns,
+        'hardware': loadHardware, 'security': loadSecurity, 'backups': loadBackups,
+        'locations': loadLocations, 'branding': loadBranding,
+        'feature-toggles': loadFeatureToggles, 'plugins': loadPlugins
+    };
+
+    // Hook into navigation to lazy-load panel data
+    document.querySelectorAll('.nav-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const panel = btn.dataset.panel;
+            if (panelLoaders[panel]) panelLoaders[panel]();
+        });
+    });
+
+    // Load initial dashboard data
+    try { loadInventory(); } catch(e) {}
     </script>
 </body>
 </html>

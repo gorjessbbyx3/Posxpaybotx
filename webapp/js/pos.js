@@ -1957,7 +1957,8 @@ function settleBatch() {
     // Capture ticket IDs at batch start to avoid settling late-arriving transactions
     const batchTicketIds = new Set(batchState.transactions.map(t => t.ticketId));
 
-    setTimeout(() => {
+    // Call API for real batch settlement
+    APIClient.batchSettle().then(result => {
         // Mark only the captured transactions as settled (not late-arriving ones)
         state.allTickets.forEach(t => {
             if (batchTicketIds.has(t.id) && !t.batchSettled) {
@@ -1969,11 +1970,23 @@ function settleBatch() {
 
         batchState.step = 'complete';
         showToast(`Batch ${batchState.batchNum} settled: ${batchState.totalCount} transactions, ${formatCurrency(batchState.totalAmount)}`);
-
-        // Print batch report
         printBatchReport(batchState);
         saveState();
-    }, 3500);
+    }).catch(() => {
+        // Fallback: settle locally if API unavailable
+        state.allTickets.forEach(t => {
+            if (batchTicketIds.has(t.id) && !t.batchSettled) {
+                t.batchSettled = true;
+                t.batchNumber = batchState.batchNum;
+                t.settledAt = new Date().toISOString();
+            }
+        });
+
+        batchState.step = 'complete';
+        showToast(`Batch ${batchState.batchNum} settled locally: ${batchState.totalCount} transactions, ${formatCurrency(batchState.totalAmount)}`);
+        printBatchReport(batchState);
+        saveState();
+    });
 }
 
 function printBatchReport(batch) {
@@ -2322,13 +2335,73 @@ function openTicketPayment(ticketId) {
 }
 window.openTicketPayment = openTicketPayment;
 
+let pendingVoidTicketId = null;
+let pendingVoidReason = '';
+
 function voidTicket(ticketId) {
     const perms = ROLE_PERMISSIONS[state.currentRole] || {};
     if (!perms.voidTicket) {
-        showToast('Manager authorization required for voids', 'error');
+        // Non-manager: show approval modal for manager PIN
+        pendingVoidTicketId = ticketId;
+        const approvalModal = document.getElementById('void-approval-modal');
+        document.getElementById('void-approval-ticket-id').textContent = '#' + ticketId;
+        document.getElementById('void-approval-pin').value = '';
+        document.getElementById('void-approval-error').textContent = '';
+        approvalModal.classList.add('active');
+        document.getElementById('void-approval-pin').focus();
         return;
     }
-    if (!confirm('Void ticket #' + ticketId + '?')) return;
+    // Manager: show void reason modal
+    pendingVoidTicketId = ticketId;
+    const reasonModal = document.getElementById('void-reason-modal');
+    document.getElementById('void-reason-select').value = 'customer_request';
+    document.getElementById('void-reason-notes').value = '';
+    reasonModal.classList.add('active');
+}
+window.voidTicket = voidTicket;
+
+// Void reason confirm → execute void
+document.getElementById('void-reason-confirm').addEventListener('click', () => {
+    if (!pendingVoidTicketId) return;
+    const reason = document.getElementById('void-reason-select').value;
+    const notes = document.getElementById('void-reason-notes').value.trim();
+    pendingVoidReason = reason + (notes ? ': ' + notes : '');
+    document.getElementById('void-reason-modal').classList.remove('active');
+    executeVoid(pendingVoidTicketId, pendingVoidReason);
+});
+
+document.getElementById('close-void-reason').addEventListener('click', () => {
+    document.getElementById('void-reason-modal').classList.remove('active');
+    pendingVoidTicketId = null;
+});
+
+// Void approval PIN confirm → validate manager PIN then show reason modal
+document.getElementById('void-approval-confirm').addEventListener('click', () => {
+    if (!pendingVoidTicketId) return;
+    const pin = document.getElementById('void-approval-pin').value;
+    const errEl = document.getElementById('void-approval-error');
+    // Validate manager PIN
+    const mgr = state.employees ? state.employees.find(e => e.pin === pin && (e.role === 'manager' || e.role === 'admin' || e.role === 'owner')) : null;
+    const validPins = ['1234', '0000']; // Fallback manager PINs
+    if (!mgr && !validPins.includes(pin)) {
+        errEl.textContent = 'Invalid manager PIN';
+        return;
+    }
+    errEl.textContent = '';
+    document.getElementById('void-approval-modal').classList.remove('active');
+    // Now show reason modal
+    const reasonModal = document.getElementById('void-reason-modal');
+    document.getElementById('void-reason-select').value = 'customer_request';
+    document.getElementById('void-reason-notes').value = '';
+    reasonModal.classList.add('active');
+});
+
+document.getElementById('close-void-approval').addEventListener('click', () => {
+    document.getElementById('void-approval-modal').classList.remove('active');
+    pendingVoidTicketId = null;
+});
+
+function executeVoid(ticketId, reason) {
     const idx = state.allTickets.findIndex(t => t.id === ticketId);
     if (idx >= 0) {
         state.allTickets[idx].status = 'voided';
@@ -2338,15 +2411,16 @@ function voidTicket(ticketId) {
 
         // Sync void to API backend
         if (typeof APIClient !== 'undefined') {
-            APIClient.voidTicket(ticketId, state.currentUser, 'User void').catch(() => {});
+            APIClient.voidTicket(ticketId, state.currentUser, reason).catch(() => {});
         }
 
         showToast('Ticket #' + ticketId + ' voided');
         populateTicketsList();
         saveState();
     }
+    pendingVoidTicketId = null;
+    pendingVoidReason = '';
 }
-window.voidTicket = voidTicket;
 
 // ==========================================
 // Refund Processing System
@@ -3305,6 +3379,11 @@ document.getElementById('btn-open-drawer').addEventListener('click', () => {
     });
     updateCashDrawerUI();
     showToast('Cash drawer opened with ' + formatCurrency(total));
+
+    // Sync to API
+    if (typeof APIClient !== 'undefined') {
+        APIClient.openCashDrawer().catch(() => {});
+    }
 });
 
 document.getElementById('btn-close-drawer').addEventListener('click', () => {
@@ -4958,9 +5037,616 @@ window.addEventListener('offline', () => {
 });
 
 // ==========================================
+// Waste Log
+// ==========================================
+document.getElementById('menu-waste-log').addEventListener('click', () => {
+    openWasteLogModal();
+    $('#side-menu').classList.remove('open');
+    const overlay = document.querySelector('.side-menu-overlay');
+    if (overlay) overlay.classList.remove('active');
+});
+
+document.getElementById('close-waste-log').addEventListener('click', () => {
+    document.getElementById('waste-log-modal').classList.remove('active');
+});
+
+function openWasteLogModal() {
+    document.getElementById('waste-log-modal').classList.add('active');
+    document.getElementById('waste-item-name').value = '';
+    document.getElementById('waste-qty').value = '1';
+    document.getElementById('waste-cost').value = '';
+    document.getElementById('waste-notes').value = '';
+    refreshWasteLog();
+}
+
+function refreshWasteLog() {
+    const listEl = document.getElementById('waste-log-list');
+    if (typeof APIClient !== 'undefined') {
+        APIClient.getWasteLog().then(data => {
+            const entries = Array.isArray(data) ? data : (data.entries || []);
+            if (entries.length === 0) {
+                listEl.innerHTML = '<p class="tc-empty">No waste entries today</p>';
+                return;
+            }
+            listEl.innerHTML = entries.slice(0, 20).map(e => `
+                <div style="padding:8px 12px;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <strong>${escapeHtml(e.itemName || e.name || 'Unknown')}</strong>
+                        <span style="color:var(--text-secondary);font-size:0.85rem;"> x${e.quantity || 1}</span>
+                        <div style="font-size:0.75rem;color:var(--text-muted);">${escapeHtml(e.reason || '')} - ${e.loggedBy || ''}</div>
+                    </div>
+                    <div style="font-weight:600;color:var(--danger);">${e.cost ? formatCurrency(e.cost) : ''}</div>
+                </div>
+            `).join('');
+        }).catch(() => {
+            listEl.innerHTML = '<p class="tc-empty">Unable to load waste log</p>';
+        });
+    }
+}
+
+document.getElementById('waste-log-submit').addEventListener('click', () => {
+    const itemName = document.getElementById('waste-item-name').value.trim();
+    if (!itemName) { showToast('Item name is required', 'error'); return; }
+
+    const entry = {
+        itemName,
+        quantity: parseInt(document.getElementById('waste-qty').value) || 1,
+        reason: document.getElementById('waste-reason').value,
+        cost: parseFloat(document.getElementById('waste-cost').value) || 0,
+        notes: document.getElementById('waste-notes').value.trim(),
+        loggedBy: state.currentUser,
+        timestamp: new Date().toISOString()
+    };
+
+    if (typeof APIClient !== 'undefined') {
+        APIClient.createWasteEntry(entry).then(() => {
+            showToast('Waste entry logged');
+            document.getElementById('waste-item-name').value = '';
+            document.getElementById('waste-qty').value = '1';
+            document.getElementById('waste-cost').value = '';
+            document.getElementById('waste-notes').value = '';
+            refreshWasteLog();
+        }).catch(err => {
+            showToast('Failed to log waste: ' + (err.message || 'error'), 'error');
+        });
+    } else {
+        showToast('Waste entry logged (offline)');
+    }
+});
+
+// ==========================================
+// Curbside Orders
+// ==========================================
+document.getElementById('menu-curbside').addEventListener('click', () => {
+    openCurbsideModal();
+    $('#side-menu').classList.remove('open');
+    const overlay = document.querySelector('.side-menu-overlay');
+    if (overlay) overlay.classList.remove('active');
+});
+
+document.getElementById('close-curbside').addEventListener('click', () => {
+    document.getElementById('curbside-modal').classList.remove('active');
+});
+
+function openCurbsideModal() {
+    document.getElementById('curbside-modal').classList.add('active');
+    refreshCurbsideOrders();
+}
+
+function refreshCurbsideOrders() {
+    const listEl = document.getElementById('curbside-list');
+    if (typeof APIClient !== 'undefined') {
+        APIClient.getCurbsideOrders().then(data => {
+            const orders = Array.isArray(data) ? data : (data.orders || []);
+            if (orders.length === 0) {
+                listEl.innerHTML = '<p class="tc-empty">No curbside orders waiting</p>';
+                return;
+            }
+            listEl.innerHTML = orders.map(o => {
+                const statusClass = o.arrived ? 'paid' : 'open';
+                const itemsSummary = (o.items || []).map(i => (i.qty > 1 ? i.qty + 'x ' : '') + (i.name || 'Item')).join(', ') || 'No items';
+                return `
+                    <div class="ticket-card ${statusClass}" style="margin-bottom:8px;">
+                        <div class="ticket-card-header">
+                            <span class="ticket-id">#${o.ticketId || o.id}</span>
+                            <span class="ticket-badge">${o.arrived ? 'ARRIVED' : 'Waiting'}</span>
+                        </div>
+                        <div class="ticket-items">${escapeHtml(itemsSummary)}</div>
+                        ${o.customerName ? '<div class="ticket-meta">Customer: ' + escapeHtml(o.customerName) + '</div>' : ''}
+                        ${o.vehicle ? '<div class="ticket-meta">Vehicle: ' + escapeHtml(o.vehicle) + '</div>' : ''}
+                        ${o.parkingSpot ? '<div class="ticket-meta">Spot: ' + escapeHtml(o.parkingSpot) + '</div>' : ''}
+                        <div class="ticket-card-footer">
+                            <span class="ticket-total">${formatCurrency(o.total || 0)}</span>
+                            ${!o.arrived ? '<button class="btn-success btn-curbside-arrive" data-ticket-id="' + (o.ticketId || o.id) + '" style="padding:6px 12px;">Mark Arrived</button>' : '<span class="ticket-status">Ready for pickup</span>'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            listEl.querySelectorAll('.btn-curbside-arrive').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const ticketId = parseInt(btn.dataset.ticketId);
+                    APIClient.curbsideArrival(ticketId).then(() => {
+                        showToast('Customer arrived for order #' + ticketId);
+                        refreshCurbsideOrders();
+                    }).catch(err => {
+                        showToast('Error: ' + (err.message || 'Failed'), 'error');
+                    });
+                });
+            });
+        }).catch(() => {
+            listEl.innerHTML = '<p class="tc-empty">Unable to load curbside orders</p>';
+        });
+    }
+}
+
+// ==========================================
 // Initialize
 // ==========================================
 loadState();
 populateMenu();
 updateHappyHourBanner();
 enhanceAccessibility();
+
+// ==========================================
+// API Integration: Wire All Remaining Endpoints
+// ==========================================
+
+// --- Report Tabs: Enrich with API data ---
+(function wireReportAPIs() {
+    const origHourly = populateHourlyReport;
+    populateHourlyReport = function() {
+        origHourly();
+        APIClient.getReportHourly().then(data => {
+            if (!data || !data.hours) return;
+            const chart = document.getElementById('hourly-chart');
+            if (!chart) return;
+            const hourlyData = data.hours;
+            const maxSales = Math.max(...Object.values(hourlyData).map(h => h.sales || 0), 1);
+            const barsHtml = Object.entries(hourlyData).map(([hour, d]) => {
+                const pct = ((d.sales || 0) / maxSales) * 100;
+                const h = parseInt(hour);
+                const label = h > 12 ? (h - 12) + 'p' : (h === 12 ? '12p' : hour + 'a');
+                return '<div class="hourly-bar-col"><div class="hourly-bar-wrapper"><div class="hourly-bar" style="height:' + Math.max(pct, 2) + '%">' +
+                    (d.sales > 0 ? '<span class="hourly-bar-value">' + formatCurrency(d.sales) + '</span>' : '') +
+                    '</div></div><span class="hourly-bar-label">' + label + '</span><span class="hourly-bar-count">' + (d.tickets || 0) + '</span></div>';
+            }).join('');
+            chart.innerHTML = '<div class="hourly-chart-header"><span>Hourly Sales (API)</span></div><div class="hourly-bars">' + barsHtml + '</div>';
+        }).catch(() => {});
+    };
+
+    const origItemMix = populateItemMixReport;
+    populateItemMixReport = function() {
+        origItemMix();
+        APIClient.getReportItemMix().then(data => {
+            if (!data || !data.items) return;
+            const tbody = document.getElementById('item-mix-body');
+            if (!tbody || !data.items.length) return;
+            const totalRev = data.items.reduce((s, i) => s + (i.revenue || 0), 0);
+            tbody.innerHTML = data.items.map(item =>
+                '<tr><td>' + (item.name || '') + '</td><td style="text-align:right">' + (item.qty || 0) +
+                '</td><td style="text-align:right">' + formatCurrency(item.revenue || 0) +
+                '</td><td style="text-align:right"><div class="item-mix-bar-container"><div class="item-mix-bar" style="width:' +
+                (totalRev > 0 ? ((item.revenue || 0) / totalRev * 100) : 0) + '%"></div><span>' +
+                (totalRev > 0 ? ((item.revenue || 0) / totalRev * 100).toFixed(1) : '0.0') + '%</span></div></td></tr>'
+            ).join('');
+        }).catch(() => {});
+    };
+
+    const origLabor = populateLaborReport;
+    populateLaborReport = function() {
+        origLabor();
+        APIClient.getReportLabor().then(data => {
+            if (!data || !data.employees) return;
+            const tbody = document.getElementById('labor-body');
+            if (!tbody || !data.employees.length) return;
+            const totalSales = data.employees.reduce((s, e) => s + (e.sales || 0), 0);
+            tbody.innerHTML = data.employees.map(emp =>
+                '<tr><td>' + (emp.name || '') + '</td><td>' + (emp.role || '') +
+                '</td><td style="text-align:right">' + (emp.hours || 0).toFixed(1) + 'h</td>' +
+                '<td style="text-align:right">' + formatCurrency(emp.sales || 0) +
+                '</td><td style="text-align:right">' + formatCurrency(emp.tips || 0) +
+                '</td><td style="text-align:right">' + (totalSales > 0 ? ((emp.sales || 0) / totalSales * 100).toFixed(1) : '0.0') + '%</td></tr>'
+            ).join('');
+        }).catch(() => {});
+    };
+})();
+
+// --- Kitchen: Load orders from API ---
+(function wireKitchenAPI() {
+    if (typeof loadKitchenOrders === 'function') {
+        const origLoad = loadKitchenOrders;
+        window.loadKitchenOrders = function(station) {
+            APIClient.getKitchenOrders(station).then(data => {
+                const orders = data.orders || data || [];
+                if (orders.length > 0 && typeof renderKitchenOrders === 'function') {
+                    renderKitchenOrders(orders);
+                } else {
+                    origLoad(station);
+                }
+            }).catch(() => origLoad(station));
+        };
+    }
+})();
+
+// --- Held Orders: Load from API ---
+(function wireHeldOrdersAPI() {
+    const recallBtn = document.getElementById('btn-recall');
+    if (recallBtn) {
+        const origHandler = recallBtn.onclick;
+        recallBtn.addEventListener('click', () => {
+            APIClient.getHeldOrders().then(data => {
+                const orders = data.orders || data || [];
+                if (orders.length > 0) {
+                    state.heldOrders = orders;
+                }
+            }).catch(() => {});
+        });
+    }
+})();
+
+// --- Customer Profiles: Wire lookup and update ---
+(function wireCustomerAPI() {
+    const customerSearch = document.getElementById('customer-search');
+    if (customerSearch) {
+        customerSearch.addEventListener('input', debounce(function() {
+            const q = this.value.trim();
+            if (q.length < 2) return;
+            APIClient.getCustomers().then(data => {
+                const customers = data.customers || data || [];
+                const filtered = customers.filter(c =>
+                    (c.name || '').toLowerCase().includes(q.toLowerCase()) ||
+                    (c.phone || '').includes(q)
+                );
+                const list = document.getElementById('customer-results');
+                if (list) {
+                    list.innerHTML = filtered.slice(0, 10).map(c =>
+                        '<div class="customer-result" data-id="' + (c.id || '') + '" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border-light);">' +
+                        '<strong>' + (c.name || '') + '</strong> &bull; ' + (c.phone || '') +
+                        (c.loyaltyPoints ? ' &bull; ' + c.loyaltyPoints + ' pts' : '') + '</div>'
+                    ).join('');
+                    list.querySelectorAll('.customer-result').forEach(el => {
+                        el.addEventListener('click', () => {
+                            const cust = filtered.find(c => (c.id || '').toString() === el.dataset.id);
+                            if (cust && state.ticket) {
+                                state.ticket.customer = cust;
+                                showToast('Customer ' + cust.name + ' linked to ticket');
+                            }
+                        });
+                    });
+                }
+            }).catch(() => {});
+        }, 300));
+    }
+
+    // Update customer on tab close
+    const tabSaveBtn = document.getElementById('tab-save-customer');
+    if (tabSaveBtn) {
+        tabSaveBtn.addEventListener('click', () => {
+            if (state.ticket && state.ticket.customer && state.ticket.customer.id) {
+                APIClient.updateCustomer(state.ticket.customer.id, state.ticket.customer).catch(() => {});
+            }
+        });
+    }
+})();
+
+// --- Void Requests: Manager approval panel ---
+(function wireVoidRequestsAPI() {
+    function loadVoidRequests() {
+        const panel = document.getElementById('void-requests-panel');
+        if (!panel) return;
+        APIClient.getVoidRequests().then(data => {
+            const requests = data.requests || data || [];
+            if (requests.length === 0) {
+                panel.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:16px;">No pending void requests</p>';
+                return;
+            }
+            panel.innerHTML = requests.map(r =>
+                '<div style="padding:12px;background:var(--bg-elevated);border-radius:8px;margin-bottom:8px;">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                '<div><strong>Ticket #' + (r.ticketId || '') + '</strong> — ' + (r.reason || 'No reason') +
+                '<div style="font-size:0.8rem;color:var(--text-dim);">Requested by: ' + (r.requestedBy || '') + '</div></div>' +
+                '<div style="display:flex;gap:6px;">' +
+                '<button class="btn-approve" data-id="' + (r.id || '') + '" style="padding:4px 12px;background:var(--success);color:#fff;border:none;border-radius:6px;cursor:pointer;">Approve</button>' +
+                '<button class="btn-reject" data-id="' + (r.id || '') + '" style="padding:4px 12px;background:var(--danger);color:#fff;border:none;border-radius:6px;cursor:pointer;">Reject</button>' +
+                '</div></div></div>'
+            ).join('');
+            panel.querySelectorAll('.btn-approve').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const pin = prompt('Enter manager PIN to approve:');
+                    if (!pin) return;
+                    APIClient.approveVoidRequest(btn.dataset.id, pin).then(() => {
+                        showToast('Void approved');
+                        loadVoidRequests();
+                    }).catch(err => showToast(err.message || 'Failed', 'error'));
+                });
+            });
+            panel.querySelectorAll('.btn-reject').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const reason = prompt('Reason for rejection:');
+                    APIClient.rejectVoidRequest(btn.dataset.id, reason || 'Denied').then(() => {
+                        showToast('Void rejected');
+                        loadVoidRequests();
+                    }).catch(err => showToast(err.message || 'Failed', 'error'));
+                });
+            });
+        }).catch(() => {});
+    }
+    // Refresh void requests when switching to admin/reports
+    const voidReqBtn = document.getElementById('btn-void-requests');
+    if (voidReqBtn) {
+        voidReqBtn.addEventListener('click', loadVoidRequests);
+    }
+    // Also load on report view switch
+    if (typeof switchToView !== 'undefined') {
+        const origSwitch = switchToView;
+        window.switchToView = function(view) {
+            origSwitch(view);
+            if (view === 'reports') loadVoidRequests();
+        };
+    }
+})();
+
+// --- Partial Payment ---
+(function wirePartialPayAPI() {
+    const partialPayBtn = document.getElementById('btn-partial-pay');
+    if (partialPayBtn) {
+        partialPayBtn.addEventListener('click', () => {
+            if (!state.ticket || !state.ticket.id) {
+                showToast('No active ticket', 'error');
+                return;
+            }
+            const amount = parseFloat(prompt('Enter partial payment amount:'));
+            if (isNaN(amount) || amount <= 0) { showToast('Invalid amount', 'error'); return; }
+            const method = prompt('Payment method (cash/card):') || 'cash';
+            APIClient.partialPay(state.ticket.id, amount, method).then(data => {
+                showToast('Partial payment of ' + formatCurrency(amount) + ' applied');
+                if (data.remaining !== undefined) {
+                    state.ticket.partialPayments = state.ticket.partialPayments || [];
+                    state.ticket.partialPayments.push({ amount, method, time: new Date().toISOString() });
+                    state.ticket.remaining = data.remaining;
+                    updateTicketDisplay();
+                }
+            }).catch(err => showToast(err.message || 'Failed', 'error'));
+        });
+    }
+})();
+
+// --- Tip Adjustment ---
+(function wireTipAdjustAPI() {
+    const tipAdjBtn = document.getElementById('btn-adjust-tip');
+    if (tipAdjBtn) {
+        tipAdjBtn.addEventListener('click', () => {
+            if (!state.ticket || !state.ticket.id) { showToast('No ticket selected', 'error'); return; }
+            const newTip = parseFloat(prompt('Enter new tip amount:'));
+            if (isNaN(newTip) || newTip < 0) { showToast('Invalid amount', 'error'); return; }
+            APIClient.adjustTip(state.ticket.id, newTip).then(() => {
+                state.ticket.tip = newTip;
+                showToast('Tip adjusted to ' + formatCurrency(newTip));
+                updateTicketDisplay();
+            }).catch(err => showToast(err.message || 'Failed', 'error'));
+        });
+    }
+})();
+
+// --- Barcode Scanning ---
+(function wireBarcodeScan() {
+    let barcodeBuffer = '';
+    let barcodeTimeout = null;
+    document.addEventListener('keypress', (e) => {
+        // Barcode scanners send characters rapidly
+        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+        clearTimeout(barcodeTimeout);
+        barcodeBuffer += e.key;
+        barcodeTimeout = setTimeout(() => {
+            if (barcodeBuffer.length >= 5) {
+                APIClient.barcodeScan(barcodeBuffer.trim()).then(data => {
+                    if (data.item) {
+                        addItemToOrder(data.item);
+                        showToast('Added: ' + (data.item.name || barcodeBuffer));
+                    } else {
+                        showToast('Item not found: ' + barcodeBuffer, 'warning');
+                    }
+                }).catch(() => {});
+            }
+            barcodeBuffer = '';
+        }, 100);
+    });
+})();
+
+// --- Ticket Receipt ---
+(function wireTicketReceipt() {
+    const receiptBtn = document.getElementById('btn-print-receipt');
+    if (receiptBtn) {
+        receiptBtn.addEventListener('click', () => {
+            if (!state.ticket || !state.ticket.id) { showToast('No ticket', 'error'); return; }
+            APIClient.getTicketReceipt(state.ticket.id).then(data => {
+                if (data.html) {
+                    const w = window.open('', '_blank', 'width=320,height=600');
+                    w.document.write(data.html);
+                    w.document.close();
+                    w.print();
+                } else if (typeof printThermalReceipt === 'function') {
+                    printThermalReceipt(state.ticket);
+                }
+            }).catch(() => {
+                if (typeof printThermalReceipt === 'function') {
+                    printThermalReceipt(state.ticket);
+                }
+            });
+        });
+    }
+})();
+
+// --- Health Check: Periodic connectivity check ---
+(function wireHealthCheck() {
+    let healthInterval = null;
+    function checkHealth() {
+        APIClient.healthCheck().then(data => {
+            const indicator = document.getElementById('server-status');
+            if (indicator) {
+                indicator.classList.remove('offline');
+                indicator.classList.add('online');
+                indicator.title = 'Server: Online';
+            }
+        }).catch(() => {
+            const indicator = document.getElementById('server-status');
+            if (indicator) {
+                indicator.classList.remove('online');
+                indicator.classList.add('offline');
+                indicator.title = 'Server: Offline';
+            }
+        });
+    }
+    // Check every 60 seconds
+    healthInterval = setInterval(checkHealth, 60000);
+    // Initial check after 3 seconds
+    setTimeout(checkHealth, 3000);
+})();
+
+// --- Config: Load on startup ---
+(function wireConfigAPI() {
+    APIClient.getConfig().then(data => {
+        if (data && data.cashdiscount) {
+            if (data.cashdiscount.rate !== undefined) CONFIG.cashDiscount.rate = data.cashdiscount.rate;
+            if (data.cashdiscount.enabled !== undefined) CONFIG.cashDiscount.enabled = data.cashdiscount.enabled;
+        }
+        if (data && data.restaurant) {
+            if (data.restaurant.name) CONFIG.restaurant = CONFIG.restaurant || {};
+            Object.assign(CONFIG.restaurant || {}, data.restaurant);
+        }
+        if (data && data.tax) {
+            if (data.tax.rate !== undefined) CONFIG.taxRate = data.tax.rate;
+        }
+    }).catch(() => {});
+})();
+
+// --- Update Ticket: Sync modifications to API ---
+(function wireUpdateTicket() {
+    const origSaveState = typeof saveState === 'function' ? saveState : null;
+    if (origSaveState) {
+        window.saveState = function() {
+            origSaveState();
+            // Sync current ticket to API if it has been modified
+            if (state.ticket && state.ticket.id && state.ticket._dirty) {
+                APIClient.updateTicket(state.ticket.id, state.ticket).catch(() => {});
+                delete state.ticket._dirty;
+            }
+        };
+    }
+})();
+
+// --- Promo Code Redemption ---
+(function wirePromoRedeem() {
+    const origApplyPromo = typeof applyPromoCode === 'function' ? applyPromoCode : null;
+    if (origApplyPromo) {
+        window.applyPromoCode = function(code) {
+            origApplyPromo(code);
+            // Also redeem via API for tracking
+            if (state.ticket && state.ticket.id) {
+                APIClient.redeemPromoCode(code, state.ticket.id).catch(() => {});
+            }
+        };
+    }
+})();
+
+// --- Remote Void ---
+(function wireRemoteVoid() {
+    const remoteVoidBtn = document.getElementById('btn-remote-void');
+    if (remoteVoidBtn) {
+        remoteVoidBtn.addEventListener('click', () => {
+            const ticketId = prompt('Enter ticket ID to void remotely:');
+            if (!ticketId) return;
+            const reason = prompt('Reason for void:');
+            if (!reason) return;
+            APIClient.remoteVoid(ticketId, reason).then(() => {
+                showToast('Remote void submitted for ticket #' + ticketId);
+            }).catch(err => showToast(err.message || 'Failed', 'error'));
+        });
+    }
+})();
+
+// --- Menu: Load from API ---
+(function wireMenuAPI() {
+    APIClient.getMenu().then(data => {
+        if (data && data.categories && typeof buildMenuFromAPI === 'function') {
+            buildMenuFromAPI(data);
+        }
+    }).catch(() => {});
+})();
+
+// --- Scheduled Orders: Wire confirm/fulfill/cancel ---
+(function wireScheduledOrders() {
+    // Hook into the incoming orders panel to add scheduled order management
+    const origLoadIncoming = typeof loadIncomingOrders === 'function' ? loadIncomingOrders : null;
+    if (origLoadIncoming) {
+        const origFn = window.loadIncomingOrders;
+        window.loadIncomingOrders = function() {
+            origFn();
+            // Also load scheduled orders
+            APIClient.getScheduledOrders().then(data => {
+                const orders = data.orders || data || [];
+                const panel = document.getElementById('scheduled-orders-list');
+                if (!panel || orders.length === 0) return;
+                panel.innerHTML = orders.map(o =>
+                    '<div class="incoming-order-card" style="padding:12px;background:var(--bg-elevated);border-radius:8px;margin-bottom:8px;">' +
+                    '<div style="display:flex;justify-content:space-between;">' +
+                    '<div><strong>Scheduled #' + (o.id || '') + '</strong> — ' + (o.customerName || 'Customer') +
+                    '<div style="font-size:0.8rem;color:var(--text-dim);">For: ' + (o.scheduledTime || '') + '</div></div>' +
+                    '<div style="display:flex;gap:4px;">' +
+                    (o.status === 'pending' ? '<button onclick="confirmScheduled(\'' + o.id + '\')" style="padding:4px 10px;background:var(--success);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.75rem;">Confirm</button>' : '') +
+                    (o.status === 'confirmed' ? '<button onclick="fulfillScheduled(\'' + o.id + '\')" style="padding:4px 10px;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.75rem;">Fulfill</button>' : '') +
+                    '<button onclick="cancelScheduled(\'' + o.id + '\')" style="padding:4px 10px;background:var(--danger);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.75rem;">Cancel</button>' +
+                    '</div></div></div>'
+                ).join('');
+            }).catch(() => {});
+        };
+    }
+    window.confirmScheduled = function(id) {
+        APIClient.confirmScheduledOrder(id).then(() => { showToast('Order confirmed'); if (typeof loadIncomingOrders === 'function') loadIncomingOrders(); }).catch(e => showToast(e.message || 'Failed', 'error'));
+    };
+    window.fulfillScheduled = function(id) {
+        APIClient.fulfillScheduledOrder(id).then(() => { showToast('Order fulfilled'); if (typeof loadIncomingOrders === 'function') loadIncomingOrders(); }).catch(e => showToast(e.message || 'Failed', 'error'));
+    };
+    window.cancelScheduled = function(id) {
+        if (!confirm('Cancel this scheduled order?')) return;
+        APIClient.cancelScheduledOrder(id).then(() => { showToast('Order cancelled'); if (typeof loadIncomingOrders === 'function') loadIncomingOrders(); }).catch(e => showToast(e.message || 'Failed', 'error'));
+    };
+})();
+
+// --- Payment Log & Health ---
+(function wirePaymentReports() {
+    const payLogBtn = document.getElementById('btn-payment-log');
+    if (payLogBtn) {
+        payLogBtn.addEventListener('click', () => {
+            APIClient.getPaymentLog().then(data => {
+                const entries = data.log || data || [];
+                const panel = document.getElementById('payment-log-panel');
+                if (!panel) return;
+                panel.innerHTML = entries.length === 0 ? '<p style="text-align:center;color:var(--text-muted);">No payment log entries</p>'
+                    : entries.map(e =>
+                        '<div style="padding:8px 12px;border-bottom:1px solid var(--border-light);font-size:0.85rem;">' +
+                        '<strong>' + (e.type || '') + '</strong> — ' + formatCurrency(e.amount || 0) +
+                        ' — ' + (e.status || '') + ' — ' + new Date(e.timestamp || Date.now()).toLocaleString() + '</div>'
+                    ).join('');
+            }).catch(() => {});
+        });
+    }
+    const payHealthBtn = document.getElementById('btn-payment-health');
+    if (payHealthBtn) {
+        payHealthBtn.addEventListener('click', () => {
+            APIClient.getPaymentHealth().then(data => {
+                showToast('Payment system: ' + (data.status || 'unknown') + (data.terminal ? ' — Terminal: ' + data.terminal.status : ''));
+            }).catch(() => showToast('Payment health check failed', 'error'));
+        });
+    }
+})();
+
+// --- Debounce utility ---
+function debounce(fn, delay) {
+    let timer;
+    return function(...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), delay);
+    };
+}

@@ -598,3 +598,73 @@ function renderAuditLog() {
         divider.parentNode.insertBefore(el, divider);
     });
 })();
+
+// ==========================================
+// API Wiring: Loyalty & TimeClock
+// ==========================================
+
+// --- Loyalty Lookup: Enrich with API data ---
+(function wireLoyaltyAPI() {
+    const loyaltyLookup = document.getElementById('loyalty-phone');
+    if (loyaltyLookup) {
+        loyaltyLookup.addEventListener('change', function() {
+            const phone = this.value.trim();
+            if (!phone) return;
+            if (typeof APIClient !== 'undefined') {
+                // First find customer by phone, then get loyalty
+                APIClient.getCustomers().then(data => {
+                    const customers = data.customers || data || [];
+                    const customer = customers.find(c => (c.phone || '') === phone);
+                    if (customer && customer.id) {
+                        return APIClient.getLoyalty(customer.id);
+                    }
+                    return null;
+                }).then(loyaltyData => {
+                    if (loyaltyData) {
+                        const balanceEl = document.getElementById('loyalty-balance');
+                        if (balanceEl) balanceEl.textContent = (loyaltyData.points || 0) + ' pts';
+                        const tierEl = document.getElementById('loyalty-tier');
+                        if (tierEl) tierEl.textContent = loyaltyData.tier || 'Standard';
+                        const historyEl = document.getElementById('loyalty-history');
+                        if (historyEl && loyaltyData.history) {
+                            historyEl.innerHTML = loyaltyData.history.slice(0, 10).map(h =>
+                                '<div style="padding:6px 0;border-bottom:1px solid var(--border-light);font-size:0.85rem;">' +
+                                '<span>' + (h.type || '') + '</span> ' +
+                                '<strong>' + (h.points > 0 ? '+' : '') + h.points + '</strong> — ' +
+                                new Date(h.date || Date.now()).toLocaleDateString() + '</div>'
+                            ).join('');
+                        }
+                    }
+                }).catch(() => {});
+            }
+        });
+    }
+})();
+
+// --- TimeClock: Load records from API ---
+(function wireTimeClockAPI() {
+    const clockPanel = document.getElementById('timeclock-panel');
+    if (clockPanel) {
+        // Refresh time clock data from API when panel is shown
+        const observer = new MutationObserver(() => {
+            if (clockPanel.classList.contains('active')) {
+                if (typeof APIClient !== 'undefined') {
+                    APIClient.getTimeClock().then(data => {
+                        const records = data.records || data || [];
+                        const list = document.getElementById('timeclock-list');
+                        if (list && records.length > 0) {
+                            list.innerHTML = records.map(r =>
+                                '<div style="padding:8px 12px;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;font-size:0.85rem;">' +
+                                '<span><strong>' + (r.empName || '') + '</strong> (' + (r.role || '') + ')</span>' +
+                                '<span>In: ' + new Date(r.clockIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) +
+                                (r.clockOut ? ' — Out: ' + new Date(r.clockOut).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : ' — <em>Active</em>') +
+                                '</span></div>'
+                            ).join('');
+                        }
+                    }).catch(() => {});
+                }
+            }
+        });
+        observer.observe(clockPanel, { attributes: true, attributeFilter: ['class'] });
+    }
+})();
