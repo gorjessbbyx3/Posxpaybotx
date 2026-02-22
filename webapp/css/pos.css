@@ -4533,3 +4533,246 @@ textarea:focus-visible {
 }
 
 .af-name { font-weight: 500; }
+
+/* ==========================================
+   Health Status Indicator
+   ========================================== */
+.server-status {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 8px;
+    cursor: pointer;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ccc;
+    transition: background 0.3s;
+}
+
+.status-dot.online { background: #34c759; box-shadow: 0 0 6px rgba(52,199,89,0.5); }
+.status-dot.offline { background: #ff3b30; box-shadow: 0 0 6px rgba(255,59,48,0.5); }
+.status-dot.degraded { background: #ff9500; box-shadow: 0 0 6px rgba(255,149,0,0.5); }
+
+/* ==========================================
+   Partial Payment Display
+   ========================================== */
+.partial-paid-row span,
+.remaining-row span {
+    font-size: 0.85rem;
+}
+
+.partial-paid-row {
+    color: var(--success, #34c759);
+}
+
+/* ==========================================
+   Void Request Manager
+   ========================================== */
+.void-request-card {
+    padding: 12px;
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.void-request-card .void-info {
+    flex: 1;
+}
+
+.void-request-card .void-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.void-request-card .void-status {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+}
+
+.void-status.pending { background: #fff3cd; color: #856404; }
+.void-status.approved { background: #d4edda; color: #155724; }
+.void-status.rejected { background: #f8d7da; color: #721c24; }
+
+/* ==========================================
+   Order Cards (QR, Online, Delivery)
+   ========================================== */
+.order-card {
+    padding: 12px;
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+
+.order-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.order-card-header .order-id {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.order-card-header .order-source {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    font-weight: 500;
+}
+
+.order-card .order-items {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.order-card .order-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.order-card .order-total {
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+.order-card .order-time {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.btn-accept-order {
+    padding: 6px 14px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+
+.btn-accept-order:hover {
+    filter: brightness(1.1);
+}
+
+/* ==========================================
+   Gift Card Detail
+   ========================================== */
+.gc-active { color: #34c759; }
+.gc-inactive { color: #ff3b30; }
+
+/* ==========================================
+   Stock Alert Badge Animation
+   ========================================== */
+@keyframes pulse-alert {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+}
+
+#stock-alert-badge {
+    animation: pulse-alert 2s infinite;
+}
+
+/* ==========================================
+   Diagnostics Grid
+   ========================================== */
+.diag-card {
+    transition: border-color 0.3s;
+}
+
+.diag-card.ok { border-color: #34c759; }
+.diag-card.error { border-color: #ff3b30; }
+.diag-card.warning { border-color: #ff9500; }
+
+/* ==========================================
+   Heatmap Cells
+   ========================================== */
+.heatmap-cell {
+    aspect-ratio: 1;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: white;
+    position: relative;
+}
+
+.heatmap-cell .heatmap-hour {
+    font-size: 0.55rem;
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    opacity: 0.8;
+}
+
+.heatmap-label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 4px 0;
+}
+
+/* ==========================================
+   Barcode Indicator Animation
+   ========================================== */
+@keyframes barcode-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+#barcode-indicator {
+    animation: barcode-pulse 0.8s infinite;
+}
+
+/* ==========================================
+   Live Feed Entries
+   ========================================== */
+.feed-entry {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-light);
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.feed-time {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    min-width: 60px;
+}
+
+.feed-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    flex-shrink: 0;
+}
+
+.feed-icon.sale { background: #d4edda; color: #155724; }
+.feed-icon.void { background: #f8d7da; color: #721c24; }
+.feed-icon.clock { background: #cce5ff; color: #004085; }
+.feed-icon.alert { background: #fff3cd; color: #856404; }
+
+.feed-text {
+    flex: 1;
+}

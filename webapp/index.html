@@ -119,6 +119,9 @@
                 <button class="tab-btn" data-view="orders">Orders</button>
             </div>
             <div class="top-bar-right">
+                <span class="server-status" id="server-status" title="Server: checking...">
+                    <span class="status-dot" id="status-dot"></span>
+                </span>
                 <span class="clock" id="clock"></span>
                 <button class="icon-btn" id="btn-theme" title="Toggle Dark Mode">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -213,6 +216,14 @@
                         <div class="summary-row total">
                             <span>Total</span>
                             <span id="total-amount">$0.00</span>
+                        </div>
+                        <div class="summary-row partial-paid-row" id="partial-paid-row" style="display:none">
+                            <span>Paid So Far</span>
+                            <span id="partial-paid-amount" class="discount">$0.00</span>
+                        </div>
+                        <div class="summary-row remaining-row" id="remaining-row" style="display:none">
+                            <span><strong>Remaining</strong></span>
+                            <span id="remaining-amount"><strong>$0.00</strong></span>
                         </div>
                         <div class="dual-price-display" id="dual-price-display">
                             <div class="dual-price cash-price">
@@ -355,6 +366,11 @@
                         <button class="report-tab" data-report="items">Item Mix</button>
                         <button class="report-tab" data-report="labor">Labor</button>
                         <button class="report-tab" data-report="refunds">Refunds</button>
+                        <button class="report-tab" data-report="heatmap">Heatmap</button>
+                        <button class="report-tab" data-report="margins">Margins</button>
+                        <button class="report-tab" data-report="payments">Payments</button>
+                        <button class="report-tab" data-report="foodcost">Food Cost</button>
+                        <button class="report-tab" data-report="servers">Servers</button>
                     </div>
                     <div class="reports-date">
                         <input type="date" id="report-date" class="report-date-input">
@@ -451,6 +467,69 @@
                     <div id="refunds-list" class="refunds-list">
                         <p style="color: var(--text-muted); text-align: center; padding: 20px;">No refunds today</p>
                     </div>
+                </div>
+
+                <!-- Hourly Heatmap Report -->
+                <div class="report-panel" id="report-heatmap">
+                    <div id="heatmap-grid" style="display:grid;grid-template-columns:repeat(12,1fr);gap:4px;padding:16px;">
+                        <p class="tc-empty" style="grid-column:1/-1;">Loading heatmap data...</p>
+                    </div>
+                </div>
+
+                <!-- Category Margins Report -->
+                <div class="report-panel" id="report-margins">
+                    <table class="report-table" id="margins-table">
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                <th>Revenue</th>
+                                <th>Cost</th>
+                                <th>Margin</th>
+                                <th>Margin %</th>
+                            </tr>
+                        </thead>
+                        <tbody id="margins-body"></tbody>
+                    </table>
+                </div>
+
+                <!-- Payment Breakdown Report -->
+                <div class="report-panel" id="report-payments">
+                    <div id="payment-breakdown-grid" class="reports-grid">
+                        <p class="tc-empty" style="grid-column:1/-1;">Loading payment data...</p>
+                    </div>
+                </div>
+
+                <!-- Food Cost Report -->
+                <div class="report-panel" id="report-foodcost">
+                    <table class="report-table" id="foodcost-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Portions Sold</th>
+                                <th>Food Cost</th>
+                                <th>Revenue</th>
+                                <th>Cost %</th>
+                            </tr>
+                        </thead>
+                        <tbody id="foodcost-body"></tbody>
+                    </table>
+                </div>
+
+                <!-- Server Performance Report -->
+                <div class="report-panel" id="report-servers">
+                    <table class="report-table" id="servers-table">
+                        <thead>
+                            <tr>
+                                <th>Server</th>
+                                <th>Tickets</th>
+                                <th>Revenue</th>
+                                <th>Avg Ticket</th>
+                                <th>Tips</th>
+                                <th>Tip %</th>
+                            </tr>
+                        </thead>
+                        <tbody id="servers-body"></tbody>
+                    </table>
                 </div>
 
                 <div class="report-actions">
@@ -665,6 +744,62 @@
                     <rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle>
                 </svg>
                 Curbside Orders
+            </div>
+            <div class="side-menu-link" id="menu-qr-orders">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="6" height="6"></rect><rect x="16" y="2" width="6" height="6"></rect><rect x="2" y="16" width="6" height="6"></rect><rect x="16" y="16" width="4" height="4"></rect><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="10" x2="12" y2="14"></line>
+                </svg>
+                QR Orders
+            </div>
+            <div class="side-menu-link" id="menu-online-orders">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                </svg>
+                Online Orders
+            </div>
+            <div class="side-menu-link" id="menu-delivery-orders">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M16 16h6v-6h-4l-2-3H8l-2 3H2v6h6"></path><circle cx="8" cy="19" r="2.5"></circle><circle cx="16" cy="19" r="2.5"></circle>
+                </svg>
+                Delivery Orders
+            </div>
+            <div class="side-menu-divider"></div>
+            <div class="side-menu-link" id="menu-void-manager">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>
+                </svg>
+                Void Requests
+            </div>
+            <div class="side-menu-link" id="menu-giftcard-manager">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="8" width="18" height="12" rx="2"></rect><path d="M12 8V4"></path><path d="M7 8c0-2 1-4 5-4s5 2 5 4"></path>
+                </svg>
+                Gift Cards
+            </div>
+            <div class="side-menu-link" id="menu-saved-payments">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line>
+                </svg>
+                Saved Payments
+            </div>
+            <div class="side-menu-link" id="menu-stock-alerts">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                Stock Alerts
+            </div>
+            <div class="side-menu-divider"></div>
+            <div class="side-menu-link" id="menu-live-feed">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                </svg>
+                Live Feed
+            </div>
+            <div class="side-menu-link" id="menu-diagnostics">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line>
+                </svg>
+                System Diagnostics
             </div>
         </div>
     </div>
@@ -1210,6 +1345,213 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Void Request Manager Modal -->
+    <div id="void-manager-modal" class="modal">
+        <div class="modal-content" style="width:min(600px,95vw);max-height:85vh;">
+            <div class="modal-header">
+                <h3>Void Requests</h3>
+                <button class="modal-close" id="close-void-manager">&times;</button>
+            </div>
+            <div style="padding:16px;">
+                <div class="void-filter-bar" style="display:flex;gap:8px;margin-bottom:12px;">
+                    <button class="action-btn active" data-void-filter="pending">Pending</button>
+                    <button class="action-btn" data-void-filter="approved">Approved</button>
+                    <button class="action-btn" data-void-filter="rejected">Rejected</button>
+                    <button class="action-btn" data-void-filter="all">All</button>
+                </div>
+                <div id="void-request-list" style="max-height:55vh;overflow-y:auto;">
+                    <p class="tc-empty">Loading void requests...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR Orders Modal -->
+    <div id="qr-orders-modal" class="modal">
+        <div class="modal-content" style="width:min(600px,95vw);max-height:85vh;">
+            <div class="modal-header">
+                <h3>QR Code Orders</h3>
+                <button class="modal-close" id="close-qr-orders">&times;</button>
+            </div>
+            <div style="padding:16px;">
+                <div style="display:flex;gap:8px;margin-bottom:12px;">
+                    <button class="action-btn active" data-qr-filter="pending">Pending</button>
+                    <button class="action-btn" data-qr-filter="accepted">Accepted</button>
+                    <button class="action-btn" data-qr-filter="all">All</button>
+                </div>
+                <div id="qr-order-list" style="max-height:55vh;overflow-y:auto;">
+                    <p class="tc-empty">No QR orders</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Online Orders Modal -->
+    <div id="online-orders-modal" class="modal">
+        <div class="modal-content" style="width:min(600px,95vw);max-height:85vh;">
+            <div class="modal-header">
+                <h3>Online Orders</h3>
+                <button class="modal-close" id="close-online-orders">&times;</button>
+            </div>
+            <div style="padding:16px;">
+                <div style="display:flex;gap:8px;margin-bottom:12px;">
+                    <button class="action-btn active" data-online-filter="pending">Pending</button>
+                    <button class="action-btn" data-online-filter="accepted">Accepted</button>
+                    <button class="action-btn" data-online-filter="all">All</button>
+                </div>
+                <div id="online-order-list" style="max-height:55vh;overflow-y:auto;">
+                    <p class="tc-empty">No online orders</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delivery Orders Modal -->
+    <div id="delivery-modal" class="modal">
+        <div class="modal-content" style="width:min(600px,95vw);max-height:85vh;">
+            <div class="modal-header">
+                <h3>Delivery Orders</h3>
+                <button class="modal-close" id="close-delivery">&times;</button>
+            </div>
+            <div style="padding:16px;">
+                <div class="delivery-tabs" style="display:flex;gap:8px;margin-bottom:12px;">
+                    <button class="action-btn active" data-delivery-src="all">All</button>
+                    <button class="action-btn" data-delivery-src="doordash">DoorDash</button>
+                    <button class="action-btn" data-delivery-src="ubereats">UberEats</button>
+                    <button class="action-btn" data-delivery-src="grubhub">GrubHub</button>
+                </div>
+                <div id="delivery-order-list" style="max-height:55vh;overflow-y:auto;">
+                    <p class="tc-empty">No delivery orders</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gift Card Manager Modal -->
+    <div id="giftcard-manager-modal" class="modal">
+        <div class="modal-content" style="width:min(520px,95vw);max-height:85vh;">
+            <div class="modal-header">
+                <h3>Gift Cards</h3>
+                <button class="modal-close" id="close-giftcard-manager">&times;</button>
+            </div>
+            <div style="padding:16px;">
+                <div style="display:flex;gap:8px;margin-bottom:16px;">
+                    <input type="text" id="giftcard-lookup" class="res-input" placeholder="Scan or enter card number..." style="flex:1;">
+                    <button class="btn-confirm" id="giftcard-lookup-btn">Lookup</button>
+                </div>
+                <div id="giftcard-detail" style="display:none;padding:16px;border:1px solid var(--border-light);border-radius:8px;margin-bottom:16px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <span style="font-weight:600;" id="gc-card-number">#0000</span>
+                        <span style="font-size:1.25rem;font-weight:700;color:var(--primary);" id="gc-balance">$0.00</span>
+                    </div>
+                    <div style="font-size:0.85rem;color:var(--text-secondary);" id="gc-status">Active</div>
+                    <div style="display:flex;gap:8px;margin-top:12px;">
+                        <input type="number" id="gc-reload-amount" class="res-input" placeholder="Reload $" min="1" step="0.01" style="flex:1;">
+                        <button class="action-btn" id="gc-reload-btn">Reload</button>
+                        <button class="action-btn" id="gc-charge-btn">Charge</button>
+                    </div>
+                </div>
+                <button class="btn-confirm" id="gc-create-btn" style="width:100%;margin-bottom:12px;">Issue New Gift Card</button>
+                <h4 style="margin-bottom:8px;">Recent Gift Cards</h4>
+                <div id="giftcard-list" style="max-height:200px;overflow-y:auto;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Saved Payments Modal -->
+    <div id="saved-payments-modal" class="modal">
+        <div class="modal-content" style="width:min(500px,95vw);max-height:85vh;">
+            <div class="modal-header">
+                <h3>Saved Payment Methods</h3>
+                <button class="modal-close" id="close-saved-payments">&times;</button>
+            </div>
+            <div style="padding:16px;">
+                <input type="text" id="saved-pay-search" class="res-input" placeholder="Search by customer name or phone..." style="width:100%;margin-bottom:12px;">
+                <div id="saved-payments-list" style="max-height:55vh;overflow-y:auto;">
+                    <p class="tc-empty">No saved payment methods</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Low Stock Alerts Modal -->
+    <div id="stock-alerts-modal" class="modal">
+        <div class="modal-content" style="width:min(520px,95vw);max-height:85vh;">
+            <div class="modal-header">
+                <h3>Low Stock Alerts</h3>
+                <button class="modal-close" id="close-stock-alerts">&times;</button>
+            </div>
+            <div style="padding:16px;">
+                <div id="stock-alert-list" style="max-height:60vh;overflow-y:auto;">
+                    <p class="tc-empty">Loading stock levels...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Feed Modal -->
+    <div id="live-feed-modal" class="modal">
+        <div class="modal-content" style="width:min(600px,95vw);max-height:85vh;">
+            <div class="modal-header">
+                <h3>Live Activity Feed</h3>
+                <button class="modal-close" id="close-live-feed">&times;</button>
+            </div>
+            <div style="padding:16px;">
+                <div id="live-feed-list" style="max-height:60vh;overflow-y:auto;font-size:0.85rem;">
+                    <p class="tc-empty">Loading feed...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Diagnostics Modal -->
+    <div id="diagnostics-modal" class="modal">
+        <div class="modal-content" style="width:min(600px,95vw);max-height:85vh;">
+            <div class="modal-header">
+                <h3>System Diagnostics</h3>
+                <button class="modal-close" id="close-diagnostics">&times;</button>
+            </div>
+            <div style="padding:16px;">
+                <div id="diagnostics-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+                    <div class="diag-card" style="padding:12px;border:1px solid var(--border-light);border-radius:8px;">
+                        <div style="font-size:0.75rem;text-transform:uppercase;color:var(--text-secondary);">API Server</div>
+                        <div style="font-size:1.1rem;font-weight:600;" id="diag-api-status">--</div>
+                    </div>
+                    <div class="diag-card" style="padding:12px;border:1px solid var(--border-light);border-radius:8px;">
+                        <div style="font-size:0.75rem;text-transform:uppercase;color:var(--text-secondary);">Database</div>
+                        <div style="font-size:1.1rem;font-weight:600;" id="diag-db-status">--</div>
+                    </div>
+                    <div class="diag-card" style="padding:12px;border:1px solid var(--border-light);border-radius:8px;">
+                        <div style="font-size:0.75rem;text-transform:uppercase;color:var(--text-secondary);">Payment Gateway</div>
+                        <div style="font-size:1.1rem;font-weight:600;" id="diag-payment-status">--</div>
+                    </div>
+                    <div class="diag-card" style="padding:12px;border:1px solid var(--border-light);border-radius:8px;">
+                        <div style="font-size:0.75rem;text-transform:uppercase;color:var(--text-secondary);">Printer</div>
+                        <div style="font-size:1.1rem;font-weight:600;" id="diag-printer-status">--</div>
+                    </div>
+                </div>
+                <div id="diag-details" style="max-height:30vh;overflow-y:auto;font-size:0.85rem;font-family:monospace;background:var(--bg-secondary);padding:12px;border-radius:8px;">
+                    Loading diagnostics...
+                </div>
+                <div style="display:flex;gap:8px;margin-top:12px;">
+                    <button class="action-btn" id="diag-refresh-btn">Refresh</button>
+                    <button class="action-btn" id="diag-sync-btn">Force Sync</button>
+                    <button class="action-btn" id="diag-flush-btn">Flush Queue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Barcode Scan Indicator -->
+    <div id="barcode-indicator" style="display:none;position:fixed;top:60px;right:16px;padding:8px 16px;background:var(--primary);color:white;border-radius:8px;font-size:0.85rem;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+        <span id="barcode-indicator-text">Scanning...</span>
+    </div>
+
+    <!-- Low Stock Alert Badge (floating) -->
+    <div id="stock-alert-badge" style="display:none;position:fixed;bottom:80px;right:16px;padding:10px 16px;background:#ff3b30;color:white;border-radius:20px;font-size:0.85rem;font-weight:600;cursor:pointer;z-index:9998;box-shadow:0 4px 12px rgba(255,59,48,0.3);">
+        <span id="stock-alert-count">0</span> Low Stock Items
     </div>
 
     <!-- Happy Hour Banner (shown when active) -->
