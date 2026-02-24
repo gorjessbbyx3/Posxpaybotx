@@ -1203,14 +1203,10 @@
 
     // Load all config from API on page open
     function loadConfig() {
-        // First login to get a token for API calls
-        const stored = sessionStorage.getItem('admin-auth');
-        let pin = '';
-        if (stored) {
-            try { pin = JSON.parse(stored).pin || ''; } catch(e) {}
-        }
+        const token = getAuthToken();
+        const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
 
-        fetch('/api/config').then(r => r.json()).then(cfg => {
+        fetch('/api/config', { headers }).then(r => r.json()).then(cfg => {
             // Cash discount
             if (cfg.cashDiscount) {
                 const cd = cfg.cashDiscount;
@@ -2332,6 +2328,9 @@
 
     // ---- Load All Panels When Navigating ----
     const panelLoaders = {
+        'dashboard': loadDashboard, 'cash-discount': loadConfig, 'terminal': loadConfig,
+        'menu': loadMenu, 'tax': loadConfig, 'restaurant': loadConfig, 'receipt': loadConfig,
+        'employees': loadEmployees,
         'inventory': loadInventory, 'recipes': loadRecipes, 'vendors': loadVendors,
         'purchase-orders': loadPurchaseOrders, 'happy-hour': loadHappyHour,
         'promo-codes': loadPromoCodes, 'delivery': loadDeliveryIntegrations,
