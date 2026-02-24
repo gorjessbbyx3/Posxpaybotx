@@ -1093,30 +1093,40 @@
 
     <script>
     // Admin Login Gate - requires management-level PIN
-    (function() {
-        const ADMIN_ROLES = ['owner', 'admin', 'general_manager', 'manager', 'assistant_manager'];
+    const ADMIN_ROLES = ['owner', 'admin', 'general_manager', 'manager', 'assistant_manager'];
+    let _adminAuthed = false;
+
+    (function checkAuth() {
         const stored = sessionStorage.getItem('admin-auth');
         if (stored) {
             try {
                 const auth = JSON.parse(stored);
                 if (auth.role && ADMIN_ROLES.includes(auth.role) && (Date.now() - auth.ts) < 3600000) {
-                    return; // Valid session, continue
+                    _adminAuthed = true;
+                    return;
                 }
             } catch(e) {}
         }
 
-        // Block page content and show login
-        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg);font-family:Inter,sans-serif;">' +
+        // Not authenticated - hide admin content and show login overlay
+        const layout = document.querySelector('.admin-layout');
+        if (layout) layout.style.display = 'none';
+
+        const overlay = document.createElement('div');
+        overlay.id = 'admin-login-overlay';
+        overlay.innerHTML =
+            '<div style="display:flex;align-items:center;justify-content:center;height:calc(100vh - 60px);font-family:Inter,sans-serif;">' +
             '<div style="background:var(--bg-card);padding:32px;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.1);text-align:center;width:340px;">' +
             '<h2 style="margin-bottom:16px;color:var(--text);">Admin Login</h2>' +
             '<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;">Enter management PIN</p>' +
-            '<input type="password" id="admin-pin" maxlength="4" inputmode="numeric" pattern="[0-9]*" style="width:100%;padding:12px;text-align:center;font-size:1.2rem;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;">' +
+            '<input type="password" id="admin-pin" maxlength="4" inputmode="numeric" pattern="[0-9]*" style="width:100%;padding:12px;text-align:center;font-size:1.2rem;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;background:var(--bg-input);color:var(--text);">' +
             '<button id="admin-login-btn" style="width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;">Login</button>' +
             '<p id="admin-login-error" style="color:var(--danger);margin-top:8px;font-size:0.85rem;"></p>' +
             '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border-light);">' +
-            '<a href="demo.html" style="font-size:0.7rem;color:var(--text-muted);text-decoration:none;letter-spacing:0.5px;text-transform:uppercase;opacity:0.7;">Demo Mode &rarr;</a>' +
+            '<button id="admin-demo-btn" style="background:none;border:none;font-size:0.75rem;color:var(--text-muted);cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;opacity:0.7;">Enter Demo Mode &rarr;</button>' +
             '</div>' +
             '</div></div>';
+        document.body.appendChild(overlay);
 
         document.getElementById('admin-login-btn').addEventListener('click', function() {
             const pin = document.getElementById('admin-pin').value;
@@ -1137,7 +1147,7 @@
                 }
             })
             .catch(() => {
-                document.getElementById('admin-login-error').textContent = 'Server unavailable.';
+                document.getElementById('admin-login-error').textContent = 'Server unavailable. Use Demo Mode.';
             });
         });
 
@@ -1145,7 +1155,21 @@
             if (e.key === 'Enter') document.getElementById('admin-login-btn').click();
         });
 
-        throw new Error('Admin auth required'); // Stop further script execution
+        // Demo mode - skip auth, show admin with sample data
+        document.getElementById('admin-demo-btn').addEventListener('click', function() {
+            sessionStorage.setItem('admin-auth', JSON.stringify({ role: 'owner', token: 'demo', ts: Date.now() }));
+            overlay.remove();
+            if (layout) layout.style.display = '';
+            _adminAuthed = true;
+            try { loadConfig(); } catch(e) {}
+            try { loadDashboard(); } catch(e) {}
+        });
+
+        // Auto-focus PIN input
+        setTimeout(function() {
+            const pin = document.getElementById('admin-pin');
+            if (pin) pin.focus();
+        }, 100);
     })();
 
     // Navigation
