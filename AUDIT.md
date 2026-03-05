@@ -15,7 +15,8 @@ The system has a **substantial and well-structured codebase** with 208 API endpo
 | **CRITICAL** | Architecture | Node.js API server missing from Docker deployment |
 | **CRITICAL** | Payments | PaybotX terminal provider `_sendRequest()` throws — no real HTTP client |
 | **CRITICAL** | Data | JSON file store is not production-grade (no concurrent access, no ACID) |
-| **HIGH** | Deployment | Nginx proxies `/api/` to Java port 8080, not Node.js port 3000 |
+| **CRITICAL** | Deployment | Nginx proxies `/api/` to Java port 8080, not Node.js port 3000 |
+| **CRITICAL** | Java Build | `OfflinePaymentQueue.java` has method signature mismatch — won't compile |
 | **HIGH** | Auth | Hardcoded employee PINs in `auth.js` — no admin UI to manage them |
 | **HIGH** | Integration | Java backend and Node.js API are disconnected — two separate systems |
 | **MEDIUM** | Frontend | Several admin panels not wired to API (inventory, recipes, POs, delivery) |
@@ -89,11 +90,21 @@ This routes to the Java backend (port 8080), but the web frontend's API is the E
 
 **Impact**: Complete API routing failure in production deployment.
 
+### 5. Java OfflinePaymentQueue Won't Compile
+
+**File**: `src/com/floreantpos/paybotx/OfflinePaymentQueue.java`, line 178-179
+
+The code calls `processor.chargeAmount(ticket, amount, tip, terminal)` with 4 parameters, but the `CardProcessor` interface (`src/com/floreantpos/ui/views/payment/CardProcessor.java`) only defines `chargeAmount(PosTransaction transaction)`. This is a **compilation error** — `mvn package` will fail.
+
+**Impact**: The Java backend cannot be built. Offline payment recovery is broken.
+
+**Fix needed**: Refactor the call to construct a `PosTransaction` and pass it to `chargeAmount(PosTransaction)`.
+
 ---
 
 ## High Priority Issues
 
-### 5. Hardcoded Employee Database
+### 6. Hardcoded Employee Database
 
 **File**: `webapp/api/auth.js`
 
@@ -101,7 +112,7 @@ Employee PINs and roles are hardcoded in the auth module. While the API has `POS
 
 **Fix needed**: Auth should read employee data from the store (or database), not from a hardcoded array.
 
-### 6. Java Backend and Node.js API Are Disconnected
+### 7. Java Backend and Node.js API Are Disconnected
 
 The system has two independent backends:
 1. **Java** (Hibernate + Derby/MySQL): Full POS with Swing UI, PaybotX integration, cash discount engine
@@ -114,19 +125,19 @@ These don't share data. A ticket created in the web UI doesn't exist in the Java
 - Make Node.js proxy to Java backend APIs, or
 - Use a shared database
 
-### 7. No Real Receipt/Ticket Printing
+### 8. No Real Receipt/Ticket Printing
 
 The system generates HTML receipts in the browser but has no integration with actual receipt printers (ESC/POS protocol, Star, Epson). The hardware printer endpoints (`POST /api/hardware/printers`) store configuration but don't send print jobs.
 
 **Fix needed**: Implement ESC/POS command generation and printer communication (via USB, network, or browser WebUSB API).
 
-### 8. No Real Email Sending
+### 9. No Real Email Sending
 
 **File**: `webapp/api/server.js` — email campaign endpoints
 
 The email campaign and email report endpoints store records but don't actually send emails. No SMTP configuration, no email service integration (SendGrid, SES, etc.).
 
-### 9. Missing HTTPS/TLS Configuration
+### 10. Missing HTTPS/TLS Configuration
 
 **File**: `etc/nginx.conf`
 
@@ -138,11 +149,11 @@ Nginx listens on port 80 only. Port 443 is exposed in `docker-compose.yml` but t
 
 ## Medium Priority Issues
 
-### 10. Kitchen Display Has No Real-Time Push
+### 11. Kitchen Display Has No Real-Time Push
 
 The KDS (`webapp/js/pos-kitchen.js`) renders orders but relies on manual refresh or polling. There's no WebSocket or Server-Sent Events connection for real-time order updates. In a busy kitchen, this means delayed order visibility.
 
-### 11. Several Admin Features Not Wired to UI
+### 12. Several Admin Features Not Wired to UI
 
 The API has full CRUD endpoints for these features, but the admin frontend (`admin.html`) doesn't have UI panels to manage them:
 - **Inventory/ingredient management** — API exists, no admin UI
@@ -155,17 +166,17 @@ The API has full CRUD endpoints for these features, but the admin frontend (`adm
 - **Multi-location management** — API exists, no UI
 - **2FA setup** — API exists, no enrollment UI
 
-### 12. No Webhook Delivery Implementation
+### 13. No Webhook Delivery Implementation
 
 **File**: `webapp/api/server.js`
 
 The webhook system stores webhook registrations and has a `fireWebhook()` function, but it calls `fetch()` which may not be available in all Node.js 18 environments without the `--experimental-fetch` flag. No retry logic, no delivery logging, no failure handling.
 
-### 13. Online/QR Ordering Has No Customer-Facing UI
+### 14. Online/QR Ordering Has No Customer-Facing UI
 
 The API endpoints for online ordering (`POST /api/online-orders`), QR ordering (`POST /api/qr-orders`), and scheduled orders exist and work. But there's no customer-facing HTML page for placing orders. The endpoints are designed to be called by a frontend that doesn't exist yet.
 
-### 14. No Payment Terminal Device Management UI
+### 15. No Payment Terminal Device Management UI
 
 Terminal configuration is done via XML files (`resources/paybotx-terminals.xml`). There's no web UI to add/configure/test payment terminals. The admin panel has a "Terminal Settings" section but it's display-only.
 
@@ -173,29 +184,29 @@ Terminal configuration is done via XML files (`resources/paybotx-terminals.xml`)
 
 ## Low Priority Issues
 
-### 15. Service Worker Cache Strategy May Serve Stale Content
+### 16. Service Worker Cache Strategy May Serve Stale Content
 
 **File**: `webapp/sw.js`
 
 The service worker caches static assets with a "network-first, cache-fallback" strategy, but the cache key is version-based. If the version isn't bumped on deploy, users may get stale JS/CSS.
 
-### 16. No Rate Limiting
+### 17. No Rate Limiting
 
 No rate limiting on any endpoint, including the login endpoint (`POST /api/auth/login`). PIN brute-force is possible since PINs are typically 4 digits (10,000 combinations).
 
-### 17. No Graceful Shutdown
+### 18. No Graceful Shutdown
 
 The Express server doesn't handle SIGTERM/SIGINT for graceful shutdown. In-flight requests and unsaved data could be lost on container restart.
 
-### 18. Missing Docker Healthcheck
+### 19. Missing Docker Healthcheck
 
 `docker-compose.yml` doesn't define healthcheck directives. The `GET /api/health` endpoint exists but isn't used for container orchestration health monitoring.
 
-### 19. No Log Aggregation
+### 20. No Log Aggregation
 
 Application logs go to stdout only. No structured logging, no log levels beyond console.log/warn/error, no integration with logging services.
 
-### 20. No Database Migration Runner for Node.js
+### 21. No Database Migration Runner for Node.js
 
 The `database/migrate.sh` script runs SQL migrations for the Java/Hibernate backend. The Node.js API uses a JSON file store and has no migration concept. If the store schema changes between versions, there's no upgrade path.
 
@@ -220,27 +231,28 @@ Despite the gaps above, the system has strong foundations:
 ## Recommended Fix Priority
 
 ### Phase 1: Make it deployable (Critical)
-1. Add Node.js service to Docker deployment
-2. Fix Nginx routing to proxy to Node.js API
-3. Implement `_sendRequest()` in PaybotX provider (or document InMemoryProvider as demo mode)
-4. Add atomic writes + file locking to JSON store (or connect to MySQL)
+1. Fix `OfflinePaymentQueue.java` method signature so Java backend compiles
+2. Add Node.js service to Docker deployment
+3. Fix Nginx routing to proxy to Node.js API
+4. Implement `_sendRequest()` in PaybotX provider (or document InMemoryProvider as demo mode)
+5. Add atomic writes + file locking to JSON store (or connect to MySQL)
 
 ### Phase 2: Make it production-safe (High)
-5. Move employee data to the store / database
-6. Add HTTPS/TLS to Nginx
-7. Add rate limiting on login endpoint
-8. Implement graceful shutdown
-9. Add Docker healthchecks
+6. Move employee data to the store / database
+7. Add HTTPS/TLS to Nginx
+8. Add rate limiting on login endpoint
+9. Implement graceful shutdown
+10. Add Docker healthchecks
 
 ### Phase 3: Complete the feature set (Medium)
-10. Add WebSocket/SSE for real-time kitchen display updates
-11. Build admin UI panels for inventory, recipes, vendors, POs
-12. Build customer-facing online/QR ordering pages
-13. Implement real email sending (SMTP/SendGrid)
-14. Implement ESC/POS receipt printing
+11. Add WebSocket/SSE for real-time kitchen display updates
+12. Build admin UI panels for inventory, recipes, vendors, POs
+13. Build customer-facing online/QR ordering pages
+14. Implement real email sending (SMTP/SendGrid)
+15. Implement ESC/POS receipt printing
 
 ### Phase 4: Operational maturity (Low)
-15. Structured logging with levels
-16. Store schema versioning/migration
-17. Automated backup scheduling
-18. Monitoring and alerting integration
+16. Structured logging with levels
+17. Store schema versioning/migration
+18. Automated backup scheduling
+19. Monitoring and alerting integration
